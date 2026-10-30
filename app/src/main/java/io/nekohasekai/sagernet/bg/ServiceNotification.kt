@@ -168,7 +168,8 @@ class ServiceNotification(
                 it.setContentTitle(texts.title)
             }
             it.setStyle(NotificationCompat.BigTextStyle().bigText(texts.bigText))
-            it.setContentText(texts.collapsedText)
+            // 恢复 2.9.0 效果：折叠态与展开态一致，默认同时显示「代理」「直连」两行
+            it.setContentText(texts.bigText)
             applyLiveUpdateCapsule(it, service.data.state, currentRegion, directSpeed)
         }
         update()
