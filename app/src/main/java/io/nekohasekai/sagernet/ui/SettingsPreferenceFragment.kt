@@ -231,6 +231,8 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
         tunImplementation?.apply {
             value = io.nekohasekai.sagernet.TunImplementation.SING_TUN.toString()
             isEnabled = false
+            // 修复闪退：XML 中已设置 useSimpleSummaryProvider，需先清除再手动设置摘要
+            summaryProvider = null
             summary = "Sing-Tun (官方最新原生协议栈)"
         }
         val resolveDestination = findPreference<SwitchPreference>(Key.RESOLVE_DESTINATION)!!
