@@ -285,7 +285,7 @@ class AppListActivity : ThemedActivity() {
             R.id.action_preset_foreign_apps -> {
                 runOnDefaultDispatcher {
                     val foreignPackages = setOf(
-                        "org.telegram.messenger", "org.thunderdog.challegram", "com.google.android.youtube",
+                        "com.google.android.youtube",
                         "com.twitter.android", "com.android.chrome", "com.google.android.gms",
                         "com.android.vending", "com.discord", "com.whatsapp", "com.instagram.android",
                         "com.zhiliaoapp.musically", "com.openai.chatgpt", "com.netflix.mediaclient",

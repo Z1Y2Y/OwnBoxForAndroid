@@ -209,7 +209,6 @@ con.medium.reader
 de.apkgrabber
 de.robv.android.xposed.installer
 dk.tacit.android.foldersync.full
-es.rafalense.telegram.themes
 es.rafalense.themes
 flipboard.app
 fm.moon.app
@@ -241,10 +240,6 @@ org.mozilla.firefox
 org.mozilla.firefox_beta
 org.mozilla.focus
 org.schabi.newpipe
-org.telegram.messenger
-org.telegram.multi
-org.telegram.plus
-org.thunderdog.challegram
 org.torproject.android
 org.torproject.torbrowser_alpha
 org.wikipedia
@@ -257,7 +252,6 @@ uk.co.bbc.learningenglish
 com.ted.android
 de.danoeh.antennapod
 com.kiwibrowser.browser
-nekox.messenger
 com.nextcloud.client
 com.aurora.store
 com.aurora.adroid
@@ -265,7 +259,6 @@ chat.simplex.app
 im.vector.app
 network.loki.messenger
 eu.siacs.conversations
-xyz.nextalone.nagram
 de.danoeh.antennapod
 net.programmierecke.radiodroid2
 im.fdx.v2ex

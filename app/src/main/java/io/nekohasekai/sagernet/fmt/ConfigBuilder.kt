@@ -63,29 +63,7 @@ const val TAG_DNS_HOSTS = "dns-hosts"
 
 const val LOCALHOST = "127.0.0.1"
 
-/** Move explicit app routes immediately before a generic fallback route. */
-internal fun prioritizeApplicationRoutesBefore(
-    routeRules: MutableList<Rule>,
-    fallbackRule: Rule,
-) {
-    if (routeRules.none { it === fallbackRule }) return
-
-    val applicationRules = mutableListOf<Rule>()
-    val iterator = routeRules.listIterator()
-    while (iterator.hasNext()) {
-        val rule = iterator.next()
-        if (rule === fallbackRule) continue
-        val options = rule as? Rule_DefaultOptions ?: continue
-        if (options.user_id.isNullOrEmpty() && options.package_name.isNullOrEmpty()) continue
-        applicationRules += rule
-        iterator.remove()
-    }
-
-    val fallbackIndex = routeRules.indexOfFirst { it === fallbackRule }
-    if (fallbackIndex >= 0) routeRules.addAll(fallbackIndex, applicationRules)
-}
-
-// Only types backed by the target sing-box endpoint registry belong here. Keeping this
+// Only types backed by the target sing-box endpoint registry. Keeping this
 // whitelist explicit prevents a user-supplied legacy/custom outbound from being silently
 // reinterpreted as an endpoint.
 private val ENDPOINT_TYPES = setOf("wireguard")
@@ -1799,7 +1777,7 @@ fun buildConfig(
             val directDomains = rawDirectDomains - rawRemoteDomains
             val remoteDomains = rawRemoteDomains
 
-            // 构建内置前置路由规则；DNS 劫持保持最高优先级，应用规则随后优先于 Telegram IP 兜底。
+            // 构建通用内置前置路由规则；DNS 劫持保持最高优先级。
             val topRouteRules = mutableListOf<Rule_DefaultOptions>()
 
             // 1. hijack-dns 拦截入站 DNS 流量进入内置 DNS 引擎（最高优先级，确保 DNS 解析不被后续嗅探/解析规则阻塞干扰）
@@ -1812,21 +1790,6 @@ fun buildConfig(
                 action = "hijack-dns"
             })
 
-            // 1.5. Telegram 官方数据中心（DC 1~5）纯 IP 直连通道（跳过嗅探，直达主代理出站，杜绝 300ms 首包死等与 MTProto 读超时断流）
-            val telegramDcIps = listOf(
-                "91.108.4.0/22",
-                "91.108.8.0/22",
-                "91.108.12.0/22",
-                "91.108.16.0/22",
-                "91.108.56.0/22",
-                "149.154.160.0/20"
-            )
-            val telegramDcFallbackRule = Rule_DefaultOptions().apply {
-                ip_cidr = telegramDcIps
-                outbound = mainProxyTag
-            }
-            topRouteRules.add(telegramDcFallbackRule)
-
             // 2. sing-box 1.13：sniff（嗅探域名以供后续分流规则匹配）
             // 显式指定 timeout = "100ms" 与 sniffer = ["tls", "http", "quic"]，
             // 消除非 TLS 私有二进制流被内核默认阻塞 300ms 造成多路并发文件上传/下载卡死
@@ -1838,7 +1801,7 @@ fun buildConfig(
                 })
             }
 
-            // 3. resolve 动作：仅当用户显式开启“解析目标地址”时执行，绝不对全局连接强插解析，杜绝 Telegram 等直连 IP 发生解析超时断流
+            // 3. resolve 动作仅在用户显式开启“解析目标地址”时执行，不对全局连接强插解析，避免直连 IP 解析超时导致连接中断。
             if (DataStore.resolveDestination) {
                 topRouteRules.add(Rule_DefaultOptions().apply {
                     action = "resolve"
@@ -1898,7 +1861,6 @@ fun buildConfig(
             })
 
             route.rules.addAll(0, topRouteRules)
-            prioritizeApplicationRoutesBefore(route.rules, telegramDcFallbackRule)
 
             if (DataStore.bypassLanInCore) {
                 route.rules.add(Rule_DefaultOptions().apply {

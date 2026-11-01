@@ -47,8 +47,6 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         )
 
         val FOREIGN_APPS = setOf(
-            "org.telegram.messenger",
-            "org.thunderdog.challegram",
             "com.google.android.youtube",
             "com.twitter.android",
             "com.android.chrome",
