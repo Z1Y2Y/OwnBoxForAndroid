@@ -63,6 +63,28 @@ const val TAG_DNS_HOSTS = "dns-hosts"
 
 const val LOCALHOST = "127.0.0.1"
 
+/** Move explicit app routes immediately before a generic fallback route. */
+internal fun prioritizeApplicationRoutesBefore(
+    routeRules: MutableList<Rule>,
+    fallbackRule: Rule,
+) {
+    if (routeRules.none { it === fallbackRule }) return
+
+    val applicationRules = mutableListOf<Rule>()
+    val iterator = routeRules.listIterator()
+    while (iterator.hasNext()) {
+        val rule = iterator.next()
+        if (rule === fallbackRule) continue
+        val options = rule as? Rule_DefaultOptions ?: continue
+        if (options.user_id.isNullOrEmpty() && options.package_name.isNullOrEmpty()) continue
+        applicationRules += rule
+        iterator.remove()
+    }
+
+    val fallbackIndex = routeRules.indexOfFirst { it === fallbackRule }
+    if (fallbackIndex >= 0) routeRules.addAll(fallbackIndex, applicationRules)
+}
+
 // Only types backed by the target sing-box endpoint registry belong here. Keeping this
 // whitelist explicit prevents a user-supplied legacy/custom outbound from being silently
 // reinterpreted as an endpoint.
@@ -1777,7 +1799,7 @@ fun buildConfig(
             val directDomains = rawDirectDomains - rawRemoteDomains
             val remoteDomains = rawRemoteDomains
 
-            // 构建最优先前置路由规则（须位于所有用户规则之前）
+            // 构建内置前置路由规则；DNS 劫持保持最高优先级，应用规则随后优先于 Telegram IP 兜底。
             val topRouteRules = mutableListOf<Rule_DefaultOptions>()
 
             // 1. hijack-dns 拦截入站 DNS 流量进入内置 DNS 引擎（最高优先级，确保 DNS 解析不被后续嗅探/解析规则阻塞干扰）
@@ -1799,10 +1821,11 @@ fun buildConfig(
                 "91.108.56.0/22",
                 "149.154.160.0/20"
             )
-            topRouteRules.add(Rule_DefaultOptions().apply {
+            val telegramDcFallbackRule = Rule_DefaultOptions().apply {
                 ip_cidr = telegramDcIps
                 outbound = mainProxyTag
-            })
+            }
+            topRouteRules.add(telegramDcFallbackRule)
 
             // 2. sing-box 1.13：sniff（嗅探域名以供后续分流规则匹配）
             // 显式指定 timeout = "100ms" 与 sniffer = ["tls", "http", "quic"]，
@@ -1875,6 +1898,7 @@ fun buildConfig(
             })
 
             route.rules.addAll(0, topRouteRules)
+            prioritizeApplicationRoutesBefore(route.rules, telegramDcFallbackRule)
 
             if (DataStore.bypassLanInCore) {
                 route.rules.add(Rule_DefaultOptions().apply {
