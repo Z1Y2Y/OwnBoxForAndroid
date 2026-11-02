@@ -38,42 +38,42 @@
 <table>
   <tr>
     <td width="50%" valign="top">
-      <h3>🚀 多协议连接</h3>
-      <p>以 sing-box 内核为基础，支持多种代理协议与节点配置，覆盖日常连接、节点管理和订阅使用场景。</p>
+      <h3>🚀 原生内核与极速调优</h3>
+      <p>基于官方 sing-box v1.15.0 纯 Go 原生 TUN 栈打造，更低内存与待机功耗；优化并发拨号与 Telegram 直连，消除首次缓冲并保障分流优先生效。</p>
     </td>
     <td width="50%" valign="top">
-      <h3>📡 真实连接测试</h3>
-      <p>提供 TCP Ping、节点延迟测试与连接状态反馈，帮助区分“配置已导入”和“目标网络实际可达”。</p>
+      <h3>📡 真实连接与带宽测试</h3>
+      <p>支持 URL 延迟测试、分组测速与连接状态反馈，主页底部卡片支持全区域轻触即刻重测，按需遵循落地 IP 显示设置。</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <h3>🧭 网络诊断中心</h3>
-      <p>集中检测常见网站、AI 服务与流媒体平台的连通性，支持分类查看及单项重新检测。</p>
+      <p>集中检测常见网站、AI 服务与主流流媒体平台的连通性，支持分类筛选、单项重新检测及出站 IP 详情弹窗。</p>
     </td>
     <td width="50%" valign="top">
-      <h3>🎯 分应用路由</h3>
-      <p>按应用组织代理流量，配合路由与 DNS 设置，让网络行为更容易管理与排查。</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>☁️ 备份与同步</h3>
-      <p>支持 WebDAV 备份与同步配置，便于在更换设备或重装系统时管理自己的配置数据。</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>📱 Android 系统集成</h3>
-      <p>提供快捷设置磁贴、桌面小组件等便捷入口，并针对移动设备使用场景持续优化交互。</p>
+      <h3>🎯 路由规则与远程规则集</h3>
+      <p>采用结构化规则编辑体系；内置 2,300+ 项远程规则集可视化搜索多选，支持自定义 .srs 订阅与定时自动拉取更新。</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <h3>🎨 清爽的个性化体验</h3>
-      <p>支持主题与应用图标个性化选项，兼顾浅色、深色模式与紧凑易读的界面布局。</p>
+      <h3>🔔 实况通知岛与灵动胶囊</h3>
+      <p>原生适配 Android 16 Promoted Ongoing、ColorOS 流体云与 HyperOS 焦点通知，提供 15 款变量引擎、多套预设与通知栏一键切流操作。</p>
     </td>
     <td width="50%" valign="top">
-      <h3>⚙️ 持续迭代的核心适配</h3>
-      <p>持续跟进 sing-box 内核变化，围绕连接建立、节点切换、后台稳定性与资源占用进行适配和修复。</p>
+      <h3>📐 界面与字体自由缩放</h3>
+      <p>新增独立可视化调节中心，支持忽略系统大字号、全局双滑块微调，以及顶栏、分组栏、抽屉、节点卡片与底栏 6 大分区独立缩放。</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🎨 丰富主题与个性化</h3>
+      <p>高对比纯白/浅灰规范主题，全面支持 Android 12+ 莫奈动态壁纸取色与 18 款 Material 多彩主题；支持桌面图标跟随系统深浅色切换。</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>☁️ 备份、同步与分应用</h3>
+      <p>支持 WebDAV 备份与同步配置；提供侧边栏一键直达分应用代理管理、快捷设置磁贴及桌面小组件支持。</p>
     </td>
   </tr>
 </table>
@@ -101,14 +101,16 @@
 
 建议优先打开 [**GitHub Releases 最新发布页**](https://github.com/Own716/OwnBoxForAndroid/releases/latest)，查看当前版本的说明、安装包与校验文件。
 
-### 当前稳定版 v3.2.0 安装包
+### 当前稳定版 v26.11.2 安装包
+
+> **版本号说明**：版本号采用「年.月.日」命名规范，`v26.11.2` 为 2026 年 11 月 2 日发布的正式版（包含 v3.2.1 ~ v3.2.54 的全部更新与优化）。
 
 | 架构 | 适用设备 | 下载 | 校验 |
 |:--|:--|:--:|:--:|
-| **ARM64 (v8a)** · 推荐 | 大多数现代 Android 手机与平板 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v3.2.0/OwnBox-3.2.0-arm64-v8a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v3.2.0/sha256sums.txt) |
-| **armeabi-v7a** | 较旧的 32 位 Android 设备 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v3.2.0/OwnBox-3.2.0-armeabi-v7a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v3.2.0/sha256sums.txt) |
-| **x86_64** | 64 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v3.2.0/OwnBox-3.2.0-x86_64-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v3.2.0/sha256sums.txt) |
-| **x86** | 32 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v3.2.0/OwnBox-3.2.0-x86-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v3.2.0/sha256sums.txt) |
+| **ARM64 (v8a)** · 推荐 | 大多数现代 Android 手机与平板 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/OwnBox-26.11.2-arm64-v8a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/sha256sums.txt) |
+| **armeabi-v7a** | 较旧的 32 位 Android 设备 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/OwnBox-26.11.2-armeabi-v7a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/sha256sums.txt) |
+| **x86_64** | 64 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/OwnBox-26.11.2-x86_64-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/sha256sums.txt) |
+| **x86** | 32 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/OwnBox-26.11.2-x86-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/sha256sums.txt) |
 
 > **如何选择？** 一般手机请选择 `ARM64 (v8a)`。如果不确定设备架构，请先查看设备信息；不要仅凭 Android 版本号判断 CPU 架构。
 
@@ -178,11 +180,12 @@
 
   ### Highlights
 
-  - **Multi-protocol client:** based on sing-box with ongoing compatibility and stability improvements.
-  - **Connection diagnostics:** TCP Ping, per-node latency tests and connectivity feedback.
-  - **Service checks:** connectivity probes for Google, GitHub, YouTube, ChatGPT, Claude, Gemini, Netflix, Disney+, Prime Video, Spotify, TikTok, Discord and Bilibili.
-  - **Everyday Android integration:** per-app routing, Quick Settings tile, home-screen widgets and WebDAV backup/sync.
-  - **Personalization:** theme and app-icon options designed for a clean mobile experience.
+  - **Native Core & Performance:** pure Go sing-box v1.15 TUN stack, staggered dial, zero-delay Telegram media routing & KeepAlive.
+  - **Remote Rule Sets:** Throne-style structured rule editor, 2,300+ built-in remote .srs rulesets with search & auto-updates.
+  - **Live Update & Island:** native Android 16 Promoted Ongoing, ColorOS Aqua Dynamics & HyperOS Focus notifications with 15 dynamic variables.
+  - **Granular UI Scaling:** independent system-font ignore toggle, dual global sliders and 6-region fine-grained scale controls.
+  - **Service & Speed Checks:** TCP Ping, group URL & bandwidth testing, and 13-target service connectivity diagnostics.
+  - **Theming & Personalization:** Monet wallpaper color extraction, 18 Material themes, high-contrast white/gray styles, and dynamic app icons.
 
   ### Downloads
 
