@@ -1185,6 +1185,15 @@ fun buildConfig(
                     _hack_config_map["tcp_keep_alive_interval"] = "30s"
                     _hack_config_map["connect_timeout"] = "5s"
 
+                    // 确保所有出站代理节点服务器域名强制使用直连/独立 DNS 解析器解析，
+                    // 彻底绕过 FakeIP 与路由分流规则，杜绝内核解析自身节点服务器域名时陷入 FakeIP 闭环回环死锁
+                    val outboundResolver = if (perGroupResolver.containsKey(proxyEntity.groupId)) {
+                        "dns-sub-${proxyEntity.groupId}"
+                    } else {
+                        "dns-direct"
+                    }
+                    _hack_config_map["domain_resolver"] = outboundResolver
+
                     _hack_config_map["tag"] = tagOut
                     _hack_config_map["tcp_multi_path"] = false
 
@@ -1789,6 +1798,7 @@ fun buildConfig(
                 testRules.add(DNSRule_DefaultOptions().apply {
                     makeSingBoxRule(domainListDNSDirectForce.toHashSet().toList())
                     server = "dns-direct"
+                    disable_cache = true
                 })
             }
             // 兜底直连与系统出站解析
@@ -1973,6 +1983,7 @@ fun buildConfig(
                 dns.rules.add(0, DNSRule_DefaultOptions().apply {
                     makeSingBoxRule(domainListDNSDirectForce.toHashSet().toList())
                     server = "dns-direct"
+                    disable_cache = true
                 })
             }
             perGroupResolver.forEach { (gid, resolver) ->
