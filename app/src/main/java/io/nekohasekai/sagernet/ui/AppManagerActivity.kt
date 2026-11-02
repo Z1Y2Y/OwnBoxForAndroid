@@ -60,11 +60,12 @@ class AppManagerActivity : ThemedActivity() {
     }
 
     private class ProxiedApp(
-        private val pm: PackageManager, private val appInfo: ApplicationInfo,
+        private val pm: PackageManager,
+        private val appInfo: ApplicationInfo,
         val packageName: String,
     ) {
-        val name: CharSequence = appInfo.loadLabel(pm)    // cached for sorting
-        val icon: Drawable get() = appInfo.loadIcon(pm)
+        val name: CharSequence = PackageCache.loadLabel(appInfo, pm)    // cached for sorting & safe against OOM
+        val icon: Drawable get() = PackageCache.loadIcon(appInfo, pm)
         val uid get() = appInfo.uid
         val sys get() = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
     }
@@ -81,7 +82,11 @@ class AppManagerActivity : ThemedActivity() {
 
         fun bind(app: ProxiedApp) {
             item = app
-            binding.itemicon.setImageDrawable(app.icon)
+            try {
+                binding.itemicon.setImageDrawable(app.icon)
+            } catch (t: Throwable) {
+                Logs.e(t)
+            }
             binding.title.text = app.name
             binding.desc.text = "${app.packageName} (${app.uid})"
             binding.itemcheck.isChecked = isProxiedApp(app)
@@ -106,10 +111,20 @@ class AppManagerActivity : ThemedActivity() {
         var filteredApps = apps
 
         suspend fun reload() {
-            PackageCache.reload()
+            try {
+                PackageCache.reload()
+            } catch (t: Throwable) {
+                Logs.e(t)
+            }
             apps = cachedApps.mapNotNull { (packageName, packageInfo) ->
                 coroutineContext[Job]!!.ensureActive()
-                packageInfo.applicationInfo?.let { ProxiedApp(packageManager, it, packageName) }
+                val appInfo = packageInfo.applicationInfo ?: return@mapNotNull null
+                try {
+                    ProxiedApp(packageManager, appInfo, packageName)
+                } catch (t: Throwable) {
+                    Logs.e(t)
+                    null
+                }
             }.sortedWith(compareBy({ !isProxiedApp(it) }, { it.name.toString() }))
         }
 
