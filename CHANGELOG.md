@@ -1,5 +1,12 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# OwnBox for Android v3.2.53 预览版 (v3.2.53-preview)
+
+* **修复底部状态栏点击无法重新测试握手延迟的问题，并支持全卡片任意位置点击触发测试**：
+  - **打通底部卡片全区域点击事件**：修复此前 `StatsBar` 内部子控件（`stats_content_container`、`status`、`status_title`、`tx`、`rx`）仅绑定了 `OnLongClickListener`（导致系统标记 `isLongClickable = true` 并吞掉单击触摸事件，使单击无法传递至父容器）的问题；现将全卡片所有区域与子视图统一绑定单击重测逻辑，点击底部卡片任意位置均可立即响应；
+  - **真实触发重测并即时展示「正在测试…」状态**：移除原先在已有历史延迟（`lastMeasuredLatency > 0`）时跳过「正在测试…」状态提示与并发拦截的逻辑，用户主动点击时立即切换为 `HTTPS/HTTP 握手延迟 -> 正在测试…` 并向内核发起全新握手延迟探测，完成后实时刷新最新毫秒数；
+  - **严格遵循「显示落地 IP」开关按需测试**：当用户在设置中开启「显示落地 IP」时，点击底部卡片同步刷新落地 IP 与握手延迟；当关闭「显示落地 IP」时，点击底部卡片仅重新测试握手延迟，不再发起任何多余的落地 IP 网络查询。
+
 # OwnBox for Android v3.2.52 预览版 (v3.2.52-preview)
 
 * **全新移植 Throne 路由规则设置页与可视化远程规则集选择器（`RuleSetPickerActivity`）**：

@@ -220,12 +220,7 @@ class MainActivity : ThemedActivity(),
         }
         binding.stats.setOnClickListener {
             if (DataStore.hapticFeedback) it.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
-            if (DataStore.serviceState.connected) binding.stats.testConnection()
-        }
-        binding.stats.setOnLongClickListener {
-            if (DataStore.hapticFeedback) it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-            startActivity(Intent(this, TrafficChartActivity::class.java))
-            true
+            if (DataStore.serviceState.connected) binding.stats.onIpDetailClicked()
         }
 
         setContentView(binding.root)
@@ -871,7 +866,10 @@ class MainActivity : ThemedActivity(),
             ProfileManager.postUpdate(old, true)
             ProfileManager.postUpdate(id, true)
         }
-        binding.stats.refreshLandingIp(forceRefresh = true)
+        if (DataStore.showLandingIp) {
+            binding.stats.refreshLandingIp(forceRefresh = true)
+        }
+        binding.stats.testConnection(silent = true)
     }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
@@ -881,9 +879,15 @@ class MainActivity : ThemedActivity(),
                 Key.SERVICE_MODE -> onBinderDied()
                 Key.PROFILE_ID -> {
                     LandingIpManager.clearCache()
-                    if (DataStore.serviceState.connected && DataStore.showLandingIp) {
-                        binding.stats.refreshLandingIp(forceRefresh = true)
+                    if (DataStore.serviceState.connected) {
+                        if (DataStore.showLandingIp) {
+                            binding.stats.refreshLandingIp(forceRefresh = true)
+                        }
+                        binding.stats.testConnection(silent = true)
                     }
+                }
+                Key.SHOW_LANDING_IP -> {
+                    binding.stats.refreshDisplay()
                 }
                 Key.SHOW_BOTTOM_BAR -> {
                     syncMainControls(
