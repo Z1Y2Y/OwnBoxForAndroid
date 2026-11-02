@@ -1,26 +1,16 @@
-# OwnBox for Android v26.11.2.2 预览版 (v26.11.2.2-preview)
+# OwnBox for Android v26.11.2.3 预览版 (v26.11.2.3-preview)
 
-### 🚀 全手动协议深度适配与修复
-* **右上角「手动添加」菜单全协议（21 种）适配加固**：
-  - **VLESS 节点保存修复**：彻底修复从手动菜单添加 VLESS 节点时保存被强制重置覆写为 VMess（`alterId=0`）导致节点失效的致命缺陷；
-  - **移除静默闪退与无声关闭**：全面替换 `ProfileSettingsActivity` 中捕获异常直接 `finish()` 的静默行为，改为详细 Toast 错误提示，杜绝“点击无反应或一闪而过”；
-  - **SOCKS5 协议版本错乱修复**：修复 `SocksSettingsActivity` 错误读取 Hysteria 的 `protocolVersion` 导致密码框显隐与版本控制错乱的问题；
-  - **NaïveProxy 空指针闪退修复**：修复 `serverHeaders` 为空时调用 `.replace()` 引发的空指针 NPE 崩溃；
-  - **Trojan-Go 加密选项 NPE 修复**：修复未选择加密时 `encryption.startsWith()` 导致的空指针崩溃与 ClassCastException；
-  - **TUIC 默认参数合法性修复**：修复 `tuic_preferences.xml` 中拥塞控制算法与中继模式默认填为 `"https"` 导致 sing-box 内核报错 `unknown congestion controller` 的问题，恢复为标准 `"native"` 和 `"cubic"`；
-  - **全实体初始化防御补强**：为 WireGuard、ShadowTLS、NaïveProxy、SOCKS 等配置页面补齐 `applyDefaultValues()`，确保新建时默认值完整；
-  - **自定义配置与链式代理合法性预检**：增强配置保存时的非空和结构校验，避免空节点导致内核崩溃。
-
-### ✈️ 机场订阅与节点可用性根治
-* **彻底根治测试沙箱中的 DNS 死锁问题**：
-  - 修复节点延迟/连通性测试时，`forTest` 模式由于 `dns.final_ = "dns-remote"` 导致域名节点解析自身时尝试通过未连接的代理自身造成循环死锁超时的严重 Bug；
-  - 在测试规则中强制注入出站代理节点服务器域名直连 DNS 解析规则，确保握手建连前域名解析零延迟秒级响应。
-* **Shadowsocks 加密方式大小写与别名兼容归一化**：
-  - 接入 `normalizeShadowsocksCipher()`，自动将机场订阅中常见的 `AEAD_AES_256_GCM`、`AES-256-GCM`、`chacha20-poly1305`、`2022-BLAKE3-AES-256-GCM` 自动归一化为 sing-box 严格要求的标准小写名称，解决 sing-box 报错 `unknown method` 的问题。
-* **Clash 订阅格式兼容拓展**：
-  - 拓展协议别名识别：支持 `"shadowsocks"`、`"hy2"`、`"socks"`、`"shadowsocksr"` 等别名；
-  - 增强 `ws-opts` 根级 `host` 与 `headers.Host` 兼容读取，杜绝 CDN 阻断 403/521；
-  - 增强 `grpc-opts` 的 `service-name` 与 `grpc-service-name` 字段识别；
-  - 补齐 Shadowsocks `udp-over-tcp` / `uot` 字段解析。
-* **UI 诊断与友好报错信息优化**：
-  - 重构 `Protocols.genFriendlyMsg()`，遇到错误时直观展示具体原因（如「DNS 解析失败」、「TLS 握手失败」、「加密方式不支持」、「缺少插件: xxx」等），不再使用单一红字「不可用」掩盖真实异常。
+### 🔄 版本更新检查逻辑重构与精准化
+* **精准区分正式版与预览版更新渠道**：
+  - **彻底修复预览版更新误取正式版 Bug**：重构 GitHub API 解析逻辑，点击「检查预览版更新」时精准遍历匹配最新的预发布版本（`prerelease == true`），杜绝因 API 默认排序误将正式版作为最新预览版的逻辑缺陷；
+  - **规范正式版更新检查**：精准对接 `/releases/latest` 与过滤稳定版本，杜绝渠道混淆。
+* **全场景版本比对逻辑闭环**：
+  - **预览版跨渠道检查正式版精准提示**：当安装预览版并点击「检查正式版更新」时，若当前运行版本较新且暂无更新的正式版，弹出清晰提示（“最新正式版为 vX.X.X，您当前运行的是较新的预览版”）；若有更高版本的正式版发布，准确提示升级；
+  - **正式版检查预览版升级提示**：当安装正式版并点击「检查预览版更新」时，若有可用预览版，提示体验更新。
+* **标准语义化版本（SemVer）比对算法重构**：
+  - 严格遵循语义化版本规范，修复同版本号下正式版与预览版大小反转的问题（确保 `26.11.2` 正式版严格高于 `26.11.2-preview`）；
+  - 支持多段数字与预发布后缀精准比对。
+* **CDN 静态降级容灾元数据优化**：
+  - 在 `nb4a.properties` 中独立维护 `LATEST_RELEASE_VERSION` 与 `PRE_VERSION_NAME`，即便 GitHub API 发生 403 限流或网络故障，降级静态元数据也能准确区分渠道。
+* **「关于」界面版本号显示冗余修复**：
+  - 优化 `SagerNet.appVersionNameForDisplay`，消除安装预览版时版本号重复拼接显示为 `26.11.2.2 26.11.2.2-preview` 的视觉瑕疵，干净展示为单一规范版本号。

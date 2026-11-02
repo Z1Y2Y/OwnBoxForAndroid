@@ -828,8 +828,13 @@
     <string name="check_update_release">Check for release version updates</string>
     <string name="release_not_available">Throne has not published a stable release yet</string>
     <string name="update_dialog_title">New version available</string>
+    <string name="update_dialog_title_release">New release version available</string>
+    <string name="update_dialog_title_preview">New preview version available</string>
     <string name="update_dialog_message">Current version: %1$s\nAvailable version: %2$s\nDo you want to download it?</string>
     <string name="check_update_no">Check successful, but no updates.</string>
+    <string name="check_update_release_no">Check successful. You are already on the latest release version.</string>
+    <string name="check_update_preview_no">Check successful. You are already on the latest preview version.</string>
+    <string name="check_update_release_no_but_preview_newer">Latest release is %1$s. You are running a newer preview version (%2$s).</string>
     <string name="reset_settings">Restore default settings</string>
     <string name="reset_settings_message">Restore default settings, but data such as nodes and groups will be retained. To completely clear data, clear application data directly in the system settings.</string>
     <string name="minimize">Minimize</string>

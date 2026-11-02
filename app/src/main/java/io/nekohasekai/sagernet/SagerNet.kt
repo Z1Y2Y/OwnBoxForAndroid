@@ -279,12 +279,12 @@ class SagerNet : Application(),
         var underlyingNetwork: Network? = null
 
         var appVersionNameForDisplay = {
-            var n = BuildConfig.VERSION_NAME
-            if (isPreview) {
-                if (BuildConfig.PRE_VERSION_NAME.isNotBlank() && BuildConfig.PRE_VERSION_NAME != BuildConfig.VERSION_NAME) {
-                    n += " " + BuildConfig.PRE_VERSION_NAME
-                }
-            } else if (!isOss) {
+            var n = if (isPreview && BuildConfig.PRE_VERSION_NAME.isNotBlank()) {
+                BuildConfig.PRE_VERSION_NAME
+            } else {
+                BuildConfig.VERSION_NAME
+            }
+            if (!isPreview && !isOss) {
                 n += " ${BuildConfig.FLAVOR}"
             }
             if (BuildConfig.DEBUG) {

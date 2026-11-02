@@ -121,14 +121,14 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                             MaterialAboutActionItem.Builder()
                                 .text(R.string.check_update_release)
                                 .setOnClickAction {
-                                    checkUpdate(isPreview = false)
+                                    checkUpdate(targetIsPreview = false)
                                 }
                                 .build())
                         .addItem(
                             MaterialAboutActionItem.Builder()
                                 .text(R.string.check_update_preview)
                                 .setOnClickAction {
-                                    checkUpdate(isPreview = true)
+                                    checkUpdate(targetIsPreview = true)
                                 }
                                 .build())
                         .addItem(
@@ -274,14 +274,15 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
             }
         }
 
-        fun checkUpdate(isPreview: Boolean = false) {
+        fun checkUpdate(targetIsPreview: Boolean = false) {
             runOnIoDispatcher {
                 try {
                     val client = Libcore.newHttpClient().apply {
                         modernTLS()
                         tryProxyOutbound()
                     }
-                    val currentVersion = if (isPreview && BuildConfig.PRE_VERSION_NAME.isNotBlank()) {
+                    val isCurrentlyPreview = isPreview
+                    val currentCompareVersion = if (isCurrentlyPreview && BuildConfig.PRE_VERSION_NAME.isNotBlank()) {
                         BuildConfig.PRE_VERSION_NAME
                     } else {
                         BuildConfig.VERSION_NAME
@@ -291,29 +292,76 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                     var releaseUrl: String? = null
 
                     // 1. 首先尝试 GitHub Releases API
-                    val apiUrl = if (isPreview) {
-                        "https://api.github.com/repos/Own716/OwnBoxForAndroid/releases"
-                    } else {
-                        "https://api.github.com/repos/Own716/OwnBoxForAndroid/releases/latest"
-                    }
                     try {
-                        val response = client.newRequest().apply {
-                            setURL(apiUrl)
-                            setUserAgent("OwnBox/${BuildConfig.VERSION_NAME}")
-                            setHeader("Accept", "application/vnd.github.v3+json")
-                        }.execute()
-                        val responseStr = Util.getStringBox(response.contentString)
-                        if (isPreview) {
+                        if (targetIsPreview) {
+                            // 检查预览版更新：抓取 releases 列表，精准匹配首个 prerelease
+                            val response = client.newRequest().apply {
+                                setURL("https://api.github.com/repos/Own716/OwnBoxForAndroid/releases")
+                                setUserAgent("OwnBox/${BuildConfig.VERSION_NAME}")
+                                setHeader("Accept", "application/vnd.github.v3+json")
+                            }.execute()
+                            val responseStr = Util.getStringBox(response.contentString)
                             val arr = JSONArray(responseStr)
-                            if (arr.length() > 0) {
-                                val first = arr.getJSONObject(0)
-                                releaseName = first.optString("name").ifBlank { first.optString("tag_name") }
-                                releaseUrl = first.optString("html_url")
+                            for (i in 0 until arr.length()) {
+                                val rel = arr.getJSONObject(i)
+                                if (rel.optBoolean("draft", false)) continue
+                                val tag = rel.optString("tag_name")
+                                val name = rel.optString("name")
+                                val isPre = rel.optBoolean("prerelease", false) ||
+                                        tag.contains("preview", ignoreCase = true) ||
+                                        tag.contains("beta", ignoreCase = true) ||
+                                        tag.contains("alpha", ignoreCase = true) ||
+                                        name.contains("preview", ignoreCase = true)
+                                if (isPre) {
+                                    releaseName = name.ifBlank { tag }
+                                    releaseUrl = rel.optString("html_url")
+                                    break
+                                }
                             }
                         } else {
-                            val release = JSONObject(responseStr)
-                            releaseName = release.optString("name").ifBlank { release.optString("tag_name") }
-                            releaseUrl = release.optString("html_url")
+                            // 检查正式版更新：首先尝试 /releases/latest (官方稳定版接口)
+                            try {
+                                val response = client.newRequest().apply {
+                                    setURL("https://api.github.com/repos/Own716/OwnBoxForAndroid/releases/latest")
+                                    setUserAgent("OwnBox/${BuildConfig.VERSION_NAME}")
+                                    setHeader("Accept", "application/vnd.github.v3+json")
+                                }.execute()
+                                val responseStr = Util.getStringBox(response.contentString)
+                                val release = JSONObject(responseStr)
+                                if (!release.optBoolean("draft", false) && !release.optBoolean("prerelease", false)) {
+                                    releaseName = release.optString("name").ifBlank { release.optString("tag_name") }
+                                    releaseUrl = release.optString("html_url")
+                                }
+                            } catch (e: Exception) {
+                                Logs.w("GitHub /releases/latest query failed, trying /releases", e)
+                            }
+
+                            // 若 /releases/latest 未取到，在 /releases 列表中查找首个非预发布的正式版本
+                            if (releaseName.isNullOrBlank()) {
+                                val response = client.newRequest().apply {
+                                    setURL("https://api.github.com/repos/Own716/OwnBoxForAndroid/releases")
+                                    setUserAgent("OwnBox/${BuildConfig.VERSION_NAME}")
+                                    setHeader("Accept", "application/vnd.github.v3+json")
+                                }.execute()
+                                val responseStr = Util.getStringBox(response.contentString)
+                                val arr = JSONArray(responseStr)
+                                for (i in 0 until arr.length()) {
+                                    val rel = arr.getJSONObject(i)
+                                    if (rel.optBoolean("draft", false)) continue
+                                    val tag = rel.optString("tag_name")
+                                    val name = rel.optString("name")
+                                    val isPre = rel.optBoolean("prerelease", false) ||
+                                            tag.contains("preview", ignoreCase = true) ||
+                                            tag.contains("beta", ignoreCase = true) ||
+                                            tag.contains("alpha", ignoreCase = true) ||
+                                            name.contains("preview", ignoreCase = true)
+                                    if (!isPre) {
+                                        releaseName = name.ifBlank { tag }
+                                        releaseUrl = rel.optString("html_url")
+                                        break
+                                    }
+                                }
+                            }
                         }
                     } catch (e: Exception) {
                         Logs.w("GitHub API check failed, falling back to static metadata", e)
@@ -346,10 +394,10 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                             val props = Properties().apply {
                                 load(StringReader(propsContent))
                             }
-                            val targetVer = if (isPreview) {
+                            val targetVer = if (targetIsPreview) {
                                 (props.getProperty("PRE_VERSION_NAME") ?: props.getProperty("VERSION_NAME")).orEmpty().trim()
                             } else {
-                                props.getProperty("VERSION_NAME").orEmpty().trim()
+                                (props.getProperty("LATEST_RELEASE_VERSION") ?: props.getProperty("VERSION_NAME")).orEmpty().trim()
                             }
                             if (targetVer.isNotBlank()) {
                                 releaseName = "v$targetVer"
@@ -363,13 +411,19 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                     }
 
                     val cleanReleaseName = releaseName.replace(Regex("(?i)^Ownbox\\s*"), "")
-                    val haveUpdate = cleanReleaseName.isNotBlank() &&
-                            compareVersionNames(cleanReleaseName, currentVersion) > 0
+                    val cmp = compareVersionNames(cleanReleaseName, currentCompareVersion)
+                    val haveUpdate = cleanReleaseName.isNotBlank() && cmp > 0
+
                     runOnMainDispatcher {
+                        val context = context ?: return@runOnMainDispatcher
                         if (haveUpdate) {
-                            val context = context ?: return@runOnMainDispatcher
+                            val dialogTitle = if (targetIsPreview) {
+                                R.string.update_dialog_title_preview
+                            } else {
+                                R.string.update_dialog_title_release
+                            }
                             MaterialAlertDialogBuilder(context)
-                                .setTitle(R.string.update_dialog_title)
+                                .setTitle(dialogTitle)
                                 .setMessage(
                                     context.getString(
                                         R.string.update_dialog_message,
@@ -384,7 +438,21 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .setNegativeButton(R.string.no, null)
                                 .show()
                         } else {
-                            Toast.makeText(app, R.string.check_update_no, Toast.LENGTH_SHORT).show()
+                            if (!targetIsPreview && isCurrentlyPreview) {
+                                Toast.makeText(
+                                    app,
+                                    context.getString(
+                                        R.string.check_update_release_no_but_preview_newer,
+                                        releaseName,
+                                        SagerNet.appVersionNameForDisplay
+                                    ),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            } else if (targetIsPreview) {
+                                Toast.makeText(app, R.string.check_update_preview_no, Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(app, R.string.check_update_release_no, Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -401,37 +469,82 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
             private val numberRegex = Regex("\\d+")
 
             /**
-             * Compares two version names segment by segment (split by "-").
-             * Each segment is compared by its numeric groups in order,
-             * and left segments dominate right ones, e.g.
-             * "v1.2.3-m21-1" > "v1.2.3-m20-100".
+             * Compares two version strings according to Semantic Versioning principles:
+             * 1. Strips leading 'v', 'V', or 'OwnBox ' prefix.
+             * 2. Extracts base version numbers (before '-') and compares them numerically segment by segment.
+             * 3. When numeric segments are identical:
+             *    - A version without a prerelease suffix (e.g. "26.11.2") is HIGHER than a version with a prerelease suffix (e.g. "26.11.2-preview").
+             *    - If both have prerelease suffixes, compares the numbers in the suffix.
              *
-             * Returns a positive value if [a] is newer than [b],
-             * a negative value if it is older, and 0 if they are equal.
+             * Returns > 0 if [a] is newer than [b], < 0 if older, and 0 if equal.
              */
             fun compareVersionNames(a: String, b: String): Int {
-                val segmentsA = a.split("-")
-                val segmentsB = b.split("-")
-                for (i in 0 until maxOf(segmentsA.size, segmentsB.size)) {
-                    val segmentA = segmentsA.getOrNull(i).orEmpty()
-                    val segmentB = segmentsB.getOrNull(i).orEmpty()
-                    val numbersA = extractNumbers(segmentA)
-                    val numbersB = extractNumbers(segmentB)
-                    if (numbersA.isEmpty() && numbersB.isEmpty()) {
-                        val compared = segmentA.compareTo(segmentB)
-                        if (compared != 0) return compared
-                        continue
-                    }
-                    for (j in 0 until maxOf(numbersA.size, numbersB.size)) {
-                        val numberA = numbersA.getOrNull(j)
-                        val numberB = numbersB.getOrNull(j)
-                        if (numberA == null) return -1
-                        if (numberB == null) return 1
-                        if (numberA != numberB) return if (numberA < numberB) -1 else 1
+                val cleanA = cleanVersion(a)
+                val cleanB = cleanVersion(b)
+
+                val baseA = cleanA.substringBefore("-")
+                val baseB = cleanB.substringBefore("-")
+
+                val numsA = extractVersionNumbers(baseA)
+                val numsB = extractVersionNumbers(baseB)
+
+                val maxLen = maxOf(numsA.size, numsB.size)
+                for (i in 0 until maxLen) {
+                    val na = numsA.getOrElse(i) { 0L }
+                    val nb = numsB.getOrElse(i) { 0L }
+                    if (na != nb) {
+                        return if (na > nb) 1 else -1
                     }
                 }
+
+                // Base numbers are completely identical
+                val isPreA = cleanA.contains("-") || isPreKeyword(cleanA)
+                val isPreB = cleanB.contains("-") || isPreKeyword(cleanB)
+
+                if (!isPreA && isPreB) {
+                    // a is a stable release, b is a preview of the same base -> a is newer!
+                    return 1
+                }
+                if (isPreA && !isPreB) {
+                    // a is a preview, b is a stable release of the same base -> a is older!
+                    return -1
+                }
+                if (isPreA && isPreB) {
+                    // Both are prereleases: compare numbers in the suffix if any
+                    val suffixA = cleanA.substringAfter("-", "")
+                    val suffixB = cleanB.substringAfter("-", "")
+                    val sufNumsA = extractNumbers(suffixA)
+                    val sufNumsB = extractNumbers(suffixB)
+                    val maxSufLen = maxOf(sufNumsA.size, sufNumsB.size)
+                    if (maxSufLen > 0) {
+                        for (i in 0 until maxSufLen) {
+                            val sa = sufNumsA.getOrElse(i) { 0L }
+                            val sb = sufNumsB.getOrElse(i) { 0L }
+                            if (sa != sb) {
+                                return if (sa > sb) 1 else -1
+                            }
+                        }
+                    }
+                    return suffixA.compareTo(suffixB)
+                }
+
                 return 0
             }
+
+            private fun cleanVersion(v: String): String =
+                v.trim()
+                    .replace(Regex("(?i)^Ownbox\\s*"), "")
+                    .replace(Regex("(?i)^v"), "")
+                    .trim()
+
+            private fun isPreKeyword(s: String): Boolean =
+                s.contains("preview", ignoreCase = true) ||
+                        s.contains("beta", ignoreCase = true) ||
+                        s.contains("alpha", ignoreCase = true) ||
+                        s.contains("rc", ignoreCase = true)
+
+            private fun extractVersionNumbers(base: String): List<Long> =
+                base.split(".").mapNotNull { it.trim().toLongOrNull() }
 
             private fun extractNumbers(segment: String): List<Long> =
                 numberRegex.findAll(segment).mapNotNull { it.value.toLongOrNull() }.toList()
