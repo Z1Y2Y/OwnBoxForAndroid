@@ -1,5 +1,13 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# OwnBox for Android v3.2.51 预览版 (v3.2.51-preview)
+
+* **修复策略组/路由「选择节点」页面顶栏标题与 `OwnBox` 重叠的问题**：
+  - **统一由自定义标题视图渲染**：此前在节点选择模式（`ProfileSelectActivity` / `select = true`）下同时设置了 `Toolbar` 原生标题（“选择节点”/“选择配置”）与自定义 `toolbar_title_view`（“OwnBox”），导致两段文字在顶栏左侧重叠；现统一清空 `toolbar.title` 并由 `toolbar_title_view` 动态展示当前页面标题（`getToolbarTitleText()`），在节点选择页清晰呈现“选择节点”/“选择配置”，与关闭按钮 `✕` 保持舒适间距。
+* **拉开订阅组/分组设置等二级页面右上角「删除」与「确认」按钮间距（防误触）**：
+  - **独立区分主页紧凑顶栏与二级设置页顶栏样式**：将 32dp 紧凑按钮样式（`ThemeOverlay.SagerNet.Toolbar.Compact`）限定于主页 5 图标顶栏，二级设置页（如订阅组设置 `GroupSettingsActivity`、路由设置、节点配置等）恢复为宽敞的 **52dp** 按钮触控宽度与 **12dp** 内边距；
+  - **额外增加删除与确认按钮防误触安全间距**：在二级页面顶栏中为「删除（🗑）」按钮额外向左偏移 **6dp** 安全间距，使「删除（🗑）」与「确认（✓）」两枚图标之间的视觉净距由原来的 **8dp** 扩大至 **34dp 以上**（中心距约 58dp），彻底杜绝点击确认时误触删除的问题。
+
 # OwnBox for Android v3.2.50 预览版 (v3.2.50-preview)
 
 * **优化顶栏图标按钮与 APP 名称（OwnBox）视觉比例与间距**：

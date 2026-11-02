@@ -86,6 +86,27 @@ abstract class ThemedActivity : AppCompatActivity {
             insets
         }
         ViewCompat.requestApplyInsets(content)
+
+        // Increase spacing between Delete and Confirm buttons on secondary toolbars (e.g. GroupSettingsActivity)
+        if (findViewById<View>(R.id.toolbar_title_view) == null) {
+            findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar)?.let { tb ->
+                tb.clipChildren = false
+                tb.clipToPadding = false
+                tb.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                    for (i in 0 until tb.childCount) {
+                        val child = tb.getChildAt(i)
+                        if (child is androidx.appcompat.widget.ActionMenuView) {
+                            child.clipChildren = false
+                            child.clipToPadding = false
+                            val deleteBtn = child.findViewById<View>(R.id.action_delete)
+                            if (deleteBtn != null) {
+                                deleteBtn.translationX = -(6f * resources.displayMetrics.density)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     override fun setContentView(view: View?) {

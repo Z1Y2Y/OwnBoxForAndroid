@@ -491,6 +491,18 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
     }
 
+    private fun getToolbarTitleText(): String {
+        return when {
+            titleRes != 0 -> getString(titleRes)
+            select || activity is ProfileSelectActivity -> {
+                val isMulti = multiSelect ||
+                    activity?.intent?.getBooleanExtra(ProfileSelectActivity.EXTRA_MULTI_SELECT, false) == true
+                getString(if (isMulti) R.string.select_multi_profile else R.string.select_profile)
+            }
+            else -> getString(R.string.app_name)
+        }
+    }
+
     private fun adjustToolbarActionButtons() {
         if (!isToolbarInitialized) return
         toolbar.contentInsetStartWithNavigation = 0
@@ -502,7 +514,7 @@ class ConfigurationFragment @JvmOverloads constructor(
 
         val titleView = view?.findViewById<TextView>(R.id.toolbar_title_view)
         titleView?.let { tv ->
-            tv.text = getString(R.string.app_name)
+            tv.text = getToolbarTitleText()
             tv.visibility = View.VISIBLE
             tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17.5f)
             tv.letterSpacing = -0.01f
@@ -885,7 +897,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             tintMenuIcons(toolbar.menu, primaryTextColor)
             adjustToolbarActionButtons()
         } else {
-            toolbar.setTitle(titleRes)
+            toolbar.title = null
             toolbar.setNavigationIcon(R.drawable.ic_navigation_close)
             toolbar.navigationIcon?.let {
                 val tinted = it.mutate()
@@ -895,9 +907,11 @@ class ConfigurationFragment @JvmOverloads constructor(
             toolbar.setNavigationOnClickListener {
                 requireActivity().finish()
             }
+            adjustToolbarActionButtons()
         }
 
         val ctx = requireContext()
+        val resolvedTitle = getToolbarTitleText()
         when {
             Theme.isBlackTheme(ctx) -> {
                 val bg = Color.BLACK
@@ -906,7 +920,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 toolbar.setBackgroundColor(Color.TRANSPARENT)
                 toolbar.setTitleTextColor(Color.WHITE)
                 val tv = view.findViewById<TextView>(R.id.toolbar_title_view)
-                tv?.text = getString(R.string.app_name)
+                tv?.text = resolvedTitle
                 tv?.visibility = View.VISIBLE
                 tv?.setTextColor(Color.WHITE)
                 tabLayout.setBackgroundColor(bg)
@@ -930,7 +944,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 toolbar.setBackgroundColor(Color.TRANSPARENT)
                 toolbar.setTitleTextColor(Color.parseColor("#212121"))
                 val tv = view.findViewById<TextView>(R.id.toolbar_title_view)
-                tv?.text = getString(R.string.app_name)
+                tv?.text = resolvedTitle
                 tv?.visibility = View.VISIBLE
                 tv?.setTextColor(Color.parseColor("#212121"))
                 tabLayout.setBackgroundColor(Color.WHITE)
@@ -957,7 +971,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 toolbar.setBackgroundColor(Color.TRANSPARENT)
                 toolbar.setTitleTextColor(textPrimary)
                 val tv = view.findViewById<TextView>(R.id.toolbar_title_view)
-                tv?.text = getString(R.string.app_name)
+                tv?.text = resolvedTitle
                 tv?.visibility = View.VISIBLE
                 tv?.setTextColor(textPrimary)
                 tabLayout.setBackgroundColor(bg)
@@ -982,7 +996,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 val textColorPrimary = requireContext().getColorAttr(android.R.attr.textColorPrimary)
                 toolbar.setBackgroundColor(Color.TRANSPARENT)
                 val tv = view.findViewById<TextView>(R.id.toolbar_title_view)
-                tv?.text = getString(R.string.app_name)
+                tv?.text = resolvedTitle
                 tv?.visibility = View.VISIBLE
                 tv?.setTextColor(textColorPrimary)
                 tabLayout.setSelectedTabIndicatorColor(tabIndicatorColor)
@@ -4481,7 +4495,7 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             view?.findViewById<View>(R.id.toolbar_title_view)?.let { tv ->
                 tv.visibility = View.VISIBLE
-                (tv as? TextView)?.text = getString(R.string.app_name)
+                (tv as? TextView)?.text = getToolbarTitleText()
                 (tv as? TextView)?.setTextColor(primaryColor)
             }
             toolbar.menu.findItem(R.id.action_add)?.isVisible = true

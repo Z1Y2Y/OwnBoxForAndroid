@@ -278,7 +278,34 @@
         <item name="toolbarNavigationButtonStyle">@style/Widget.SagerNet.ToolbarNavigationButton</item>
     </style>
 
+    <style name="ThemeOverlay.SagerNet.Toolbar.Compact" parent="ThemeOverlay.MaterialComponents.Toolbar.Surface">
+        <item name="colorControlNormal">?android:attr/textColorPrimary</item>
+        <item name="actionMenuTextColor">?android:attr/textColorPrimary</item>
+        <item name="colorSurface">@color/md3_surface</item>
+        <item name="android:colorBackground">@color/md3_surface</item>
+        <item name="actionBarPopupTheme">@style/ThemeOverlay.AppCompat.DayNight</item>
+        <item name="actionButtonStyle">@style/Widget.SagerNet.ActionButton.Compact</item>
+        <item name="actionOverflowButtonStyle">@style/Widget.SagerNet.ActionOverflowButton.Compact</item>
+        <item name="toolbarNavigationButtonStyle">@style/Widget.SagerNet.ToolbarNavigationButton</item>
+    </style>
+
     <style name="Widget.SagerNet.ActionButton" parent="Widget.AppCompat.ActionButton">
+        <item name="android:minWidth">52dp</item>
+        <item name="android:paddingLeft">12dp</item>
+        <item name="android:paddingRight">12dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+    </style>
+
+    <style name="Widget.SagerNet.ActionOverflowButton" parent="Widget.AppCompat.ActionButton.Overflow">
+        <item name="android:minWidth">40dp</item>
+        <item name="android:paddingLeft">8dp</item>
+        <item name="android:paddingRight">8dp</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">8dp</item>
+    </style>
+
+    <style name="Widget.SagerNet.ActionButton.Compact" parent="Widget.AppCompat.ActionButton">
         <item name="android:minWidth">32dp</item>
         <item name="android:paddingLeft">0dp</item>
         <item name="android:paddingRight">0dp</item>
@@ -286,7 +313,7 @@
         <item name="android:paddingEnd">0dp</item>
     </style>
 
-    <style name="Widget.SagerNet.ActionOverflowButton" parent="Widget.AppCompat.ActionButton.Overflow">
+    <style name="Widget.SagerNet.ActionOverflowButton.Compact" parent="Widget.AppCompat.ActionButton.Overflow">
         <item name="android:minWidth">32dp</item>
         <item name="android:paddingLeft">0dp</item>
         <item name="android:paddingRight">0dp</item>

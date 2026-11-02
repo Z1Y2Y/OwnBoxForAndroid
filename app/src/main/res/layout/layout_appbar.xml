@@ -17,7 +17,7 @@
         android:touchscreenBlocksFocus="false"
         app:contentInsetStart="12dp"
         app:contentInsetStartWithNavigation="48dp"
-        app:contentInsetEnd="4dp"
+        app:contentInsetEnd="8dp"
         app:titleTextAppearance="@style/TextAppearance.SagerNet.Toolbar.Title"
         app:titleTextColor="?android:attr/textColorPrimary"
         app:subtitleTextColor="?android:attr/textColorSecondary"
