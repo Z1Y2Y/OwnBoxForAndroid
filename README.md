@@ -59,7 +59,7 @@
   <tr>
     <td width="50%" valign="top">
       <h3>🔔 实况通知岛与灵动胶囊</h3>
-      <p>原生适配 Android 16 Promoted Ongoing、ColorOS 流体云与 HyperOS 焦点通知，提供 15 款变量引擎、多套预设与通知栏一键切流操作。</p>
+      <p>深度适配 Android 原生实况通知与状态栏灵动胶囊，提供 15 款变量引擎、多套预设与通知栏一键切流操作。</p>
     </td>
     <td width="50%" valign="top">
       <h3>📐 界面与字体自由缩放</h3>
@@ -101,16 +101,16 @@
 
 建议优先打开 [**GitHub Releases 最新发布页**](https://github.com/Own716/OwnBoxForAndroid/releases/latest)，查看当前版本的说明、安装包与校验文件。
 
-### 当前稳定版 v26.11.2 安装包
+### 当前稳定版 v26.11.3 安装包
 
-> **版本号说明**：版本号采用「年.月.日」命名规范，`v26.11.2` 为 2026 年 11 月 2 日发布的正式版（包含 v3.2.1 ~ v3.2.54 的全部更新与优化）。
+> **版本号说明**：版本号采用「年.月.日」命名规范，`v26.11.3` 为最新发布的正式版（全面整合了 v26.11.2 及 v26.11.2.1 ~ v26.11.2.5 预览版的全部功能增强与稳定性修复）。
 
 | 架构 | 适用设备 | 下载 | 校验 |
 |:--|:--|:--:|:--:|
-| **ARM64 (v8a)** · 推荐 | 大多数现代 Android 手机与平板 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/OwnBox-26.11.2-arm64-v8a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/sha256sums.txt) |
-| **armeabi-v7a** | 较旧的 32 位 Android 设备 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/OwnBox-26.11.2-armeabi-v7a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/sha256sums.txt) |
-| **x86_64** | 64 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/OwnBox-26.11.2-x86_64-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/sha256sums.txt) |
-| **x86** | 32 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/OwnBox-26.11.2-x86-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.2/sha256sums.txt) |
+| **ARM64 (v8a)** · 推荐 | 大多数现代 Android 手机与平板 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/OwnBox-26.11.3-arm64-v8a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
+| **armeabi-v7a** | 较旧的 32 位 Android 设备 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/OwnBox-26.11.3-armeabi-v7a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
+| **x86_64** | 64 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/OwnBox-26.11.3-x86_64-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
+| **x86** | 32 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/OwnBox-26.11.3-x86-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
 
 > **如何选择？** 一般手机请选择 `ARM64 (v8a)`。如果不确定设备架构，请先查看设备信息；不要仅凭 Android 版本号判断 CPU 架构。
 
@@ -181,8 +181,8 @@
   ### Highlights
 
   - **Native Core & Performance:** pure Go sing-box v1.15 TUN stack, staggered dial, zero-delay Telegram media routing & KeepAlive.
-  - **Remote Rule Sets:** Throne-style structured rule editor, 2,300+ built-in remote .srs rulesets with search & auto-updates.
-  - **Live Update & Island:** native Android 16 Promoted Ongoing, ColorOS Aqua Dynamics & HyperOS Focus notifications with 15 dynamic variables.
+  - **Remote Rule Sets:** Modern structured rule editor, 2,300+ built-in remote .srs rulesets with search & auto-updates.
+  - **Live Update & Island:** native Android Live Update ongoing notifications & status bar capsules with 15 dynamic variables.
   - **Granular UI Scaling:** independent system-font ignore toggle, dual global sliders and 6-region fine-grained scale controls.
   - **Service & Speed Checks:** TCP Ping, group URL & bandwidth testing, and 13-target service connectivity diagnostics.
   - **Theming & Personalization:** Monet wallpaper color extraction, 18 Material themes, high-contrast white/gray styles, and dynamic app icons.
