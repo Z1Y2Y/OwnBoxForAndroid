@@ -440,10 +440,10 @@ class UiScaleSettingsActivity : ThemedActivity() {
         topBarRow.addView(previewToolbarTitle)
 
         val iconResIds = listOf(
-            R.drawable.ic_action_search,
-            R.drawable.ic_action_note_add_top,
-            R.drawable.ic_action_url_test_bolt,
-            R.drawable.ic_action_speed_test_gauge,
+            R.drawable.ic_baseline_search_24,
+            R.drawable.ic_action_note_add,
+            R.drawable.ic_electric_bolt_24,
+            R.drawable.ic_baseline_speed_24,
             R.drawable.ic_baseline_more_vert_24
         )
         for (resId in iconResIds) {

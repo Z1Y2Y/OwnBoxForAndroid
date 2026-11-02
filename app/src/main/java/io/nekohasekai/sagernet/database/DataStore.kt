@@ -121,7 +121,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var isExpert by configurationStore.boolean(Key.APP_EXPERT)
     var appTheme by configurationStore.int(Key.APP_THEME) { Theme.LIGHT_GRAY }
-    val useSystemTheme: Boolean get() = false
+    var useSystemTheme by configurationStore.boolean(Key.USE_SYSTEM_THEME) { false }
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME)
     var appIconMode by configurationStore.stringToInt(Key.APP_ICON_MODE) { 0 }
     var appLanguage by configurationStore.string(Key.APP_LANGUAGE) { "" }
