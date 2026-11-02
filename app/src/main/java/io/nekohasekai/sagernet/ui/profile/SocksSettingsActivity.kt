@@ -8,10 +8,11 @@ import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
 import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
+import io.nekohasekai.sagernet.ktx.applyDefaultValues
 import moe.matsuri.nb4a.ui.SimpleMenuPreference
 
 class SocksSettingsActivity : ProfileSettingsActivity<SOCKSBean>() {
-    override fun createEntity() = SOCKSBean()
+    override fun createEntity() = SOCKSBean().applyDefaultValues()
 
     override fun SOCKSBean.init() {
         DataStore.profileName = name
@@ -54,7 +55,7 @@ class SocksSettingsActivity : ProfileSettingsActivity<SOCKSBean>() {
             password.isVisible = version == SOCKSBean.PROTOCOL_SOCKS5
         }
 
-        updateProtocol(DataStore.protocolVersion)
+        updateProtocol(DataStore.serverProtocolInt)
         protocol.setOnPreferenceChangeListener { _, newValue ->
             updateProtocol((newValue as String).toInt())
             true

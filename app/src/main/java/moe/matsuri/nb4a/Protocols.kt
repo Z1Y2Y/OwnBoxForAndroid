@@ -91,7 +91,34 @@ object Protocols {
                 app.getString(R.string.connection_test_refused)
             }
 
-            else -> msg
+            msgL.contains("plugin") && (msgL.contains("not found") || msgL.contains("unknown")) -> {
+                val pluginName = msg.substringAfter("Plugin", "").substringBefore("not found").trim()
+                if (pluginName.isNotBlank()) "缺少插件: $pluginName" else "缺少必要插件"
+            }
+
+            msgL.contains("no such host") || msgL.contains("dns") || msgL.contains("nxdomain") || msgL.contains("name resolution") -> {
+                "DNS 解析失败"
+            }
+
+            msgL.contains("certificate") || msgL.contains("handshake") || msgL.contains("tls:") || msgL.contains("x509") -> {
+                "TLS 握手失败"
+            }
+
+            msgL.contains("cipher") || msgL.contains("unknown method") -> {
+                "加密方式不支持"
+            }
+
+            msgL.contains("reset by peer") || msgL.contains("connection reset") -> {
+                "连接被重置"
+            }
+
+            msgL.contains("network is unreachable") || msgL.contains("route to host") -> {
+                "网络不可达"
+            }
+
+            msg.isNotBlank() && msg.length <= 40 -> msg
+
+            else -> app.getString(R.string.unavailable)
         }
     }
 

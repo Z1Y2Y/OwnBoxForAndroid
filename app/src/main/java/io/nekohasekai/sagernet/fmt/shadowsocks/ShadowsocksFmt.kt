@@ -92,12 +92,29 @@ fun ShadowsocksBean.toUri(): String {
 
 }
 
+fun normalizeShadowsocksCipher(cipher: String?): String {
+    if (cipher.isNullOrBlank()) return "aes-256-gcm"
+    val lower = cipher.trim().lowercase().replace('_', '-')
+    return when (lower) {
+        "aead-aes-128-gcm", "aes-128-gcm" -> "aes-128-gcm"
+        "aead-aes-192-gcm", "aes-192-gcm" -> "aes-192-gcm"
+        "aead-aes-256-gcm", "aes-256-gcm" -> "aes-256-gcm"
+        "aead-chacha20-poly1305", "chacha20-poly1305", "chacha20-ietf-poly1305" -> "chacha20-ietf-poly1305"
+        "xchacha20-poly1305", "xchacha20-ietf-poly1305" -> "xchacha20-ietf-poly1305"
+        "2022-blake3-aes-128-gcm" -> "2022-blake3-aes-128-gcm"
+        "2022-blake3-aes-256-gcm" -> "2022-blake3-aes-256-gcm"
+        "2022-blake3-chacha20-poly1305" -> "2022-blake3-chacha20-poly1305"
+        "plain" -> "none"
+        else -> lower
+    }
+}
+
 fun JSONObject.parseShadowsocks(): ShadowsocksBean {
     return ShadowsocksBean().apply {
         serverAddress = getStr("server")
         serverPort = getIntNya("server_port")
         password = getStr("password")
-        method = getStr("method")
+        method = normalizeShadowsocksCipher(getStr("method"))
         name = optString("remarks", "")
 
         val pId = getStr("plugin")
@@ -113,7 +130,7 @@ fun buildSingBoxOutboundShadowsocksBean(bean: ShadowsocksBean): SingBoxOptions.O
         server = bean.serverAddress
         server_port = bean.serverPort
         password = bean.password
-        method = bean.method
+        method = normalizeShadowsocksCipher(bean.method)
         if (bean.plugin.isNotBlank()) {
             plugin = bean.plugin.substringBefore(";")
             var opts = if (bean.plugin.contains(";")) bean.plugin.substringAfter(";") else ""

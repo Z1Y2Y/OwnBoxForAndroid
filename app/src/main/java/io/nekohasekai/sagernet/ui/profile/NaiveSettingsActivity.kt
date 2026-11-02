@@ -9,9 +9,11 @@ import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
 import io.nekohasekai.sagernet.fmt.naive.NaiveBean
 
+import io.nekohasekai.sagernet.ktx.applyDefaultValues
+
 class NaiveSettingsActivity : ProfileSettingsActivity<NaiveBean>() {
 
-    override fun createEntity() = NaiveBean()
+    override fun createEntity() = NaiveBean().applyDefaultValues()
 
     override fun NaiveBean.init() {
         DataStore.profileName = name
@@ -36,7 +38,7 @@ class NaiveSettingsActivity : ProfileSettingsActivity<NaiveBean>() {
         proto = DataStore.serverProtocol
         sni = DataStore.serverSNI
         certificates = DataStore.serverCertificates
-        extraHeaders = DataStore.serverHeaders.replace("\r\n", "\n")
+        extraHeaders = DataStore.serverHeaders?.replace("\r\n", "\n") ?: ""
         insecureConcurrency = DataStore.serverInsecureConcurrency
         sUoT = DataStore.profileCacheStore.getBoolean("sUoT")
     }

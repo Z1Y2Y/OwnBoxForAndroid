@@ -979,6 +979,7 @@ fun buildConfig(
 
             profileList.forEachIndexed { index, proxyEntity ->
                 val bean = proxyEntity.requireBean()
+                bypassDNSBeans += bean
 
                 // tagOut: v2ray outbound tag for a profile
                 // profile2 (in) (global)   tag g-(id)
@@ -993,7 +994,6 @@ fun buildConfig(
                 if (index == profileList.lastIndex) {
                     needGlobal = true
                     tagOut = "g-" + proxyEntity.id
-                    bypassDNSBeans += proxyEntity.requireBean()
 
                     if (!forTest) {
                         val ownerGid = entity.groupId
@@ -1784,9 +1784,16 @@ fun buildConfig(
                     action = "reject"
                 })
             }
-            // avoid loopback: outbound server domains must resolve directly
+            // 确保测试时所有出站代理节点服务器域名强制走 dns-direct 解析，彻底消除自解死锁
+            if (domainListDNSDirectForce.isNotEmpty()) {
+                testRules.add(DNSRule_DefaultOptions().apply {
+                    makeSingBoxRule(domainListDNSDirectForce.toHashSet().toList())
+                    server = "dns-direct"
+                })
+            }
+            // 兜底直连与系统出站解析
             testRules.add(DNSRule_DefaultOptions().apply {
-                outbound = mutableListOf("any")
+                outbound = mutableListOf(TAG_DIRECT, "dns-direct", "direct")
                 server = "dns-direct"
             })
             dns.rules = testRules

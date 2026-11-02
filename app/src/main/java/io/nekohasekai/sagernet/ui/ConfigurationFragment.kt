@@ -4165,7 +4165,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                         val error = proxyEntity.error ?: "<?>"
                         val friendly = Protocols.genFriendlyMsg(error)
                         appendPart(
-                            if (friendly != error) friendly else getString(R.string.unavailable),
+                            if (friendly.isNotBlank()) friendly else getString(R.string.unavailable),
                             requireContext().getColour(R.color.material_red_500),
                         )
                     }

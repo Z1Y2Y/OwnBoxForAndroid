@@ -84,6 +84,9 @@ abstract class StandardV2RaySettingsActivity : ProfileSettingsActivity<StandardV
 
     override fun StandardV2RayBean.serialize() {
         pbm.fromCacheAll(this)
+        if (this is VMessBean && (intent?.getBooleanExtra("vless", false) == true || (tmpBean as? VMessBean)?.isVLESS == true)) {
+            alterId = -1
+        }
     }
 
     private lateinit var securityCategory: PreferenceCategory

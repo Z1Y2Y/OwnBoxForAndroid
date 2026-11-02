@@ -127,6 +127,11 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
                 } catch (e: Throwable) {
                     Logs.e(e)
                     onMainDispatcher {
+                        Toast.makeText(
+                            this@ProfileSettingsActivity,
+                            "配置加载失败: ${e.readableMessage}",
+                            Toast.LENGTH_LONG
+                        ).show()
                         finish()
                     }
                 }
@@ -138,23 +143,36 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
     }
 
     open suspend fun saveAndExit() {
-
-        val editingId = DataStore.editingId
-        if (editingId == 0L) {
-            val editingGroup = DataStore.editingGroup
-            ProfileManager.createProfile(editingGroup, createEntity().apply { serialize() })
-        } else {
-            if (proxyEntity == null) {
+        try {
+            val editingId = DataStore.editingId
+            if (editingId == 0L) {
+                val editingGroup = DataStore.editingGroup
+                val bean = createEntity().apply { serialize() }
+                bean.applyDefaultValues()
+                ProfileManager.createProfile(editingGroup, bean)
+            } else {
+                if (proxyEntity == null) {
+                    onMainDispatcher { finish() }
+                    return
+                }
+                if (proxyEntity!!.id == DataStore.selectedProxy) {
+                    SagerNet.stopService()
+                }
+                ProfileManager.updateProfile(proxyEntity!!.apply { (requireBean() as T).serialize() })
+            }
+            onMainDispatcher {
                 finish()
-                return
             }
-            if (proxyEntity!!.id == DataStore.selectedProxy) {
-                SagerNet.stopService()
+        } catch (e: Throwable) {
+            Logs.e(e)
+            onMainDispatcher {
+                Toast.makeText(
+                    this@ProfileSettingsActivity,
+                    "保存配置失败: ${e.readableMessage}",
+                    Toast.LENGTH_LONG
+                ).show()
             }
-            ProfileManager.updateProfile(proxyEntity!!.apply { (requireBean() as T).serialize() })
         }
-        finish()
-
     }
 
     val child by lazy { supportFragmentManager.findFragmentById(R.id.settings) as MyPreferenceFragmentCompat }

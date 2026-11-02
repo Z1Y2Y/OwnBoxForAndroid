@@ -466,20 +466,21 @@ object RawUpdater : GroupUpdater() {
                     try {
                         val proxyType = (proxy["type"] as? String)?.lowercase() ?: continue
                         when (proxyType) {
-                        "socks5" -> {
+                        "socks5", "socks" -> {
                             proxies.add(SOCKSBean().apply {
-                                serverAddress = proxy["server"] as String
-                                serverPort = proxy["port"].toString().toInt()
+                                serverAddress = proxy["server"]?.toString() ?: ""
+                                serverPort = proxy["port"]?.toString()?.toIntOrNull() ?: 1080
                                 username = proxy["username"]?.toString()
                                 password = proxy["password"]?.toString()
                                 name = proxy["name"]?.toString()
+                                sUoT = proxy["udp-over-tcp"]?.toString() == "true" || proxy["uot"]?.toString() == "true"
                             })
                         }
 
                         "http" -> {
                             proxies.add(HttpBean().apply {
-                                serverAddress = proxy["server"] as String
-                                serverPort = proxy["port"].toString().toInt()
+                                serverAddress = proxy["server"]?.toString() ?: ""
+                                serverPort = proxy["port"]?.toString()?.toIntOrNull() ?: 8080
                                 username = proxy["username"]?.toString()
                                 password = proxy["password"]?.toString()
                                 setTLS(proxy["tls"]?.toString() == "true")
@@ -489,11 +490,11 @@ object RawUpdater : GroupUpdater() {
                             })
                         }
 
-                        "ss" -> {
+                        "ss", "shadowsocks" -> {
                             val ssPlugin = mutableListOf<String>()
                             if (proxy.contains("plugin")) {
-                                val opts = proxy["plugin-opts"] as Map<String, Any?>
-                                when (proxy["plugin"]) {
+                                val opts = (proxy["plugin-opts"] as? Map<String, Any?>) ?: emptyMap()
+                                when (proxy["plugin"]?.toString()) {
                                     "obfs" -> {
                                         ssPlugin.apply {
                                             add("obfs-local")
@@ -522,27 +523,28 @@ object RawUpdater : GroupUpdater() {
                                 }
                             }
                             proxies.add(ShadowsocksBean().apply {
-                                serverAddress = proxy["server"] as String
-                                serverPort = proxy["port"].toString().toInt()
+                                serverAddress = proxy["server"]?.toString() ?: ""
+                                serverPort = proxy["port"]?.toString()?.toIntOrNull() ?: 8388
                                 password = proxy["password"]?.toString()
-                                method = clashCipher(proxy["cipher"] as String)
+                                method = clashCipher((proxy["cipher"] ?: proxy["method"])?.toString())
                                 plugin = ssPlugin.joinToString(";")
                                 name = proxy["name"]?.toString()
+                                sUoT = proxy["udp-over-tcp"]?.toString() == "true" || proxy["uot"]?.toString() == "true"
                             })
                         }
 
-                        "ssr" -> {
+                        "ssr", "shadowsocksr" -> {
                             proxies.add(ShadowsocksRBean().apply {
                                 for (opt in proxy) {
                                     if (opt.value == null) continue
                                     when (opt.key) {
                                         "name" -> name = opt.value.toString()
-                                        "server" -> serverAddress = opt.value as String
-                                        "port" -> serverPort = opt.value.toString().toInt()
-                                        "cipher" -> method = clashCipher(opt.value as String)
+                                        "server" -> serverAddress = opt.value.toString()
+                                        "port" -> serverPort = opt.value.toString().toIntOrNull() ?: 8388
+                                        "cipher" -> method = clashCipher(opt.value.toString())
                                         "password" -> password = opt.value.toString()
-                                        "obfs" -> obfs = opt.value as String
-                                        "protocol" -> protocol = opt.value as String
+                                        "obfs" -> obfs = opt.value.toString()
+                                        "protocol" -> protocol = opt.value.toString()
                                         "obfs-param" -> obfsParam = opt.value.toString()
                                         "protocol-param" -> protocolParam = opt.value.toString()
                                     }
@@ -656,6 +658,12 @@ object RawUpdater : GroupUpdater() {
                                                     }
                                                 }
 
+                                                "host" -> {
+                                                    if (bean.host.isNullOrBlank()) {
+                                                        bean.host = wsOpt.value?.toString()
+                                                    }
+                                                }
+
                                                 "path" -> {
                                                     bean.path = wsOpt.value?.toString()
                                                 }
@@ -712,7 +720,7 @@ object RawUpdater : GroupUpdater() {
                                     "grpc-opts" -> (opt.value as? Map<String, Any?>)?.also {
                                         for (grpcOpt in it) {
                                             when (grpcOpt.key) {
-                                                "grpc-service-name" -> bean.path =
+                                                "grpc-service-name", "service-name" -> bean.path =
                                                     grpcOpt.value?.toString()
                                             }
                                         }
@@ -905,7 +913,7 @@ object RawUpdater : GroupUpdater() {
                             proxies.add(bean)
                         }
 
-                        "hysteria2" -> {
+                        "hysteria2", "hy2" -> {
                             val bean = HysteriaBean()
                             bean.protocolVersion = 2
                             var hopPorts = ""
@@ -1090,11 +1098,10 @@ object RawUpdater : GroupUpdater() {
         return null
     }
 
-    fun clashCipher(cipher: String): String {
-        return when (cipher) {
-            "dummy" -> "none"
-            else -> cipher
-        }
+    fun clashCipher(cipher: String?): String {
+        if (cipher.isNullOrBlank()) return "aes-256-gcm"
+        if (cipher == "dummy") return "none"
+        return io.nekohasekai.sagernet.fmt.shadowsocks.normalizeShadowsocksCipher(cipher)
     }
 
     fun parseJSON(json: Any): List<AbstractBean> {

@@ -10,9 +10,11 @@ import moe.matsuri.nb4a.proxy.PreferenceBinding
 import moe.matsuri.nb4a.proxy.PreferenceBindingManager
 import moe.matsuri.nb4a.proxy.Type
 
+import io.nekohasekai.sagernet.ktx.applyDefaultValues
+
 class WireGuardSettingsActivity : ProfileSettingsActivity<WireGuardBean>() {
 
-    override fun createEntity() = WireGuardBean()
+    override fun createEntity() = WireGuardBean().applyDefaultValues()
 
     private val pbm = PreferenceBindingManager()
     private val name = pbm.add(PreferenceBinding(Type.Text, "name"))

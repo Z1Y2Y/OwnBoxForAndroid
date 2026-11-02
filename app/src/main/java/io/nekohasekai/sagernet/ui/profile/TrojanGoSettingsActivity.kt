@@ -12,9 +12,11 @@ import io.nekohasekai.sagernet.fmt.trojan_go.TrojanGoBean
 import io.nekohasekai.sagernet.ktx.app
 import moe.matsuri.nb4a.ui.SimpleMenuPreference
 
+import io.nekohasekai.sagernet.ktx.applyDefaultValues
+
 class TrojanGoSettingsActivity : ProfileSettingsActivity<TrojanGoBean>() {
 
-    override fun createEntity() = TrojanGoBean()
+    override fun createEntity() = TrojanGoBean().applyDefaultValues()
 
     override fun TrojanGoBean.init() {
         DataStore.profileName = name
@@ -26,12 +28,13 @@ class TrojanGoSettingsActivity : ProfileSettingsActivity<TrojanGoBean>() {
         DataStore.serverNetwork = type
         DataStore.serverHost = host
         DataStore.serverPath = path
-        if (encryption.startsWith("ss;")) {
+        val enc = encryption ?: "none"
+        if (enc.startsWith("ss;")) {
             DataStore.serverEncryption = "ss"
-            DataStore.serverMethod = encryption.substringAfter(";").substringBefore(":")
-            DataStore.serverPassword1 = encryption.substringAfter(":")
+            DataStore.serverMethod = enc.substringAfter(";").substringBefore(":")
+            DataStore.serverPassword1 = enc.substringAfter(":")
         } else {
-            DataStore.serverEncryption = encryption
+            DataStore.serverEncryption = enc
         }
     }
 
@@ -94,9 +97,9 @@ class TrojanGoSettingsActivity : ProfileSettingsActivity<TrojanGoBean>() {
             true
         }
         encryprtion = findPreference(Key.SERVER_ENCRYPTION)!!
-        updateEncryption(encryprtion.value)
+        updateEncryption(encryprtion.value ?: "none")
         encryprtion.setOnPreferenceChangeListener { _, newValue ->
-            updateEncryption(newValue as String)
+            updateEncryption((newValue as? String) ?: "none")
             true
         }
     }
@@ -112,7 +115,7 @@ class TrojanGoSettingsActivity : ProfileSettingsActivity<TrojanGoBean>() {
         }
     }
 
-    fun updateEncryption(encryption: String) {
+    fun updateEncryption(encryption: String?) {
         when (encryption) {
             "ss" -> {
                 ssCategory.isVisible = true
