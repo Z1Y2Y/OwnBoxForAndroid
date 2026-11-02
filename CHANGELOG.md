@@ -1,5 +1,17 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# OwnBox for Android v26.11.2.5 预览版 (v26.11.2.5-preview)
+
+### 🎨 用户个性化设置与主题持久化深度修复
+* **彻底修复主题颜色退出/更新后被重置为默认白色的致命 Bug**：
+  - **移除硬编码黑白灰白名单**：重构启动时主题安全校验逻辑，支持包含「经典蓝」（`Theme.BLUE`）、薄荷绿、莫奈动态色等 20 余种精选多彩主题与自定义主题；
+  - **100% 保持个性化主题**：杜绝因应用冷启动或版本覆盖更新时被强行覆写重置为浅灰/纯白的逻辑缺陷，确保任何主题色彩设置终身持久保留。
+* **全局设置数据库（`PublicDatabase`）稳固性与多进程并发加固**：
+  - **启用现代 WAL 并发写入模式（`JournalMode.AUTOMATIC`）**：彻底解决 UI 主进程与后台 VPN 服务进程（`:bg`）同时读写 `configuration.db` 时的排他文件锁死锁问题（`SQLiteDatabaseLockedException`）；
+  - **新增启动自动容灾快照与崩溃安全恢复机制**：在数据库初始化异常时自动创建时间戳备份快照并安全重试，杜绝因异常导致用户配置数据表被全量破坏性清空。
+* **系统级数据备份与换机迁移规则补齐**：
+  - 在 `backup_rules.xml` 中为 `<cloud-backup>` 与 `<device-transfer>` 补齐 `domain="database" path="configuration.db"`，保障系统换机传输与云备份恢复时个性化设置无损同步。
+
 # OwnBox for Android v26.11.2.4 预览版 (v26.11.2.4-preview)
 
 ### ⚡ 核心出站节点解析与 Hysteria 2 协议深度修复

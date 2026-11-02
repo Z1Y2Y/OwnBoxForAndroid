@@ -6,6 +6,9 @@
             domain="database"
             path="sager_net.db" />
         <include
+            domain="database"
+            path="configuration.db" />
+        <include
             domain="device_database"
             path="configuration.db" />
     </cloud-backup>
@@ -13,6 +16,9 @@
         <include
             domain="database"
             path="sager_net.db" />
+        <include
+            domain="database"
+            path="configuration.db" />
         <include
             domain="device_database"
             path="configuration.db" />

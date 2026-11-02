@@ -43,6 +43,10 @@ object Theme {
 
     private fun defaultTheme() = LIGHT_GRAY
 
+    fun isValidTheme(themeId: Int): Boolean {
+        return themeId in MONET..LIGHT_GRAY || themeId == CUSTOM
+    }
+
     fun getClosestThemeForColor(color: Int): Int {
         val hsv = FloatArray(3)
         Color.colorToHSV(color, hsv)

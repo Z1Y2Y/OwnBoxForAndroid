@@ -112,7 +112,7 @@ class SagerNet : Application(),
         }
 
         if (isMainProcess) {
-            if (DataStore.appTheme !in setOf(Theme.BLACK, Theme.WHITE, Theme.LIGHT_GRAY)) {
+            if (!Theme.isValidTheme(DataStore.appTheme)) {
                 DataStore.appTheme = Theme.LIGHT_GRAY
             }
             Theme.apply(this)
