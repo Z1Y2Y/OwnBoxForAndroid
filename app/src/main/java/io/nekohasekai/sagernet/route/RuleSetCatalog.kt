@@ -220,7 +220,7 @@ class RuleSetCatalog(entries: List<Pair<String, String>>) {
                 }
                 val url = resolved.first
                 val tag = resolved.third
-                val safeTag = tag.replace(Regex("[:/\\\\?&="]"), "_")
+                val safeTag = tag.replace(Regex("[:/\\\\?&=]"), "_")
                 val dstFile = File(srsDir, "$safeTag.srs")
                 val tmpFile = File(srsDir, "$safeTag.srs.tmp")
 
