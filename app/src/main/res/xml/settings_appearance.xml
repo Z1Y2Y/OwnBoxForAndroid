@@ -22,6 +22,12 @@
             app:key="appLanguage"
             app:title="@string/language"
             app:useSimpleSummaryProvider="true" />
+        <Preference
+            app:icon="@drawable/ic_baseline_tune_24"
+            app:key="uiScaleSettings"
+            app:persistent="false"
+            app:summary="@string/ui_scale_settings_summary"
+            app:title="@string/ui_scale_settings_title" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/cag_notification">

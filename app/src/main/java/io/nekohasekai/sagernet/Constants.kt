@@ -104,6 +104,16 @@ object Key {
     const val SHOW_ALL_GROUPS_TAB = "showAllGroupsTab"
     const val ALL_GROUPS_ORDER = "allGroupsOrder"
 
+    const val UI_IGNORE_SYSTEM_FONT_SCALE = "uiIgnoreSystemFontScale"
+    const val UI_GLOBAL_SCALE = "uiGlobalScale"
+    const val UI_FONT_SCALE = "uiFontScale"
+    const val UI_TOOLBAR_TITLE_SCALE = "uiToolbarTitleScale"
+    const val UI_TOOLBAR_ICON_SCALE = "uiToolbarIconScale"
+    const val UI_TAB_BAR_SCALE = "uiTabBarScale"
+    const val UI_DRAWER_SCALE = "uiDrawerScale"
+    const val UI_PROFILE_CARD_SCALE = "uiProfileCardScale"
+    const val UI_BOTTOM_BAR_SCALE = "uiBottomBarScale"
+
     const val ALLOW_INSECURE_ON_REQUEST = "allowInsecureOnRequest"
 
     // Memory & performance mode: false = extreme low memory (default); true = high perf / high RAM

@@ -162,6 +162,7 @@ import java.util.zip.ZipInputStream
 import kotlin.collections.set
 import androidx.appcompat.app.AlertDialog
 import io.nekohasekai.sagernet.database.SubscriptionBean
+import io.nekohasekai.sagernet.utils.UiScaleManager
 import kotlin.math.abs
 
 class ConfigurationFragment @JvmOverloads constructor(
@@ -512,11 +513,16 @@ class ConfigurationFragment @JvmOverloads constructor(
         toolbar.clipChildren = false
         toolbar.clipToPadding = false
 
+        val titleFactor = UiScaleManager.toolbarTitleFactor()
+        val iconFactor = UiScaleManager.toolbarIconFactor()
+        val navScale = 0.9f * iconFactor
+        val navMinW = (dp2px(40) * iconFactor).toInt().coerceAtLeast(dp2px(28))
+
         val titleView = view?.findViewById<TextView>(R.id.toolbar_title_view)
         titleView?.let { tv ->
             tv.text = getToolbarTitleText()
             tv.visibility = View.VISIBLE
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17.5f)
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17.5f * titleFactor)
             tv.letterSpacing = -0.01f
             tv.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             tv.includeFontPadding = false
@@ -528,10 +534,10 @@ class ConfigurationFragment @JvmOverloads constructor(
         for (i in 0 until toolbar.childCount) {
             val child = toolbar.getChildAt(i)
             if (child is android.widget.ImageButton) {
-                child.minimumWidth = dp2px(40)
+                child.minimumWidth = navMinW
                 child.setPadding(dp2px(8), 0, dp2px(8), 0)
-                child.scaleX = 0.9f
-                child.scaleY = 0.9f
+                child.scaleX = navScale
+                child.scaleY = navScale
             } else if (child is ActionMenuView) {
                 child.clipChildren = false
                 child.clipToPadding = false
@@ -548,10 +554,10 @@ class ConfigurationFragment @JvmOverloads constructor(
             for (i in 0 until toolbar.childCount) {
                 val child = toolbar.getChildAt(i)
                 if (child is android.widget.ImageButton) {
-                    child.minimumWidth = dp2px(40)
+                    child.minimumWidth = navMinW
                     child.setPadding(dp2px(8), 0, dp2px(8), 0)
-                    child.scaleX = 0.9f
-                    child.scaleY = 0.9f
+                    child.scaleX = navScale
+                    child.scaleY = navScale
                 } else if (child is ActionMenuView) {
                     child.clipChildren = false
                     child.clipToPadding = false
@@ -566,14 +572,15 @@ class ConfigurationFragment @JvmOverloads constructor(
 
     private fun applyActionMenuSpacing(menuView: ActionMenuView) {
         if (isAdjustingMenuSpacing) return
-        val minW = dp2px(33)
+        val iconFactor = UiScaleManager.toolbarIconFactor()
+        val minW = (dp2px(33) * iconFactor).toInt().coerceIn(dp2px(22), dp2px(46))
         val gap = dp2px(2)
         val endMargin = dp2px(6)
-        val iconScale = 0.88f
+        val iconScale = 0.88f * iconFactor
 
         menuView.clipChildren = false
         menuView.clipToPadding = false
-        menuView.minimumWidth = dp2px(179)
+        menuView.minimumWidth = minW * 5 + gap * 4 + endMargin
 
         try {
             val cellField = ActionMenuView::class.java.getDeclaredField("mMinCellSize")
@@ -828,7 +835,9 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
-        val btnW = dp2px(33)
+        val iconFactor = UiScaleManager.toolbarIconFactor()
+        val btnW = (dp2px(33) * iconFactor).toInt().coerceIn(dp2px(22), dp2px(46))
+        val iconScale = 0.88f * iconFactor
         searchView.clipChildren = false
         searchView.clipToPadding = false
         searchView.setPadding(0, 0, 0, 0)
@@ -849,8 +858,8 @@ class ConfigurationFragment @JvmOverloads constructor(
         searchBtn?.maxWidth = btnW
         searchBtn?.setPadding(0, 0, 0, 0)
         searchBtn?.scaleType = ImageView.ScaleType.CENTER
-        searchBtn?.scaleX = 0.88f
-        searchBtn?.scaleY = 0.88f
+        searchBtn?.scaleX = iconScale
+        searchBtn?.scaleY = iconScale
         (searchBtn?.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
             lp.width = btnW
             lp.leftMargin = 0
@@ -1073,10 +1082,29 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
+        val tabFactor = UiScaleManager.tabBarFactor()
+        if (tabFactor != 1.0f) {
+            val scaledTabHeight = (dp2px(32) * tabFactor).toInt().coerceIn(dp2px(22), dp2px(48))
+            tabLayout.minimumHeight = scaledTabHeight
+            tabLayout.layoutParams = tabLayout.layoutParams?.apply {
+                height = scaledTabHeight
+            }
+        }
+
         val touchSlop = ViewConfiguration.get(requireContext()).scaledTouchSlop
         TabLayoutMediator(tabLayout, groupPager) { tab, position ->
             if (adapter.groupList.size > position) {
                 tab.text = adapter.groupList[position].displayName()
+            }
+            if (tabFactor != 1.0f) {
+                tab.view.post {
+                    for (i in 0 until tab.view.childCount) {
+                        val c = tab.view.getChildAt(i)
+                        if (c is TextView) {
+                            c.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f * tabFactor)
+                        }
+                    }
+                }
             }
             tab.view.setOnLongClickListener { // clear toast
                 true
@@ -3903,7 +3931,34 @@ class ConfigurationFragment @JvmOverloads constructor(
             val shareButton: ImageView = view.findViewById(R.id.shareIcon)
             val removeButton: ImageView = view.findViewById(R.id.remove)
 
+            private val baseNameTextSizePx = profileName.textSize
+            private val baseTypeTextSizePx = profileType.textSize
+            private val baseAddressTextSizePx = profileAddress.textSize
+            private val baseStatusTextSizePx = profileStatus.textSize
+            private val baseTrafficTextSizePx = trafficText.textSize
+
+            private fun applyCardScale() {
+                val factor = UiScaleManager.profileCardFactor()
+                profileName.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseNameTextSizePx * factor)
+                profileType.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseTypeTextSizePx * factor)
+                profileAddress.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseAddressTextSizePx * factor)
+                profileStatus.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseStatusTextSizePx * factor)
+                trafficText.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseTrafficTextSizePx * factor)
+                doubleColumnMenuButton.scaleX = factor
+                doubleColumnMenuButton.scaleY = factor
+                editButton.scaleX = factor
+                editButton.scaleY = factor
+                shareButton.scaleX = factor
+                shareButton.scaleY = factor
+                removeButton.scaleX = factor
+                removeButton.scaleY = factor
+                val hPad = (dp2px(8) * factor).toInt().coerceAtLeast(dp2px(4))
+                val vPad = (dp2px(2) * factor).toInt().coerceAtLeast(dp2px(1))
+                profileType.setPadding(hPad, vPad, hPad, vPad)
+            }
+
             init {
+                applyCardScale()
                 view.setOnClickListener {
                     if (DataStore.hapticFeedback) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     val proxyEntity = entity

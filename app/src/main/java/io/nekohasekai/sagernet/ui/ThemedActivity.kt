@@ -1,5 +1,6 @@
 package io.nekohasekai.sagernet.ui
 
+import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
@@ -22,6 +23,7 @@ import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.getColorAttr
 import io.nekohasekai.sagernet.utils.Theme
+import io.nekohasekai.sagernet.utils.UiScaleManager
 
 abstract class ThemedActivity : AppCompatActivity {
     constructor() : super()
@@ -35,6 +37,11 @@ abstract class ThemedActivity : AppCompatActivity {
     private var lastAppTheme: Int = 0
     private var lastNightTheme: Int = 0
     private var lastUsingNight: Boolean = false
+    private var lastUiScaleSignature: String = ""
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(UiScaleManager.wrapContext(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         lastUseSystemTheme = DataStore.useSystemTheme
@@ -42,6 +49,7 @@ abstract class ThemedActivity : AppCompatActivity {
         lastAppTheme = DataStore.appTheme
         lastNightTheme = DataStore.nightTheme
         lastUsingNight = Theme.usingNightMode(this)
+        lastUiScaleSignature = UiScaleManager.getSignature()
 
         Theme.applyNightTheme()
         if (!isDialog) {
@@ -137,11 +145,13 @@ abstract class ThemedActivity : AppCompatActivity {
         }
         val currentWallpaperColor = if (DataStore.useSystemTheme) Theme.getSystemWallpaperColor(this) else null
         val currentUsingNight = Theme.usingNightMode(this)
+        val currentScaleSignature = UiScaleManager.getSignature()
         if (lastUseSystemTheme != DataStore.useSystemTheme ||
             (DataStore.useSystemTheme && lastWallpaperColor != currentWallpaperColor) ||
             (!DataStore.useSystemTheme && lastAppTheme != DataStore.appTheme) ||
             lastNightTheme != DataStore.nightTheme ||
-            lastUsingNight != currentUsingNight) {
+            lastUsingNight != currentUsingNight ||
+            (this !is UiScaleSettingsActivity && lastUiScaleSignature != currentScaleSignature)) {
             ActivityCompat.recreate(this)
         }
     }

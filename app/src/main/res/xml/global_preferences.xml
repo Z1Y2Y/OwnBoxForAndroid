@@ -14,6 +14,13 @@
             app:summary="@string/settings_appearance_sum"
             app:title="@string/settings_appearance" />
 
+        <Preference
+            app:icon="@drawable/ic_baseline_tune_24"
+            app:key="uiScaleSettings"
+            app:persistent="false"
+            app:summary="@string/ui_scale_settings_summary"
+            app:title="@string/ui_scale_settings_title" />
+
         <moe.matsuri.nb4a.ui.SimpleMenuPreference
             app:defaultValue="0"
             app:entries="@array/card_style_entries"

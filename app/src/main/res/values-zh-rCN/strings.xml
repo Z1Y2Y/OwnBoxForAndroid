@@ -1196,6 +1196,8 @@
     <string name="notification_switch">切换…</string>
     <string name="notification_switching">切换中…</string>
     <string name="settings_appearance">外观</string>
-    <string name="settings_appearance_sum">主题、语言、通知</string>
+    <string name="settings_appearance_sum">主题、界面与字体大小、语言、通知</string>
+    <string name="ui_scale_settings_title">界面与字体大小</string>
+    <string name="ui_scale_settings_summary">调节全局界面与字体比例、忽略系统大字体、分区自定义按钮/菜单/卡片大小</string>
 
 </resources>

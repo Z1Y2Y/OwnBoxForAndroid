@@ -57,6 +57,7 @@ import io.nekohasekai.sagernet.database.preference.OnPreferenceDataStoreChangeLi
 import io.nekohasekai.sagernet.databinding.LayoutMainBinding
 import io.nekohasekai.sagernet.utils.Theme
 import io.nekohasekai.sagernet.utils.LandingIpManager
+import io.nekohasekai.sagernet.utils.UiScaleManager
 import io.nekohasekai.sagernet.fmt.AbstractBean
 import io.nekohasekai.sagernet.fmt.KryoConverters
 import io.nekohasekai.sagernet.fmt.PluginEntry
@@ -65,23 +66,15 @@ import io.nekohasekai.sagernet.group.GroupUpdater
 import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.getColorAttr
 import io.nekohasekai.sagernet.ktx.alert
-import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.isPlay
-import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.isPreview
-import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.launchCustomTab
-import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
-import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.parseProxies
-import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.readableMessage
-import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import io.nekohasekai.sagernet.ktx.runOnMainDispatcher
 import io.nekohasekai.sagernet.ui.MessageStore
-import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.Logs
 import moe.matsuri.nb4a.utils.Util
 
@@ -105,6 +98,13 @@ class MainActivity : ThemedActivity(),
 
         binding = LayoutMainBinding.inflate(layoutInflater)
         binding.fab.initProgress(binding.fabProgress)
+        val bottomFactor = UiScaleManager.bottomBarFactor()
+        if (bottomFactor != 1.0f) {
+            binding.fab.scaleX = bottomFactor
+            binding.fab.scaleY = bottomFactor
+            binding.fabProgress.scaleX = bottomFactor
+            binding.fabProgress.scaleY = bottomFactor
+        }
         val isNight = Theme.usingNightMode(this)
         val fabBgColor = when {
             Theme.isBlackTheme(this) -> Color.BLACK
@@ -147,11 +147,18 @@ class MainActivity : ThemedActivity(),
             drawerMenuScroll = drawerRoot.findViewById(R.id.drawer_menu_scroll_black)
             binding.drawerLayout.removeView(binding.navView)
         }
+        val drawerFactor = UiScaleManager.drawerFactor()
         val drawerWidth = minOf(
-            (320 * resources.displayMetrics.density).toInt(),
+            (320 * resources.displayMetrics.density * drawerFactor.coerceIn(0.8f, 1.15f)).toInt(),
             resources.displayMetrics.widthPixels - (56 * resources.displayMetrics.density).toInt(),
         )
         drawerRoot.layoutParams = drawerRoot.layoutParams.apply { width = drawerWidth }
+        if (drawerFactor != 1.0f) {
+            drawerSettingsButton.scaleX = drawerFactor
+            drawerSettingsButton.scaleY = drawerFactor
+            drawerAboutButton.scaleX = drawerFactor
+            drawerAboutButton.scaleY = drawerFactor
+        }
         navigation.setNavigationItemSelectedListener(this)
         rebuildDrawerItems()
         drawerSettingsButton.setOnClickListener {
@@ -621,6 +628,11 @@ class MainActivity : ThemedActivity(),
 
     private fun rebuildDrawerItems() {
         drawerMenuItems.removeAllViews()
+        val drawerFactor = UiScaleManager.drawerFactor()
+        val rowHeight = (dp(50) * drawerFactor).toInt().coerceIn(dp(34), dp(68))
+        val iconSize = (dp(24) * drawerFactor).toInt().coerceIn(dp(16), dp(34))
+        val groupGap = (dp(14) * drawerFactor).toInt().coerceAtLeast(dp(6))
+        val titleGap = (dp(20) * drawerFactor).toInt().coerceAtLeast(dp(10))
         var previousGroup: Int? = null
         val menu = navigation.menu
         for (index in 0 until menu.size()) {
@@ -628,7 +640,7 @@ class MainActivity : ThemedActivity(),
             if (!item.isVisible) continue
 
             if (previousGroup != null && previousGroup != item.groupId) {
-                drawerMenuItems.addView(View(this), LinearLayout.LayoutParams(1, dp(14)))
+                drawerMenuItems.addView(View(this), LinearLayout.LayoutParams(1, groupGap))
             }
             previousGroup = item.groupId
 
@@ -644,7 +656,7 @@ class MainActivity : ThemedActivity(),
             }
             val rowParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(50),
+                rowHeight,
             ).apply {
                 marginStart = dp(13)
                 marginEnd = dp(13)
@@ -659,11 +671,11 @@ class MainActivity : ThemedActivity(),
                 iconDrawable?.setTint(getColorAttr(R.attr.colorOnSurfaceVariant))
                 setImageDrawable(iconDrawable)
             }
-            row.addView(icon, LinearLayout.LayoutParams(dp(24), dp(24)))
+            row.addView(icon, LinearLayout.LayoutParams(iconSize, iconSize))
 
             val title = TextView(this).apply {
                 text = item.title
-                textSize = 16f
+                textSize = 16f * drawerFactor
                 setTextColor(getColorAttr(R.attr.colorOnSurface))
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -671,7 +683,7 @@ class MainActivity : ThemedActivity(),
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
             row.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(20)
+                marginStart = titleGap
             })
             row.setOnClickListener { onNavigationItemSelected(item) }
             drawerMenuItems.addView(row, rowParams)

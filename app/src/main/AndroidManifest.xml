@@ -472,6 +472,13 @@
             android:configChanges="uiMode"
             android:theme="@style/Theme.SagerNet" />
 
+        <activity
+            android:name="io.nekohasekai.sagernet.ui.UiScaleSettingsActivity"
+            android:label="@string/ui_scale_settings_title"
+            android:configChanges="uiMode"
+            android:parentActivityName="io.nekohasekai.sagernet.ui.MainActivity"
+            android:theme="@style/Theme.SagerNet" />
+
         <service
             android:name="io.nekohasekai.sagernet.bg.ProxyService"
             android:exported="false"

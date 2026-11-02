@@ -23,6 +23,7 @@ import io.nekohasekai.sagernet.database.preference.OnPreferenceDataStoreChangeLi
 import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.utils.AppLocale
 import io.nekohasekai.sagernet.utils.Theme
+import io.nekohasekai.sagernet.utils.UiScaleManager
 import moe.matsuri.nb4a.ui.*
 import android.os.Handler
 import android.os.Looper
@@ -88,6 +89,13 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
         val iconColor = Theme.getPrimaryColor(requireContext())
         tintPreferenceIcons(preferenceScreen, iconColor)
         val categoryUI = findPreference<ExpandablePreferenceCategory>("categoryUI")
+        findPreference<Preference>("uiScaleSettings")?.apply {
+            summary = UiScaleManager.formatSummary()
+            setOnPreferenceClickListener {
+                startActivity(Intent(requireContext(), UiScaleSettingsActivity::class.java))
+                true
+            }
+        }
         val appTheme = findPreference<ColorPickerPreference>(Key.APP_THEME)!!
         appTheme.isEnabled = true
 
@@ -448,6 +456,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
         if (::globalCustomConfig.isInitialized) {
             globalCustomConfig.notifyChanged()
         }
+        findPreference<Preference>("uiScaleSettings")?.summary = UiScaleManager.formatSummary()
         val lanSharingPref = findPreference<Preference>("lanSharing")
         if (lanSharingPref != null) {
             val enabled = DataStore.allowAccess

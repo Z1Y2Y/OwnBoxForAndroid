@@ -257,6 +257,16 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var showLandingIp by configurationStore.boolean(Key.SHOW_LANDING_IP) { true }
     var hideLandingIpAddress by configurationStore.boolean("hide_landing_ip_address") { false }
 
+    var uiIgnoreSystemFontScale by configurationStore.boolean(Key.UI_IGNORE_SYSTEM_FONT_SCALE) { false }
+    var uiGlobalScale by configurationStore.int(Key.UI_GLOBAL_SCALE) { 100 }
+    var uiFontScale by configurationStore.int(Key.UI_FONT_SCALE) { 100 }
+    var uiToolbarTitleScale by configurationStore.int(Key.UI_TOOLBAR_TITLE_SCALE) { 100 }
+    var uiToolbarIconScale by configurationStore.int(Key.UI_TOOLBAR_ICON_SCALE) { 100 }
+    var uiTabBarScale by configurationStore.int(Key.UI_TAB_BAR_SCALE) { 100 }
+    var uiDrawerScale by configurationStore.int(Key.UI_DRAWER_SCALE) { 100 }
+    var uiProfileCardScale by configurationStore.int(Key.UI_PROFILE_CARD_SCALE) { 100 }
+    var uiBottomBarScale by configurationStore.int(Key.UI_BOTTOM_BAR_SCALE) { 100 }
+
     val persistAcrossReboot by configurationStore.boolean(Key.PERSIST_ACROSS_REBOOT) { false }
 
     var httpProxyBypass by configurationStore.string(Key.HTTP_PROXY_BYPASS) { "" }

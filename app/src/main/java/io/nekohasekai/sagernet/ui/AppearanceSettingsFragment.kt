@@ -24,6 +24,7 @@ import io.nekohasekai.sagernet.ktx.dp2px
 import io.nekohasekai.sagernet.ktx.needReload
 import io.nekohasekai.sagernet.utils.AppLocale
 import io.nekohasekai.sagernet.utils.Theme
+import io.nekohasekai.sagernet.utils.UiScaleManager
 import moe.matsuri.nb4a.ui.ColorPickerPreference
 import moe.matsuri.nb4a.ui.SimpleMenuPreference
 
@@ -43,6 +44,14 @@ class AppearanceSettingsFragment : PreferenceFragmentCompat() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceManager.preferenceDataStore = DataStore.configurationStore
         setPreferencesFromResource(R.xml.settings_appearance, rootKey)
+
+        findPreference<Preference>("uiScaleSettings")?.apply {
+            summary = UiScaleManager.formatSummary()
+            setOnPreferenceClickListener {
+                startActivity(Intent(requireContext(), UiScaleSettingsActivity::class.java))
+                true
+            }
+        }
 
         val appTheme = findPreference<ColorPickerPreference>(Key.APP_THEME)
         appTheme?.setOnPreferenceChangeListener { _, newValue ->
@@ -249,6 +258,7 @@ class AppearanceSettingsFragment : PreferenceFragmentCompat() {
 
     override fun onResume() {
         super.onResume()
+        findPreference<Preference>("uiScaleSettings")?.summary = UiScaleManager.formatSummary()
         if (::notificationPermission.isInitialized) {
             notificationPermission.setSummary(
                 if (NotificationManagerCompat.from(requireContext()).areNotificationsEnabled()) {

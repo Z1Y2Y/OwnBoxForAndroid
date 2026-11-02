@@ -872,4 +872,6 @@
     <string name="route_network_type_other">其他</string>
     <string name="route_rule_network_is_expensive">計費網路</string>
     <string name="route_rule_advanced_count">進階 (已設定%1$d項)</string>
+    <string name="ui_scale_settings_title">介面與字體大小</string>
+    <string name="ui_scale_settings_summary">調節全域介面與字體比例、忽略系統大字體、分區自訂按鈕/選單/卡片大小</string>
 </resources>

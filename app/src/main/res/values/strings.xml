@@ -1268,7 +1268,9 @@
     <string name="live_update_preview_dialog_title">Live Update Preview &amp; Help</string>
     <string name="live_update_preview_dialog_message">Current Preview:\n\n[Collapsed Capsule]\n%1$s\n\n[Expanded Notification Card]\nTitle: %2$s\nContent: %3$s\nSubtext: %4$s\n\nSupported Variable Placeholders:\n• {profile} : Active node/profile name\n• {group} : Subscription/group name\n• {ip} : Active node IP address (egress IP or server host)\n• {country} or {location} : Active IP location / country name (e.g. Japan, Hong Kong, United States)\n• {server} : Node server address/host\n• {down} : Real-time download speed\n• {up} : Real-time upload speed\n• {traffic_down} : Total session downloaded traffic\n• {traffic_up} : Total session uploaded traffic\n• {traffic_total} : Total session traffic (down + up)\n• {duration} : Connection duration (hh:mm:ss)\n• {protocol} : Outbound protocol type\n• {latency} : Node latency\n• {direct_down} : Direct download speed\n• {direct_up} : Direct upload speed</string>
     <string name="settings_appearance">Appearance</string>
-    <string name="settings_appearance_sum">Theme, language, notification</string>
+    <string name="settings_appearance_sum">Theme, UI &amp; font size, language, notification</string>
+    <string name="ui_scale_settings_title">UI &amp; Font Size</string>
+    <string name="ui_scale_settings_summary">Global UI &amp; font scaling, ignore system font size, per-region button/menu/card sizing</string>
     <string name="cag_notification">Notification</string>
     <string name="notification_next">Next</string>
     <string name="notification_previous">Previous</string>

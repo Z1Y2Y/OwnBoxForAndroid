@@ -22,9 +22,11 @@ import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.*
 import android.app.Activity
+import android.util.TypedValue
 import io.nekohasekai.sagernet.ui.MainActivity
 import io.nekohasekai.sagernet.utils.LandingIpManager
 import io.nekohasekai.sagernet.utils.Theme
+import io.nekohasekai.sagernet.utils.UiScaleManager
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +68,11 @@ class StatsBar @JvmOverloads constructor(
     private lateinit var txText: TextView
     private lateinit var rxText: TextView
     private var btnIpDetail: View? = null
+    private var baseStatusTextSizePx = 0f
+    private var baseStatusTitleTextSizePx = 0f
+    private var baseStatusIpTextSizePx = 0f
+    private var baseTxTextSizePx = 0f
+    private var baseRxTextSizePx = 0f
     @Suppress("unused")
     private lateinit var behavior: YourBehavior
     private var currentState = BaseService.State.Idle
@@ -140,6 +147,17 @@ class StatsBar @JvmOverloads constructor(
         }
     }
 
+    private fun applyBottomBarScale() {
+        val factor = UiScaleManager.bottomBarFactor()
+        if (baseStatusTextSizePx > 0f) statusText.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseStatusTextSizePx * factor)
+        if (baseStatusTitleTextSizePx > 0f) statusTitleText.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseStatusTitleTextSizePx * factor)
+        if (baseStatusIpTextSizePx > 0f) statusIpText.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseStatusIpTextSizePx * factor)
+        if (baseTxTextSizePx > 0f) txText.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseTxTextSizePx * factor)
+        if (baseRxTextSizePx > 0f) rxText.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseRxTextSizePx * factor)
+        btnIpDetail?.scaleX = factor
+        btnIpDetail?.scaleY = factor
+    }
+
     private fun initViews() {
         if (!this::statusText.isInitialized) {
             statusText = findViewById(R.id.status)
@@ -151,6 +169,12 @@ class StatsBar @JvmOverloads constructor(
             txText = findViewById(R.id.tx)
             rxText = findViewById(R.id.rx)
             btnIpDetail = findViewById(R.id.btn_ip_detail)
+            baseStatusTextSizePx = statusText.textSize
+            baseStatusTitleTextSizePx = statusTitleText.textSize
+            baseStatusIpTextSizePx = statusIpText.textSize
+            baseTxTextSizePx = txText.textSize
+            baseRxTextSizePx = rxText.textSize
+            applyBottomBarScale()
 
             val onCardClick = View.OnClickListener { v ->
                 if (DataStore.hapticFeedback) {

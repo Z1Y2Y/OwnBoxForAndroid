@@ -17,6 +17,7 @@ import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.ktx.dp2px
 import io.nekohasekai.sagernet.ktx.getColorAttr
 import io.nekohasekai.sagernet.utils.Theme
+import io.nekohasekai.sagernet.utils.UiScaleManager
 
 open class ToolbarFragment : Fragment {
 
@@ -36,6 +37,8 @@ open class ToolbarFragment : Fragment {
                 (activity as? MainActivity)?.binding?.drawerLayout?.openDrawer(GravityCompat.START)
             }
             val customTitle = view.findViewById<TextView>(R.id.toolbar_title_view)
+            val titleFactor = UiScaleManager.toolbarTitleFactor()
+            val iconFactor = UiScaleManager.toolbarIconFactor()
             if (customTitle != null) {
                 toolbar.contentInsetStartWithNavigation = 0
                 toolbar.setContentInsetsRelative(0, dp2px(4))
@@ -43,13 +46,14 @@ open class ToolbarFragment : Fragment {
                 toolbar.setBackgroundColor(Color.TRANSPARENT)
                 customTitle.text = getString(R.string.app_name)
                 customTitle.visibility = View.VISIBLE
+                customTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 17.5f * titleFactor)
                 for (i in 0 until toolbar.childCount) {
                     val child = toolbar.getChildAt(i)
                     if (child is android.widget.ImageButton) {
-                        child.minimumWidth = dp2px(40)
+                        child.minimumWidth = (dp2px(40) * iconFactor).toInt().coerceAtLeast(dp2px(28))
                         child.setPadding(dp2px(8), 0, dp2px(8), 0)
-                        child.scaleX = 0.9f
-                        child.scaleY = 0.9f
+                        child.scaleX = 0.9f * iconFactor
+                        child.scaleY = 0.9f * iconFactor
                     }
                 }
             } else {
