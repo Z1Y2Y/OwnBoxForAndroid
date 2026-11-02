@@ -268,6 +268,16 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
             true
         }
 
+        findPreference<Preference>(Key.RULES_UPDATE_INTERVAL)?.apply {
+            summary = io.nekohasekai.sagernet.route.RuleSets.formatUpdateInterval(requireContext(), DataStore.rulesUpdateInterval)
+            setOnPreferenceClickListener {
+                io.nekohasekai.sagernet.ui.route.RuleSetAutoUpdateDialog.show(requireContext()) { newInterval ->
+                    summary = io.nekohasekai.sagernet.route.RuleSets.formatUpdateInterval(requireContext(), newInterval)
+                }
+                true
+            }
+        }
+
         // 禁用混合入站：开启时代理端口/身份验证/绕过列表设置项变灰，端口摘要显示「已禁用」
         fun updateMixedPortState(disabled: Boolean = DataStore.disableMixedInbound) {
             mixedPort.isEnabled = !disabled

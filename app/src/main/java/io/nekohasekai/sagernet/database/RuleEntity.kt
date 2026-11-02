@@ -35,7 +35,14 @@ data class RuleEntity(
 
     fun mkSummary(): String {
         var summary = ""
-        if (config.isNotBlank()) summary += "[config]\n"
+        if (config.isNotBlank()) {
+            val obj = runCatching { io.nekohasekai.sagernet.route.RouteRuleEditor.json(config) }.getOrNull()
+            val suffixes = if (obj != null) io.nekohasekai.sagernet.route.RouteRuleEditor.values(obj, "domain_suffix") else emptyList()
+            val netTypes = if (obj != null) io.nekohasekai.sagernet.route.RouteRuleEditor.values(obj, "network_type") else emptyList()
+            if (suffixes.isNotEmpty()) summary += suffixes.joinToString("\n") + "\n"
+            if (netTypes.isNotEmpty()) summary += "network_type: " + netTypes.joinToString(", ") + "\n"
+            if (suffixes.isEmpty() && netTypes.isEmpty()) summary += "[config]\n"
+        }
         if (domains.isNotBlank()) summary += "$domains\n"
         if (ip.isNotBlank()) summary += "$ip\n"
         if (source.isNotBlank()) summary += "src ip: $source\n"
@@ -43,7 +50,11 @@ data class RuleEntity(
         if (port.isNotBlank()) summary += "dst port: $port\n"
         if (network.isNotBlank()) summary += "network: $network\n"
         if (protocol.isNotBlank()) summary += "protocol: $protocol\n"
-        if (ruleset.isNotBlank()) summary += "$ruleset\n"
+        if (ruleset.isNotBlank()) {
+            val shortNames = ruleset.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                .map { io.nekohasekai.sagernet.route.RuleSets.shortName(it) }
+            if (shortNames.isNotEmpty()) summary += "rule-set: " + shortNames.joinToString(", ") + "\n"
+        }
         if (packages.isNotEmpty()) summary += app.getString(
             R.string.apps_message, packages.size
         ) + "\n"

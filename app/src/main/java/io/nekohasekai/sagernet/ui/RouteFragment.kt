@@ -165,6 +165,38 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
             R.id.action_new_route -> {
                 startActivity(Intent(context, RouteSettingsActivity::class.java))
             }
+            R.id.action_update_rule_sets -> {
+                android.widget.Toast.makeText(
+                    requireContext(),
+                    R.string.route_rule_sets_running,
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                runOnDefaultDispatcher {
+                    val catalogErr = io.nekohasekai.sagernet.route.RuleSetCatalog.refreshCatalog()
+                    val (updated, errors) = io.nekohasekai.sagernet.route.RuleSetCatalog.refreshUsedRuleSets()
+                    val catalogSize = io.nekohasekai.sagernet.route.RuleSetCatalog.current().size
+                    autoReloadServiceIfStarted()
+                    onMainDispatcher {
+                        if (!isAdded) return@onMainDispatcher
+                        if (errors.isEmpty() && catalogErr == null) {
+                            snackbar(getString(R.string.route_rule_sets_update_done, updated, catalogSize)).show()
+                        } else {
+                            val errText = (listOfNotNull(catalogErr) + errors).joinToString("\n")
+                            MaterialAlertDialogBuilder(requireContext())
+                                .setTitle(R.string.route_update_rule_sets)
+                                .setMessage(getString(R.string.route_rule_sets_update_partial, updated, catalogSize, errText))
+                                .setPositiveButton(android.R.string.ok, null)
+                                .show()
+                        }
+                    }
+                }
+            }
+            R.id.action_ruleset_auto_update -> {
+                io.nekohasekai.sagernet.ui.route.RuleSetAutoUpdateDialog.show(requireContext()) { interval ->
+                    val label = io.nekohasekai.sagernet.route.RuleSets.formatUpdateInterval(requireContext(), interval)
+                    snackbar(getString(R.string.rule_set_auto_update_saved, label)).show()
+                }
+            }
             R.id.action_reset_route -> {
                 MaterialAlertDialogBuilder(activity).setTitle(R.string.confirm)
                     .setMessage(R.string.clear_profiles_message)
@@ -214,7 +246,8 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                                 2 -> {
                                     val rule = RuleEntity(
                                         name = getString(R.string.route_opt_block_ads),
-                                        domains = "geosite:category-ads-all\ndomain:adservice.google.com\ndomain:admob.com\ndomain:doubleclick.net\ndomain:pangolin-sdk-toutiao.com",
+                                        domains = "domain:adservice.google.com\ndomain:admob.com\ndomain:doubleclick.net\ndomain:pangolin-sdk-toutiao.com",
+                                        ruleset = "geosite-category-ads-all",
                                         outbound = -2L,
                                         enabled = true
                                     )

@@ -1123,11 +1123,11 @@
     <string name="dashboard_html_unavailable">The API is available, but the bundled YACD page could not load. Reconnect the service and reload.</string>
     <string name="dashboard_storage_unavailable">YACD settings could not be saved. Reload the dashboard and check WebView storage availability.</string>
 
-    <string name="rr_basic">Rule and action</string>
-    <string name="rr_common">Common matches</string>
-    <string name="rr_advanced">Advanced matches and options</string>
-    <string name="rr_show_advanced">Show advanced options</string>
-    <string name="rr_hide_advanced">Hide advanced options</string>
+    <string name="rr_basic">Rule</string>
+    <string name="rr_common">Match</string>
+    <string name="rr_advanced">Advanced</string>
+    <string name="rr_show_advanced">Show other conditions and options</string>
+    <string name="rr_hide_advanced">Hide other conditions and options</string>
     <string name="rr_action">Action</string>
     <string name="rr_inherit">Use outbound selection</string>
     <string name="rr_outbound">Outbound target</string>
@@ -1135,11 +1135,11 @@
     <string name="rr_method">Reject method</string>
     <string name="rr_strategy">Resolve strategy</string>
     <string name="rr_sniffer">Sniff protocols</string>
-    <string name="rr_domain">Exact domains</string>
-    <string name="rr_domain_suffix">Domain suffixes</string>
-    <string name="rr_domain_keyword">Domain keywords</string>
-    <string name="rr_domain_regex">Domain regex (Go RE2)</string>
-    <string name="rr_ip_cidr">Destination IP / CIDR</string>
+    <string name="rr_domain">Domain</string>
+    <string name="rr_domain_suffix">Domain Suffix</string>
+    <string name="rr_domain_keyword">Domain Keyword</string>
+    <string name="rr_domain_regex">Domain Regex (Go RE2)</string>
+    <string name="rr_ip_cidr">IP CIDR</string>
     <string name="rr_source_ip_cidr">Source IP / CIDR</string>
     <string name="rr_port">Destination ports / ranges</string>
     <string name="rr_source_port">Source ports / ranges</string>
@@ -1153,10 +1153,10 @@
     <string name="rr_override_address">Override destination address</string>
     <string name="rr_override_port">Override destination port</string>
     <string name="rr_no_drop">Never auto-drop repeated rejects</string>
-    <string name="rr_rule_set">Remote rule-set URLs</string>
+    <string name="rr_rule_set">Rule Sets</string>
     <string name="rr_picker">Select rule sets</string>
-    <string name="rr_lines">One value per line. Ports accept 80, 443 or 1000:2000. Remote sets use rssite:https://…/file.srs or rsip:https://…/file.srs.</string>
-    <string name="rr_legacy_domain">Domains (legacy prefixes supported)</string>
+    <string name="rr_lines">One value per line. Ports accept 80, 443 or 1000:2000.</string>
+    <string name="rr_legacy_domain">Exact domains (JSON)</string>
     <string name="rr_apps_modes">App rules apply to VPN traffic. Root TUN relies on UID/socket ownership and may vary by Android/kernel; mixed proxy traffic cannot reliably identify its originating app.</string>
     <string name="rr_limits">Wi-Fi and desktop process matching are not enabled. Removed sniff destination override is unsupported by this core. Existing custom JSON is preserved; unsupported fields must be reviewed before saving.</string>
     <string name="rr_invalid">Cannot save rule</string>
@@ -1169,6 +1169,41 @@
     <string name="rr_core_error">Core validation failed: %1$s</string>
     <string name="rr_save_error">The rule could not be saved. Your edits remain available.</string>
     <string name="rr_reload_error">Rule saved, but the running service could not reload. Reconnect the service.</string>
+
+    <string name="rule_set_picker_title">Rule Sets</string>
+    <string name="picker_selected">%1$d selected</string>
+    <string name="search_rule_sets">Search rule-sets…</string>
+    <string name="rule_set_catalog_empty">The rule-set list is empty. Tap the menu in the top-right to refresh.</string>
+    <string name="rule_set_add_url">Add rule-set URL</string>
+    <string name="rule_set_add_url_hint">https://example.com/rule-set.srs</string>
+    <string name="rule_set_add_url_invalid">Enter an http:// or https:// URL of a .srs file</string>
+    <string name="rule_set_url_source">URL · %1$s</string>
+    <string name="rule_set_unknown">Not in the rule-set list</string>
+    <string name="rule_set_refresh_catalog">Refresh rule-set catalog</string>
+    <string name="rule_set_refreshing_catalog">Refreshing remote rule-set catalog…</string>
+    <string name="rule_set_refresh_catalog_done">Refreshed remote rule-set catalog (%1$d items)</string>
+    <string name="rule_set_refresh_catalog_failed">Failed to refresh catalog: %1$s</string>
+    <string name="rule_set_auto_update_title">Remote Rule-Set Auto-Update</string>
+    <string name="rule_set_auto_update_off">Disabled (manual / initial load only)</string>
+    <string name="rule_set_auto_update_every_minutes">Every %1$d min (%1$dm)</string>
+    <string name="rule_set_auto_update_every_hours">Every %1$d hr (%1$dh)</string>
+    <string name="rule_set_auto_update_custom">Custom interval (minutes / hours)…</string>
+    <string name="rule_set_auto_update_custom_hint">Interval value</string>
+    <string name="rule_set_auto_update_invalid">Please enter a number greater than 0</string>
+    <string name="rule_set_auto_update_saved">Remote rule-set auto-update set to: %1$s</string>
+    <string name="rule_set_unit_minutes">Minutes (m)</string>
+    <string name="rule_set_unit_hours">Hours (h)</string>
+    <string name="route_update_rule_sets">Update remote rule-sets</string>
+    <string name="route_rule_sets_running">Updating remote rule-sets…</string>
+    <string name="route_rule_sets_update_done">Updated %1$d rule-sets · Catalog: %2$d sets</string>
+    <string name="route_rule_sets_update_partial">Updated %1$d rule-sets (Catalog: %2$d sets).\n\nErrors:\n%3$s</string>
+    <string name="route_rule_network_type">Network Type</string>
+    <string name="route_network_type_wifi">Wi-Fi</string>
+    <string name="route_network_type_cellular">Cellular</string>
+    <string name="route_network_type_ethernet">Ethernet</string>
+    <string name="route_network_type_other">Other</string>
+    <string name="route_rule_network_is_expensive">Metered network</string>
+    <string name="route_rule_advanced_count">Advanced (%1$d set)</string>
 
 
     <!-- Network Diagnostics & Egress IP Details -->

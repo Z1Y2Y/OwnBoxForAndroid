@@ -7,12 +7,20 @@
         android:title="@string/route_add"
         app:showAsAction="ifRoom" />
     <item
-        android:id="@+id/action_reset_route"
-        android:title="@string/route_reset"
+        android:id="@+id/action_update_rule_sets"
+        android:title="@string/route_update_rule_sets"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_ruleset_auto_update"
+        android:title="@string/rule_set_auto_update_title"
         app:showAsAction="never" />
     <item
         android:id="@+id/action_preset_routes"
         android:title="@string/route_preset_title"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_reset_route"
+        android:title="@string/route_reset"
         app:showAsAction="never" />
     <item
         android:id="@+id/action_manage_assets"

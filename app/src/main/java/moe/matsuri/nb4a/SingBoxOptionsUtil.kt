@@ -81,24 +81,52 @@ fun SingBoxOptions.DNSRule_DefaultOptions.checkEmpty(): Boolean {
 }
 
 fun generateRuleSet(ruleSetString: List<String>, ruleSet: MutableList<RuleSet>) {
-    ruleSetString.forEach {
+    val extDir = SagerNet.application.getExternalFilesDir(null) ?: SagerNet.application.filesDir
+    val hasGeoipDb = java.io.File(extDir, "geoip.db").isFile
+    val hasGeositeDb = java.io.File(extDir, "geosite.db").isFile
+    val interval = io.nekohasekai.sagernet.route.RuleSets.normalizeUpdateInterval(DataStore.rulesUpdateInterval)
+
+    ruleSetString.forEach { entry ->
+        if (ruleSet.any { it.tag == entry }) return@forEach
         when {
-            it.startsWith("geoip:") || it.startsWith("geoip-") -> {
-                ruleSet.add(RuleSet().apply {
-                    type = "local"
-                    tag = it
-                    format = "binary"
-                    path = it
-                })
+            entry.startsWith("geoip:") || entry.startsWith("geoip-") -> {
+                val catalogUrl = io.nekohasekai.sagernet.route.RuleSetCatalog.current().urlOf(entry)
+                if (!hasGeoipDb && catalogUrl != null) {
+                    ruleSet.add(RuleSet().apply {
+                        type = "remote"
+                        tag = entry
+                        format = "binary"
+                        url = catalogUrl
+                        update_interval = interval
+                    })
+                } else {
+                    ruleSet.add(RuleSet().apply {
+                        type = "local"
+                        tag = entry
+                        format = "binary"
+                        path = entry
+                    })
+                }
             }
 
-            it.startsWith("geosite:") || it.startsWith("geosite-") -> {
-                ruleSet.add(RuleSet().apply {
-                    type = "local"
-                    tag = it
-                    format = "binary"
-                    path = it
-                })
+            entry.startsWith("geosite:") || entry.startsWith("geosite-") -> {
+                val catalogUrl = io.nekohasekai.sagernet.route.RuleSetCatalog.current().urlOf(entry)
+                if (!hasGeositeDb && catalogUrl != null) {
+                    ruleSet.add(RuleSet().apply {
+                        type = "remote"
+                        tag = entry
+                        format = "binary"
+                        url = catalogUrl
+                        update_interval = interval
+                    })
+                } else {
+                    ruleSet.add(RuleSet().apply {
+                        type = "local"
+                        tag = entry
+                        format = "binary"
+                        path = entry
+                    })
+                }
             }
         }
     }
@@ -180,33 +208,31 @@ fun SingBoxOptions.Rule_DefaultOptions.checkEmpty(): Boolean {
 }
 
 fun processRulesetUrl(origUrl: String): Pair<String, Boolean> {
-    return when {
-        origUrl.startsWith("rsip:") -> {
-            // IP类型ruleset
-            Pair(origUrl.substring(5), true)
-        }
-        origUrl.startsWith("rssite:") -> {
-            // 域名类型ruleset
-            Pair(origUrl.substring(7), false)
-        }
-        else -> {
-            throw kotlin.Exception(SagerNet.application.getString(R.string.ruleset_prefix_error))
-        }
-    }
+    val resolved = io.nekohasekai.sagernet.route.RuleSetCatalog.resolveEntry(origUrl)
+    return Pair(resolved.first, resolved.second)
 }
 
-fun generateRemoteRuleSet(url: String, ruleSets: MutableList<RuleSet>, updateInterval: String): String {
-    val hashCode = kotlin.math.abs(url.hashCode())
-    val tag = "ruleset-$hashCode"
-    
-    // 添加到规则集列表
-    ruleSets.add(RuleSet().apply {
-        type = "remote"
-        this.tag = tag
-        format = "binary"
-        this.url = url
-        update_interval = updateInterval
-    })
-    
+fun generateRemoteRuleSet(
+    url: String,
+    ruleSets: MutableList<RuleSet>,
+    updateInterval: String,
+    preferredTag: String? = null
+): String {
+    val tag = preferredTag?.takeIf { it.isNotBlank() } ?: run {
+        val hashCode = kotlin.math.abs(url.hashCode())
+        "ruleset-$hashCode"
+    }
+    val normalizedInterval = io.nekohasekai.sagernet.route.RuleSets.normalizeUpdateInterval(updateInterval)
+
+    if (ruleSets.none { it.tag == tag }) {
+        ruleSets.add(RuleSet().apply {
+            type = "remote"
+            this.tag = tag
+            format = "binary"
+            this.url = url
+            update_interval = normalizedInterval
+        })
+    }
+
     return tag
 }

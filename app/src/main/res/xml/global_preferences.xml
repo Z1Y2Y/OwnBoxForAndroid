@@ -311,10 +311,10 @@
             app:title="@string/rules_geoip_url"
             app:useSimpleSummaryProvider="true" />
 
-        <EditTextPreference
-            app:defaultValue="0"
+        <Preference
             app:icon="@drawable/ic_baseline_shutter_speed_24"
             app:key="rulesUpdateInterval"
+            app:persistent="false"
             app:summary="@string/ruleset_update_interval_summary"
             app:title="@string/ruleset_update_interval" />
 

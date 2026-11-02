@@ -1398,8 +1398,8 @@ fun buildConfig(
                 if (rule.ruleset.isNotBlank()) {
                     val rulesetUrls = rule.ruleset.listByLineOrComma()
                     rulesetUrls.forEach { origUrl ->
-                        val (url, isIPRuleset) = processRulesetUrl(origUrl)
-                        val tag = generateRemoteRuleSet(url, ruleSets, DataStore.rulesUpdateInterval)
+                        val (url, isIPRuleset, preferredTag) = io.nekohasekai.sagernet.route.RuleSetCatalog.resolveEntry(origUrl)
+                        val tag = generateRemoteRuleSet(url, ruleSets, DataStore.rulesUpdateInterval, preferredTag)
                         rulesetTags.add(Pair(tag, isIPRuleset))
                     }
                 }

@@ -153,6 +153,19 @@ class RouteSettingsActivity(
         apps.postUpdate()
     }
 
+    val selectRuleSets = registerForActivityResult(
+        io.nekohasekai.sagernet.ui.route.RuleSetPickerActivity.Contract()
+    ) { list ->
+        if (list != null) {
+            val text = list.joinToString("\n")
+            if (text != DataStore.routeRuleset) {
+                DataStore.routeRuleset = text
+                DataStore.dirty = true
+            }
+            rulePreferences?.refresh()
+        }
+    }
+
     lateinit var outbound: OutboundPreference
     lateinit var apps: AppListPreference
 
@@ -396,6 +409,9 @@ class RouteSettingsActivity(
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
         if (key != Key.PROFILE_DIRTY) {
             DataStore.dirty = true
+            runOnUiThread {
+                rulePreferences?.refresh()
+            }
         }
     }
 

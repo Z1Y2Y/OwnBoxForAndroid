@@ -11,8 +11,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** Advanced fields stay in the existing config column and Parcel, without changing legacy rows. */
 object RouteRuleEditor {
-    val lists = setOf("domain", "domain_suffix", "domain_keyword", "domain_regex", "inbound", "sniffer")
-    val booleans = setOf("ip_is_private", "source_ip_is_private", "invert", "no_drop")
+    val lists = setOf("domain", "domain_suffix", "domain_keyword", "domain_regex", "inbound", "sniffer", "network_type")
+    val booleans = setOf("ip_is_private", "source_ip_is_private", "invert", "no_drop", "network_is_expensive")
     val scalars = setOf("action", "method", "strategy", "ip_version", "override_address", "override_port")
     val fields = lists + booleans + scalars
     val actions = setOf("route", "route-options", "reject", "hijack-dns", "sniff", "resolve")
@@ -87,22 +87,35 @@ object RouteRuleEditor {
         check("protocol", rule.protocol.listByLineOrComma()) { it in protocols }
         check("sniffer", values(obj, "sniffer")) { it in protocols }
         check("package_name", rule.packages.toList()) { it.matches(Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*")) }
+        val catalog = RuleSetCatalog.current()
         check("rule_set", rule.ruleset.listByLineOrComma()) { entry ->
-            val url = entry.removePrefix("rsip:").removePrefix("rssite:")
-            val parsed = url.toHttpUrlOrNull()
-            (entry.startsWith("rsip:") || entry.startsWith("rssite:")) && parsed != null && parsed.scheme == "https" &&
-                parsed.username.isEmpty() && parsed.password.isEmpty() && parsed.encodedPath.endsWith(".srs")
+            val trimmed = entry.trim()
+            when {
+                catalog.urlOf(trimmed) != null -> true
+                RuleSets.isUrl(trimmed) -> {
+                    val cleaned = RuleSets.cleanUrl(trimmed)
+                    val parsed = cleaned.toHttpUrlOrNull()
+                    parsed != null && (parsed.scheme == "https" || parsed.scheme == "http") &&
+                        parsed.username.isEmpty() && parsed.password.isEmpty()
+                }
+                trimmed.startsWith("geoip:") || trimmed.startsWith("geoip-") ||
+                    trimmed.startsWith("geosite:") || trimmed.startsWith("geosite-") -> true
+                else -> false
+            }
         }
         check("ip_version", listOfNotNull(obj.opt("ip_version")?.toString())) { it in setOf("4", "6") }
         check("override_port", listOfNotNull(obj.opt("override_port")?.toString()), ::port)
         check("inbound", values(obj, "inbound")) { it in setOf("tun-in", "mixed-in") }
+        check("network_type", values(obj, "network_type")) { it in setOf("wifi", "cellular", "ethernet", "other") }
         val knownSets = (rule.domains.listByLineOrComma() + rule.ip.listByLineOrComma())
             .filter { it.startsWith("geosite:") || it.startsWith("geosite-") || it.startsWith("geoip:") || it.startsWith("geoip-") }.toMutableSet()
         rule.ruleset.listByLineOrComma().forEach {
-            val url = it.removePrefix("rsip:").removePrefix("rssite:")
+            val url = RuleSets.cleanUrl(it)
+            knownSets += it.trim()
+            knownSets += RuleSets.tagFor(it)
             knownSets += "ruleset-${kotlin.math.abs(url.hashCode())}"
         }
-        check("rule_set", values(obj, "rule_set")) { it in knownSets }
+        check("rule_set", values(obj, "rule_set")) { it in knownSets || catalog.urlOf(it) != null || RuleSets.isUrl(it) }
         val act = action(rule.config, rule.outbound)
         if (act !in actions && obj.has("action")) out += Problem("action", Error.UNSUPPORTED)
         if (act == "reject" && (obj.optString("method") !in setOf("", "default", "drop", "reply") ||
@@ -129,7 +142,8 @@ object RouteRuleEditor {
         if (listOf(rule.domains, rule.ip, rule.port, rule.sourcePort, rule.network, rule.source, rule.protocol, rule.ruleset).any { it.isNotBlank() } || rule.packages.isNotEmpty()) return true
         val obj = json(rule.config)
         return (lists - "sniffer").any { values(obj, it).isNotEmpty() } || obj.optBoolean("ip_is_private") ||
-            obj.optBoolean("source_ip_is_private") || obj.optInt("ip_version") in setOf(4, 6) || obj.has("rule_set") || obj.has("rules")
+            obj.optBoolean("source_ip_is_private") || obj.optBoolean("network_is_expensive") ||
+            obj.optInt("ip_version") in setOf(4, 6) || obj.has("rule_set") || obj.has("rules")
     }
     /** Remove a generated outbound only when an explicit non-routing action requires it. */
     fun applyAction(rule: SingBoxOptions.Rule_DefaultOptions, config: String) {
