@@ -1,5 +1,15 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# OwnBox for Android v26.11.3.2 预览版 (v26.11.3.2-preview)
+
+### 🐛 核心修复与测速恢复 (重要)
+* **彻底根治「测试节点时显示超时/不可用，但实际连接却可用」的历史缺陷**：
+  - **恢复测试沙箱 `outbound = "any"` 兜底规则**：彻底纠正 commit `32006147`（v26.11.2.2）中错误将测试沙箱兜底直连规则限定为 `[TAG_DIRECT, "direct"]` 导致的非直连出站（`outbound = "proxy"`）DNS 请求穿透至 `dns-remote` 自解死锁的问题，全面恢复老版本的稳定秒测机制；
+  - **测速出站直连系统极速解析（`dns-local`）**：在节点测速时出站拨号直通 Android 原生 libc 解析器，零 DoH TLS 握手延迟，杜绝批量并发测速时 DoH 拥塞或被国内 DNS 拦截超时。
+* **彻底修复启动服务时报 `Response Match Fields require match_response to be enabled` 的错误**：
+  - 移除内置 Hosts 规则中遗留的 `ip_accept_any` 属性，改为规范的请求域名精确匹配（`makeSingBoxRule`）；
+  - 完美兼容 sing-box v1.15.0 内核严谨的 DNS Router 配置校验，彻底恢复连接服务正常启动。
+
 # OwnBox for Android v26.11.3.1 预览版 (v26.11.3.1-preview)
 
 ### ⚡ 测速与连接双向修复 (重要)

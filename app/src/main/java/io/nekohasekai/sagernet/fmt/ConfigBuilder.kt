@@ -1205,6 +1205,8 @@ fun buildConfig(
                     // 彻底绕过 FakeIP 与路由分流规则，杜绝内核解析自身节点服务器域名时陷入 FakeIP 闭环回环死锁
                     val outboundResolver = if (perGroupResolver.containsKey(proxyEntity.groupId)) {
                         "dns-sub-${proxyEntity.groupId}"
+                    } else if (forTest) {
+                        "dns-local"
                     } else {
                         "dns-direct"
                     }
@@ -1815,7 +1817,7 @@ fun buildConfig(
             if (dnsHosts.isNotEmpty()) {
                 testRules.add(DNSRule_DefaultOptions().apply {
                     server = TAG_DNS_HOSTS
-                    _hack_config_map["ip_accept_any"] = true
+                    makeSingBoxRule(dnsHosts.keys.map { "full:$it" })
                 })
             }
             // 确保测试时所有出站代理节点服务器域名强制走 dns-direct 解析，彻底消除自解死锁
@@ -1826,9 +1828,9 @@ fun buildConfig(
                     disable_cache = true
                 })
             }
-            // 兜底直连与系统出站解析
+            // 兜底直连与系统出站解析，覆盖所有测试出站，杜绝死锁回退至 dns-remote
             testRules.add(DNSRule_DefaultOptions().apply {
-                outbound = mutableListOf(TAG_DIRECT, "dns-direct", "direct")
+                outbound = mutableListOf("any")
                 server = "dns-direct"
             })
             dns.rules = testRules
@@ -1995,7 +1997,7 @@ fun buildConfig(
             if (dnsHosts.isNotEmpty()) {
                 dns.rules.add(0, DNSRule_DefaultOptions().apply {
                     server = TAG_DNS_HOSTS
-                    _hack_config_map["ip_accept_any"] = true
+                    makeSingBoxRule(dnsHosts.keys.map { "full:$it" })
                 })
             }
             // avoid loopback
