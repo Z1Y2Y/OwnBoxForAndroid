@@ -484,14 +484,20 @@ func resolveRealTag(detour adapter.Outbound, network string) string {
 const (
 	defaultFallbackURL = "https://www.gstatic.com/generate_204"
 	defaultCFURL       = "https://cp.cloudflare.com/generate_204"
+	defaultMSURL       = "https://edge.microsoft.com/generate_204"
+	defaultAppleURL    = "https://captive.apple.com/hotspot-detect.html"
 	browserUserAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-func getFallbackLink(primaryLink string) string {
-	if strings.Contains(primaryLink, "cloudflare.com") {
-		return defaultFallbackURL
+func getFallbackLinks(primaryLink string) []string {
+	allURLs := []string{defaultCFURL, defaultFallbackURL, defaultMSURL, defaultAppleURL}
+	fallbacks := make([]string, 0, len(allURLs))
+	for _, u := range allURLs {
+		if !strings.EqualFold(u, primaryLink) {
+			fallbacks = append(fallbacks, u)
+		}
 	}
-	return defaultCFURL
+	return fallbacks
 }
 
 func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err error) {
@@ -501,37 +507,53 @@ func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err err
 	}
 	boxPlatformLogWriter.WriteMessage(sblog.LevelDebug, fmt.Sprintf("box.UrlTest link=%s timeout=%dms instance=%v", link, timeout, i != nil))
 
+	if link == "" {
+		link = defaultCFURL
+	}
+
 	primaryTimeout := timeout
-	fallbackTimeout := int32(2000)
+	fallbackTimeout := int32(2500)
 	if timeout > 3500 {
 		primaryTimeout = timeout - 1500
-		fallbackTimeout = 2000
-	} else if timeout < 2000 {
-		fallbackTimeout = timeout
+		fallbackTimeout = 2500
+	} else if timeout < 2500 {
+		primaryTimeout = 2500
+		fallbackTimeout = 2500
 	}
+
+	fallbacks := getFallbackLinks(link)
 
 	if i == nil {
 		// 无实例：直连测试（单 GET，计时含拨号）
 		client := &http.Client{Timeout: time.Duration(primaryTimeout) * time.Millisecond}
 		latency, err = urlTestDirect(client, link)
 		if err != nil {
-			fallback := getFallbackLink(link)
-			boxPlatformLogWriter.WriteMessage(sblog.LevelDebug, fmt.Sprintf("box.UrlTest direct failed: %v, trying fallback: %s", err, fallback))
-			fbClient := &http.Client{Timeout: time.Duration(fallbackTimeout) * time.Millisecond}
-			latency, err = urlTestDirect(fbClient, fallback)
+			for _, fallback := range fallbacks {
+				boxPlatformLogWriter.WriteMessage(sblog.LevelDebug, fmt.Sprintf("box.UrlTest direct failed: %v, trying fallback: %s", err, fallback))
+				fbClient := &http.Client{Timeout: time.Duration(fallbackTimeout) * time.Millisecond}
+				var fbErr error
+				latency, fbErr = urlTestDirect(fbClient, fallback)
+				if fbErr == nil {
+					err = nil
+					break
+				}
+			}
 		}
 	} else {
 		latency, err = urlTest(i, link, primaryTimeout)
 		if err != nil {
 			primaryErr := err
-			fallback := getFallbackLink(link)
-			boxPlatformLogWriter.WriteMessage(sblog.LevelDebug, fmt.Sprintf("box.UrlTest primary failed: %v, trying fallback: %s", err, fallback))
-			var fbErr error
-			latency, fbErr = urlTest(i, fallback, fallbackTimeout)
-			if fbErr != nil {
+			for _, fallback := range fallbacks {
+				boxPlatformLogWriter.WriteMessage(sblog.LevelDebug, fmt.Sprintf("box.UrlTest primary failed: %v, trying fallback: %s", err, fallback))
+				var fbErr error
+				latency, fbErr = urlTest(i, fallback, fallbackTimeout)
+				if fbErr == nil {
+					err = nil
+					break
+				}
+			}
+			if err != nil {
 				err = primaryErr
-			} else {
-				err = nil
 			}
 		}
 	}
@@ -602,7 +624,7 @@ func urlTest(instance *BoxInstance, link string, timeout int32) (int32, error) {
 	if err == nil {
 		_, _ = io.CopyN(io.Discard, resp1.Body, 8192)
 		_ = resp1.Body.Close()
-		if resp1.StatusCode >= 500 {
+		if resp1.StatusCode >= 400 {
 			err = fmt.Errorf("HTTP error %d", resp1.StatusCode)
 		}
 	}
@@ -621,7 +643,7 @@ func urlTest(instance *BoxInstance, link string, timeout int32) (int32, error) {
 		if err2Do == nil {
 			_, _ = io.CopyN(io.Discard, resp2.Body, 8192)
 			_ = resp2.Body.Close()
-			if resp2.StatusCode < 500 {
+			if resp2.StatusCode < 400 {
 				latency := int32(time.Since(start2).Milliseconds())
 				if latency <= 0 {
 					latency = 1
@@ -652,7 +674,7 @@ func urlTestDirect(client *http.Client, link string) (int32, error) {
 	if err == nil {
 		_, _ = io.Copy(io.Discard, resp1.Body)
 		_ = resp1.Body.Close()
-		if resp1.StatusCode >= 500 {
+		if resp1.StatusCode >= 400 {
 			err = fmt.Errorf("HTTP error %d", resp1.StatusCode)
 		}
 	}
@@ -666,7 +688,7 @@ func urlTestDirect(client *http.Client, link string) (int32, error) {
 			if errGetDo == nil {
 				_, _ = io.Copy(io.Discard, resp1Get.Body)
 				_ = resp1Get.Body.Close()
-				if resp1Get.StatusCode < 500 {
+				if resp1Get.StatusCode < 400 {
 					err = nil
 					methodUsed = http.MethodGet
 				} else {
@@ -689,7 +711,7 @@ func urlTestDirect(client *http.Client, link string) (int32, error) {
 		if err2 == nil {
 			_, _ = io.Copy(io.Discard, resp2.Body)
 			_ = resp2.Body.Close()
-			if resp2.StatusCode < 500 {
+			if resp2.StatusCode < 400 {
 				latency := int32(time.Since(start2).Milliseconds())
 				if latency <= 0 {
 					latency = 1

@@ -1,5 +1,17 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# OwnBox for Android v26.11.3.1 预览版 (v26.11.3.1-preview)
+
+### ⚡ 测速与连接双向修复 (重要)
+* **彻底修复「URL 测速通但连接断网」的核心架构缺陷**：
+  - **内置权威 DoH Bootstrap 静态解析映射**：内置 Google（`8.8.8.8`）、Cloudflare（`1.1.1.1`）、Quad9、AdGuard 等海外主流 DoH 服务商的官方权威静态 IP 表，并优先挂载到 `TAG_DNS_HOSTS` 解析器中；
+  - **斩断远程 DNS 被国内 DNS 污染链路**：严禁将远程 DoH 域名的自解析交由国内不可信直连 DNS（`dns-direct`），彻底消除由 GFW DNS 污染假 IP 导致的 `dns-remote` 握手死锁与全机断网问题；
+  - **测速与正式环境 DNS 策略对齐**：测速沙箱（`forTest = true`）同步注入内置 Hosts 规则，确保环境规则基准统一。
+* **彻底修复「URL 测速报红但实际连接能上网」的偶发假死缺陷**：
+  - **扩充多探针自适应 Fallback 容错矩阵**：探针备选池由单一 Cloudflare/Google 扩充至覆盖 Microsoft Captive（`edge.microsoft.com`）与 Apple Captive（`captive.apple.com`）；
+  - **消除特定机房/CDN 对 `generate_204` 的封锁误报**：当节点机房或 WAF 针对特定探针下发 4xx 拦截或阻断时，内核自动阶梯切换备用探针，并将 HTTP 200/204/301/302 全量认定为连通成功；
+  - **放宽跨国长链冷启动超时与 Keep-Alive 保护**：智能优化第一阶段与第二阶段超时保护窗口，第二阶段遇到对端反代 RST 异常时平滑回退至第一阶段真实时延，杜绝偶发误报超时。
+
 # OwnBox for Android v26.11.3 正式版
 
 ### 🎨 主题与设置

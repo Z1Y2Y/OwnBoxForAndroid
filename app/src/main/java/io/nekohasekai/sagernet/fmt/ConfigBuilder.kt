@@ -312,6 +312,17 @@ private fun parseDnsHosts(value: String): Map<String, List<String>> {
     return hosts.mapValues { (_, addresses) -> addresses.distinct() }
 }
 
+private val BUILTIN_DNS_BOOTSTRAP_HOSTS: Map<String, List<String>> = mapOf(
+    "dns.google" to listOf("8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"),
+    "cloudflare-dns.com" to listOf("1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"),
+    "one.one.one.one" to listOf("1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"),
+    "dns.quad9.net" to listOf("9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"),
+    "dns.adguard-dns.com" to listOf("94.140.14.14", "94.140.15.15", "2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"),
+    "dns.alidns.com" to listOf("223.5.5.5", "223.6.6.6", "2400:3200::1", "2400:3200:baba::1"),
+    "doh.pub" to listOf("1.12.12.12", "120.53.53.53"),
+    "dot.pub" to listOf("1.12.12.12", "120.53.53.53")
+)
+
 private fun serverHostOf(bean: AbstractBean): String? {
     val fallback = bean.serverAddress?.takeIf { it.isNotBlank() }
     if (bean is ConfigBean) {
@@ -416,7 +427,12 @@ fun buildConfig(
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
     val directDNS = DataStore.directDns.split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
-    val dnsHosts by lazy { parseDnsHosts(DataStore.dnsHosts) }
+    val dnsHosts by lazy {
+        val merged = linkedMapOf<String, List<String>>()
+        merged.putAll(BUILTIN_DNS_BOOTSTRAP_HOSTS)
+        merged.putAll(parseDnsHosts(DataStore.dnsHosts))
+        merged
+    }
     val enableDnsRouting = DataStore.enableDnsRouting
     val useFakeDns = DataStore.enableFakeDns && !forTest
     // sing-box 1.13 已移除 sniff_override_destination（sniff 规则动作不再覆盖目标地址），
@@ -1717,7 +1733,7 @@ fun buildConfig(
                 address = address.substringAfter("://")
             }
             "https://$address".toHttpUrlOrNull()?.apply {
-                if (!host.isIpAddress()) {
+                if (!host.isIpAddress() && !dnsHosts.containsKey(host)) {
                     domainListDNSDirectForce.add("full:$host")
                 }
             }
@@ -1743,12 +1759,15 @@ fun buildConfig(
 
         val remoteAddress = remoteDns.firstOrNull()?.takeIf { it.isNotBlank() } ?: "https://dns.google/dns-query"
         val normalizedRemote = normalizeRemoteDnsAddress(remoteAddress)
+        val remoteUri = runCatching { java.net.URI(normalizedRemote) }.getOrNull()
+        val remoteHost = remoteUri?.host ?: normalizedRemote.substringAfter("://").substringBefore("/").substringBefore(":")
+        val remoteDomainResolver = if (dnsHosts.containsKey(remoteHost)) TAG_DNS_HOSTS else "dns-direct"
         dns.servers.add(
             buildDnsServer(
                 address = normalizedRemote,
                 tag = "dns-remote",
                 detour = mainProxyTag,
-                domainResolver = "dns-direct",
+                domainResolver = remoteDomainResolver,
                 domainStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("dns-remote"), isProxied = true)
             )
         )
@@ -1791,6 +1810,12 @@ fun buildConfig(
                 testRules.add(DNSRule_DefaultOptions().apply {
                     query_type = listOf("A")
                     action = "reject"
+                })
+            }
+            if (dnsHosts.isNotEmpty()) {
+                testRules.add(DNSRule_DefaultOptions().apply {
+                    server = TAG_DNS_HOSTS
+                    _hack_config_map["ip_accept_any"] = true
                 })
             }
             // 确保测试时所有出站代理节点服务器域名强制走 dns-direct 解析，彻底消除自解死锁
