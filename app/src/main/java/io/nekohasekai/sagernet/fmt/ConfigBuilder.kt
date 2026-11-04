@@ -809,8 +809,8 @@ fun buildConfig(
             rules = mutableListOf()
             rule_set = mutableListOf()
 
-            // 默认域名解析器强制走直连物理 DNS，彻底消除出站节点服务器域名在内核启动与规则集拉取时的循环死锁与 DoH 握手延迟
-            default_domain_resolver = "dns-local"
+            // 默认域名解析器强制走加密抗污染直连 DNS，彻底消除出站节点服务器域名被移动运营商 DNS 劫持污染与死锁
+            default_domain_resolver = "dns-direct"
 
             // 优化 Happy Eyeballs 并发拨号回退延迟（RFC 8305 推荐 100ms，消除上游默认 300ms 累积等待导致的建连迟钝）
             default_fallback_delay = "100ms"
@@ -1011,37 +1011,35 @@ fun buildConfig(
                     needGlobal = true
                     tagOut = "g-" + proxyEntity.id
 
-                    if (!forTest) {
-                        val ownerGid = entity.groupId
-                        val ownerGroup = groupCache.getOrPut(ownerGid) {
-                            SagerDatabase.groupDao.getById(ownerGid)
-                        }
-                        val resolver = ownerGroup
-                            ?.takeIf { it.type == GroupType.SUBSCRIPTION }
-                            ?.subscription?.serverDnsResolver
-                            ?.let { sanitizeDnsEntry(it) }
-                            ?.takeIf { it.isNotBlank() }
+                    val ownerGid = entity.groupId
+                    val ownerGroup = groupCache.getOrPut(ownerGid) {
+                        SagerDatabase.groupDao.getById(ownerGid)
+                    }
+                    val resolver = ownerGroup
+                        ?.takeIf { it.type == GroupType.SUBSCRIPTION }
+                        ?.subscription?.serverDnsResolver
+                        ?.let { sanitizeDnsEntry(it) }
+                        ?.takeIf { it.isNotBlank() }
 
-                        if (resolver != null) {
-                            profileList.forEach { hop ->
-                                val host = serverHostOf(hop.requireBean())
-                                if (host != null && !host.isIpAddress()) {
-                                    if (hop.groupId == ownerGid) {
-                                        perGroupResolver[ownerGid] = resolver
-                                        perGroupServerHosts.getOrPut(ownerGid) { mutableSetOf() }
-                                            .add(host)
-                                        hostResolvers.getOrPut(host) { mutableSetOf() }.add(resolver)
-                                    } else {
-                                        nonCustomFinalHosts.add(host)
-                                    }
-                                }
-                            }
-                        } else {
-                            profileList.forEach { hop ->
-                                val host = serverHostOf(hop.requireBean())
-                                if (host != null && !host.isIpAddress()) {
+                    if (resolver != null) {
+                        profileList.forEach { hop ->
+                            val host = serverHostOf(hop.requireBean())
+                            if (host != null && !host.isIpAddress()) {
+                                if (hop.groupId == ownerGid) {
+                                    perGroupResolver[ownerGid] = resolver
+                                    perGroupServerHosts.getOrPut(ownerGid) { mutableSetOf() }
+                                        .add(host)
+                                    hostResolvers.getOrPut(host) { mutableSetOf() }.add(resolver)
+                                } else {
                                     nonCustomFinalHosts.add(host)
                                 }
+                            }
+                        }
+                    } else {
+                        profileList.forEach { hop ->
+                            val host = serverHostOf(hop.requireBean())
+                            if (host != null && !host.isIpAddress()) {
+                                nonCustomFinalHosts.add(host)
                             }
                         }
                     }
@@ -1201,12 +1199,10 @@ fun buildConfig(
                     _hack_config_map["tcp_keep_alive_interval"] = "30s"
                     _hack_config_map["connect_timeout"] = "5s"
 
-                    // 确保所有出站代理节点服务器域名强制使用直连/独立 DNS 解析器解析，
-                    // 彻底绕过 FakeIP 与路由分流规则，杜绝内核解析自身节点服务器域名时陷入 FakeIP 闭环回环死锁
+                    // 确保所有出站代理节点服务器域名强制使用直连/独立 DNS 解析器（抗运营商污染的加密阿里 DoH 或订阅专属 DNS）解析，
+                    // 彻底绕过 FakeIP 与路由分流规则，杜绝内核解析自身节点服务器域名时陷入 FakeIP 闭环回环死锁与国内移动基站 DNS 污染阻断
                     val outboundResolver = if (perGroupResolver.containsKey(proxyEntity.groupId)) {
                         "dns-sub-${proxyEntity.groupId}"
-                    } else if (forTest) {
-                        "dns-local"
                     } else {
                         "dns-direct"
                     }
@@ -1781,7 +1777,21 @@ fun buildConfig(
             })
         }
 
-        dns.final_ = "dns-remote"
+        perGroupResolver.forEach { (gid, resolver) ->
+            val serverTag = "dns-sub-$gid"
+            val address = normalizeDnsAddress(resolver)
+            dns.servers.add(
+                buildDnsServer(
+                    address = address,
+                    tag = serverTag,
+                    detour = TAG_DIRECT,
+                    domainResolver = "dns-direct",
+                    domainStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("server"))
+                )
+            )
+        }
+
+        dns.final_ = if (forTest) "dns-direct" else "dns-remote"
         if (ipv6Mode == IPv6Mode.DISABLE) {
             dns.strategy = "ipv4_only"
         } else if (ipv6Mode == IPv6Mode.ONLY) {
@@ -1818,6 +1828,17 @@ fun buildConfig(
                 testRules.add(DNSRule_DefaultOptions().apply {
                     server = TAG_DNS_HOSTS
                     makeSingBoxRule(dnsHosts.keys.map { "full:$it" })
+                })
+            }
+            perGroupResolver.forEach { (gid, _) ->
+                val hosts = perGroupServerHosts[gid]
+                    ?.filter { it.isNotBlank() && isExclusiveCustomHost(it) }
+                    ?.map { "full:$it" }
+                if (hosts.isNullOrEmpty()) return@forEach
+                testRules.add(DNSRule_DefaultOptions().apply {
+                    makeSingBoxRule(hosts)
+                    server = "dns-sub-$gid"
+                    disable_cache = true
                 })
             }
             // 确保测试时所有出站代理节点服务器域名强制走 dns-direct 解析，彻底消除自解死锁
@@ -2013,23 +2034,13 @@ fun buildConfig(
                     disable_cache = true
                 })
             }
-            perGroupResolver.forEach { (gid, resolver) ->
+            perGroupResolver.forEach { (gid, _) ->
                 val hosts = perGroupServerHosts[gid]
                     ?.filter { it.isNotBlank() && isExclusiveCustomHost(it) }
                     ?.map { "full:$it" }
                 if (hosts.isNullOrEmpty()) return@forEach
 
                 val serverTag = "dns-sub-$gid"
-                val address = normalizeDnsAddress(resolver)
-                dns.servers.add(
-                    buildDnsServer(
-                        address = address,
-                        tag = serverTag,
-                        detour = TAG_DIRECT,
-                        domainResolver = "dns-direct",
-                        domainStrategy = autoDnsDomainStrategy(SingBoxOptionsUtil.domainStrategy("server"))
-                    )
-                )
                 dns.rules.add(0, DNSRule_DefaultOptions().apply {
                     makeSingBoxRule(hosts)
                     server = serverTag
