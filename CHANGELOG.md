@@ -1,5 +1,12 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# OwnBox for Android v26.11.3.6 预览版 (v26.11.3.6-preview)
+
+### 🐛 界面与视觉交互修复 (解决 Issue #81)
+* **彻底修复「节点二维码分享界面左边复制按钮不显示文字与图标」的视觉缺陷**：
+  - **纠正 Material 3 样式混用**：将二维码弹窗中的“复制链接”按钮样式从 `Widget.Material3.Button.TonalButton` 修正为与应用根主题对齐的标准 `Widget.MaterialComponents.Button`；
+  - **显式高对比度染色保障**：显式指定 `textColor` 与 `iconTint` 为 `?attr/colorOnPrimary`，杜绝因主题属性缺失导致文字与图标完全透明隐形的问题，在所有预设主题与夜间模式下均清晰可见。
+
 # OwnBox for Android v26.11.3.5 预览版 (v26.11.3.5-preview)
 
 ### 🐛 导航与返回按键交互修复 (解决 Issue #84)

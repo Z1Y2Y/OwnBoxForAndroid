@@ -127,17 +127,20 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_copy_qrcode_link"
-            style="@style/Widget.Material3.Button.TonalButton"
+            style="@style/Widget.MaterialComponents.Button"
             android:layout_width="0dp"
             android:layout_height="44dp"
             android:layout_weight="1"
             android:text="@string/copy_current_link"
             android:textAllCaps="false"
+            android:textColor="?attr/colorOnPrimary"
             android:textSize="13sp"
+            app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="12dp"
             app:icon="@drawable/ic_content_copy"
             app:iconGravity="textStart"
-            app:iconSize="18dp" />
+            app:iconSize="18dp"
+            app:iconTint="?attr/colorOnPrimary" />
 
         <Space
             android:layout_width="12dp"
