@@ -19,7 +19,9 @@ class SettingsFragment : ToolbarFragment(R.layout.layout_config_settings),
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
             val mainActivity = activity as? MainActivity
-            if (mainActivity?.binding?.drawerLayout?.let { it.isDrawerOpen(GravityCompat.START) || it.isOpen } == true) {
+            if (mainActivity?.binding?.drawerLayout?.isDrawerOpen(GravityCompat.START) == true ||
+                mainActivity?.binding?.drawerLayout?.isOpen == true
+            ) {
                 mainActivity.binding.drawerLayout.closeDrawers()
                 return
             }
