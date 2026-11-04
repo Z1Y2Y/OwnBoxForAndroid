@@ -7,6 +7,8 @@
   - **规范 `forceResolve` 下 Reality 节点 SNI 继承**：在强制解析域名为 IP 时，同步保留 Reality 协议的原始域名为 SNI，杜绝 IP 固化后服务端 TLS/Reality 握手被拒；
   - **数据库主库全面切换为 WAL 模式（`JournalMode.AUTOMATIC`）**：对齐配置库与节点数据库的高并发日志模式，彻底消除 Android 覆盖安装强杀进程引发的 SQLite 文件锁与脏读问题；
   - **引入版本覆盖更新自动自愈机制（`migrateProfilesOnAppUpdate`）**：在应用升级启动时，自动在后台对数据库中的存量节点执行一次规范化自愈与最新格式重序列化，老节点无需手动更新订阅即可原地无缝满血复活。
+* **修复侧边栏抽屉菜单返回键交互缺陷 (解决 Issue #84)**：
+  - 点击左上角汉堡菜单展开侧边栏抽屉后，按系统返回键或全面屏手势优先收起抽屉菜单，彻底修复此前直接退出应用（`moveTaskToBack`）的交互逻辑缺陷。
 
 # OwnBox for Android v26.11.3 正式版
 

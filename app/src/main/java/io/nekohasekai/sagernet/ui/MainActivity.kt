@@ -30,6 +30,7 @@ import androidx.annotation.IdRes
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.GravityCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
@@ -210,6 +211,10 @@ class MainActivity : ThemedActivity(),
             currentNavigationItem?.let { setCheckedItem(it) }
         }
         onBackPressedDispatcher.addCallback {
+            if (binding.drawerLayout.isDrawerOpen(GravityCompat.START) || binding.drawerLayout.isOpen) {
+                binding.drawerLayout.closeDrawers()
+                return@addCallback
+            }
             val fragment = supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ToolbarFragment
             if (fragment?.onBackPressed() == true) return@addCallback
             if (fragment is ConfigurationFragment) {
