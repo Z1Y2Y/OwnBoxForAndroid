@@ -56,10 +56,14 @@ public class KryoConverters {
         ByteBufferInput buffer = KryosKt.byteBuffer(input);
         try {
             bean.deserializeFromBuffer(buffer);
-        } catch (KryoException e) {
-            Logs.INSTANCE.w(e);
+        } catch (Throwable e) {
+            Logs.INSTANCE.w("KryoConverters.deserialize failed for " + bean.getClass().getSimpleName(), e);
         }
-        bean.initializeDefaultValues();
+        try {
+            bean.initializeDefaultValues();
+        } catch (Throwable e) {
+            Logs.INSTANCE.w("initializeDefaultValues failed", e);
+        }
         return bean;
     }
 

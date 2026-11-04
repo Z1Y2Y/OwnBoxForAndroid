@@ -102,7 +102,7 @@ abstract class GroupUpdater {
                 }
                 is StandardV2RayBean -> {
                     when (security) {
-                        "tls" -> if (sni.isBlank()) sni = bean.serverAddress
+                        "tls", "reality" -> if (sni.isBlank()) sni = bean.serverAddress
                     }
                 }
                 is TrojanBean -> {

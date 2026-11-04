@@ -123,6 +123,7 @@ class SagerNet : Application(),
             AppLocale.apply()
             AppIconManager.init(this)
             DataStore.migrateSubscriptionUserAgents()
+            DataStore.migrateProfilesOnAppUpdate()
             runOnDefaultDispatcher {
                 DefaultNetworkListener.start(this) {
                     underlyingNetwork = it

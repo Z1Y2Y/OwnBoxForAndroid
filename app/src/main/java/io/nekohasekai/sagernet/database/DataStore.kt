@@ -24,6 +24,10 @@ import io.nekohasekai.sagernet.ktx.stringSet
 import io.nekohasekai.sagernet.ktx.stringToInt
 import io.nekohasekai.sagernet.ktx.stringToIntIfExists
 import io.nekohasekai.sagernet.ktx.stringToLong
+import io.nekohasekai.sagernet.BuildConfig
+import io.nekohasekai.sagernet.fmt.shadowsocks.ShadowsocksBean
+import io.nekohasekai.sagernet.fmt.v2ray.StandardV2RayBean
+import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import io.nekohasekai.sagernet.utils.Theme
 import moe.matsuri.nb4a.TempDatabase
 
@@ -229,6 +233,51 @@ object DataStore : OnPreferenceDataStoreChangeListener {
             }
         } catch (e: Throwable) {
             Logs.w(e)
+        }
+    }
+
+    fun migrateProfilesOnAppUpdate() {
+        val lastCode = configurationStore.getInt("last_app_version_code", 0)
+        val currentCode = BuildConfig.VERSION_CODE
+        if (lastCode == currentCode) return
+
+        runOnDefaultDispatcher {
+            try {
+                Logs.i("Migrating existing profiles on app update: $lastCode -> $currentCode")
+                val proxyDao = SagerDatabase.proxyDao
+                val allProfiles = proxyDao.getAll()
+                val toUpdate = mutableListOf<ProxyEntity>()
+                for (entity in allProfiles) {
+                    try {
+                        val bean = entity.requireBean()
+                        when (bean) {
+                            is ShadowsocksBean -> {
+                                val normalized = io.nekohasekai.sagernet.fmt.shadowsocks.normalizeShadowsocksCipher(bean.method)
+                                if (bean.method != normalized) {
+                                    bean.method = normalized
+                                }
+                            }
+                            is StandardV2RayBean -> {
+                                if (bean.type == "xhttp" && bean.xhttpMode.isNullOrBlank()) {
+                                    bean.xhttpMode = "auto"
+                                }
+                            }
+                        }
+                        // Re-serialize with new format to guarantee full compatibility with current version
+                        entity.putBean(bean)
+                        toUpdate.add(entity)
+                    } catch (t: Throwable) {
+                        Logs.w("Skipping unreadable profile during upgrade migration: ${entity.id}", t)
+                    }
+                }
+                if (toUpdate.isNotEmpty()) {
+                    proxyDao.updateProxy(toUpdate)
+                    Logs.i("Upgraded and re-serialized ${toUpdate.size} profiles on app update")
+                }
+                configurationStore.putInt("last_app_version_code", currentCode)
+            } catch (e: Throwable) {
+                Logs.w("Failed to execute migrateProfilesOnAppUpdate", e)
+            }
         }
     }
 

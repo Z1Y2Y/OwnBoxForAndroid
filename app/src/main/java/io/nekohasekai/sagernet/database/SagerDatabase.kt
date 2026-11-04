@@ -61,7 +61,7 @@ abstract class SagerDatabase : RoomDatabase() {
             app.getDatabasePath(Key.DB_PROFILE).parentFile?.mkdirs()
             fun buildDatabase(): SagerDatabase {
                 return Room.databaseBuilder(app, SagerDatabase::class.java, Key.DB_PROFILE)
-                    .setJournalMode(JournalMode.TRUNCATE)
+                    .setJournalMode(JournalMode.AUTOMATIC)
                     .allowMainThreadQueries()
                     .enableMultiInstanceInvalidation()
                     .addMigrations(MIGRATION_9_10)

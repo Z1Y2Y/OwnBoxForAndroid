@@ -311,15 +311,20 @@ public abstract class StandardV2RayBean extends AbstractBean {
         }
 
         security = input.readString();
-        boolean shouldReadTls = "tls".equals(security) || (version >= 12 && "reality".equals(security));
+        boolean shouldReadTls = "tls".equals(security) || "reality".equals(security);
         if (shouldReadTls) {
             sni = input.readString();
             alpn = input.readString();
             certificates = input.readString();
             allowInsecure = input.readBoolean();
             utlsFingerprint = input.readString();
-            realityPubKey = input.readString();
-            realityShortId = input.readString();
+            try {
+                realityPubKey = input.readString();
+                realityShortId = input.readString();
+            } catch (Exception e) {
+                realityPubKey = "";
+                realityShortId = "";
+            }
         }
 
         if (version >= 1) {
