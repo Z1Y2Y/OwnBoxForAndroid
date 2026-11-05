@@ -24,16 +24,19 @@ const (
 )
 
 func GetFallbackLink(primaryLink string) string {
-	if strings.Contains(primaryLink, "cloudflare.com") {
-		return DefaultFallbackURL
+	parsed, err := url.Parse(primaryLink)
+	if err == nil {
+		host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+		if host == "cloudflare.com" || strings.HasSuffix(host, ".cloudflare.com") {
+			return DefaultFallbackURL
+		}
 	}
 	return DefaultCFURL
 }
 
-// ProbeOutbound 对齐真实节点测速基准（两阶段 Keep-Alive 预热探测）：
-// 阶段一（预热）：通过 detour 建立代理连接并完成目标端 TLS 握手，消除冷启动握手带来的虚高延迟；
-// 阶段二（测量）：复用连接池中的保活连接发送探测，测得纯 1-RTT 真实往返时延（~100-250ms）；
-// 若主探测地址不可达，自动以备用地址重试，杜绝 CDN 兼容性造成的误报超时。
+// ProbeOutbound warms the destination connection, then measures response-header
+// TTFB over the existing detour. The fallback URL only diagnoses reachability;
+// its latency is never reported as the configured URL's result.
 func ProbeOutbound(ctx context.Context, detour adapter.Outbound, link string, timeout time.Duration) (uint16, error) {
 	if detour == nil {
 		return 0, E.New("nil detour")
@@ -45,8 +48,16 @@ func ProbeOutbound(ctx context.Context, detour adapter.Outbound, link string, ti
 		timeout = 5000 * time.Millisecond
 	}
 
+	return probeOutboundWithFallback(ctx, detour, link, GetFallbackLink(link), timeout)
+}
+
+func probeOutboundWithFallback(parentCtx context.Context, detour adapter.Outbound, link, fallbackLink string, timeout time.Duration) (uint16, error) {
+	// Treat timeout as a budget for the complete primary + fallback attempt, not
+	// as a fresh allowance for each URL.
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
+	defer cancel()
+
 	primaryTimeout := timeout
-	fallbackTimeout := 3000 * time.Millisecond
 	if timeout > 3500*time.Millisecond {
 		primaryTimeout = timeout - 1500*time.Millisecond
 	}
@@ -55,18 +66,37 @@ func ProbeOutbound(ctx context.Context, detour adapter.Outbound, link string, ti
 	if err == nil && delay > 0 {
 		return delay, nil
 	}
-
-	// 备选地址重试
-	fbLink := GetFallbackLink(link)
-	fbDelay, fbErr := probeSingleURL(ctx, detour, fbLink, fallbackTimeout)
-	if fbErr == nil && fbDelay > 0 {
-		return fbDelay, nil
+	if err == nil {
+		err = fmt.Errorf("primary probe returned no latency")
+	}
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
 	}
 
-	if err != nil {
+	// Keep fallback as a connectivity diagnostic only. Its RTT is for a
+	// different host and must not be reported as the configured URL's latency.
+	fallbackTimeout := 3000 * time.Millisecond
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < fallbackTimeout {
+			fallbackTimeout = remaining
+		}
+	}
+	if fallbackTimeout <= 0 {
 		return 0, err
 	}
-	return 0, fbErr
+	fbDelay, fbErr := probeSingleURL(ctx, detour, fallbackLink, fallbackTimeout)
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+	if fbErr == nil && fbDelay > 0 {
+		return 0, fmt.Errorf("primary test URL failed: %w; fallback URL is reachable (%dms), but its latency is not used", err, fbDelay)
+	}
+
+	if fbErr != nil {
+		return 0, fmt.Errorf("primary test URL failed: %w; fallback test URL failed: %v", err, fbErr)
+	}
+	return 0, err
 }
 
 func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link string, timeout time.Duration) (uint16, error) {
@@ -75,17 +105,6 @@ func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link str
 		return 0, E.Cause(err, "parse test link")
 	}
 	hostname := linkURL.Hostname()
-	port := linkURL.Port()
-	if port == "" {
-		switch linkURL.Scheme {
-		case "http":
-			port = "80"
-		case "https":
-			port = "443"
-		default:
-			port = "443"
-		}
-	}
 
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
@@ -114,7 +133,7 @@ func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link str
 		},
 	}
 
-	// 阶段一：以标准浏览器 UA 发起 GET 预热连接
+	// Stage one establishes and warms the proxied HTTP/TLS connection.
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
 		return 0, err
@@ -126,35 +145,48 @@ func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link str
 	if err == nil {
 		_, _ = io.CopyN(io.Discard, resp1.Body, 8192)
 		_ = resp1.Body.Close()
-		if resp1.StatusCode >= 500 {
+		if resp1.StatusCode < http.StatusOK || resp1.StatusCode >= http.StatusMultipleChoices {
 			err = fmt.Errorf("HTTP error %d", resp1.StatusCode)
 		}
 	}
 	if err != nil {
 		return 0, err
 	}
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
 	pass1 := time.Since(start1)
 
-	// 阶段二：复用保活长连接，测量真实 1-RTT 时延
+	// Stage two records the response-header TTFB; body transfer is excluded.
 	req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err2 == nil {
 		req2.Header.Set("User-Agent", BrowserUserAgent)
 		start2 := time.Now()
 		resp2, err2Do := client.Do(req2)
 		if err2Do == nil {
-			_, _ = io.CopyN(io.Discard, resp2.Body, 8192)
+			elapsed := time.Since(start2)
+			statusCode := resp2.StatusCode
 			_ = resp2.Body.Close()
-			if resp2.StatusCode < 500 {
-				lat := uint16(time.Since(start2).Milliseconds())
-				if lat == 0 {
-					lat = 1
-				}
-				return lat, nil
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
 			}
+			if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+				return 0, fmt.Errorf("HTTP error %d", statusCode)
+			}
+			lat := uint16(elapsed.Milliseconds())
+			if lat == 0 {
+				lat = 1
+			}
+			return lat, nil
 		}
 	}
 
-	// 远端不支持 Keep-Alive 时，回退至阶段一耗时
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+
+	// Preserve the warm-up result only for a non-cancellation second-request
+	// failure (for example, a peer that closes keep-alive connections).
 	lat := uint16(pass1.Milliseconds())
 	if lat == 0 {
 		lat = 1

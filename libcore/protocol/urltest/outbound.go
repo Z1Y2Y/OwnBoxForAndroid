@@ -557,6 +557,10 @@ func (b *urlTestBatch) test(outbounds []adapter.Outbound, link string, interval 
 				case <-testCtx.Done():
 					testResult.err = testCtx.Err()
 				}
+				if b.ctx.Err() != nil {
+					// Cancellation is not evidence that this outbound is unhealthy.
+					return nil, nil
+				}
 				if testResult.err != nil {
 					b.logger.Debug("outbound ", tag, " unavailable: ", testResult.err)
 					oldHist := b.history.LoadURLTestHistory(tag)
