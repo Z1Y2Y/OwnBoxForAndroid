@@ -817,7 +817,12 @@ class ConfigurationFragment @JvmOverloads constructor(
     private var topBarPreDrawListener: android.view.ViewTreeObserver.OnPreDrawListener? = null
     private var topBarPreDrawTarget: View? = null
 
-    private fun setupTopBarFloatingCapsules(fillColor: Int, strokeColor: Int, isDark: Boolean) {
+    private fun setupTopBarFloatingCapsules(
+        fillColor: Int,
+        strokeColor: Int,
+        shadowBaseColor: Int,
+        isDark: Boolean,
+    ) {
         val rootView = view ?: return
         val toolbarContainer = rootView.findViewById<View>(R.id.toolbar_container) ?: return
         val capsulesBgView = rootView.findViewById<View>(R.id.toolbar_capsules_bg) ?: return
@@ -827,6 +832,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             this.fillColor = fillColor
             this.strokeColor = strokeColor
             this.strokeWidthPx = 0.9f * density
+            this.shadowBaseColor = shadowBaseColor
             this.isDark = isDark
             invalidateSelf()
         } ?: DualFloatingCapsulesDrawable(
@@ -835,6 +841,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             strokeWidthPx = 0.9f * density,
             isDark = isDark,
             density = density,
+            shadowBaseColor = shadowBaseColor,
         ).also { topBarCapsulesDrawable = it }
 
         if (capsulesBgView.background !== drawable) {
@@ -916,11 +923,8 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
-        val titleView = rootView.findViewById<TextView>(R.id.toolbar_title_view)
         val leftL = 5.5f * density
-        var leftR = if (titleView != null && titleView.visibility == View.VISIBLE && titleView.width > 0) {
-            titleView.right.toFloat() + 10.5f * density
-        } else if (navBtn != null && navBtn.width > 0) {
+        var leftR = if (navBtn != null && navBtn.width > 0) {
             leftL + capsuleH
         } else {
             0f
@@ -956,26 +960,32 @@ class ConfigurationFragment @JvmOverloads constructor(
         val containerRadius = dp2px(19).toFloat()
         val containerBgColor: Int
         val containerStrokeColor: Int
+        val shadowBaseColor: Int
         when {
             isBlack -> {
                 containerBgColor = Color.parseColor("#141417")
                 containerStrokeColor = Color.parseColor("#27272A")
+                shadowBaseColor = Color.BLACK
             }
             isWhite -> {
                 containerBgColor = Color.WHITE
                 containerStrokeColor = Color.parseColor("#E4E8F0")
+                shadowBaseColor = Color.BLACK
             }
             isLightGray -> {
                 containerBgColor = Color.WHITE
                 containerStrokeColor = Color.parseColor("#E2E8F0")
+                shadowBaseColor = Color.BLACK
             }
             isNight -> {
-                containerBgColor = Color.parseColor("#1E293B")
-                containerStrokeColor = Color.parseColor("#334155")
+                containerBgColor = ColorUtils.blendARGB(Color.parseColor("#18181B"), themeColor, 0.16f)
+                containerStrokeColor = ColorUtils.blendARGB(Color.parseColor("#27272A"), themeColor, 0.38f)
+                shadowBaseColor = Color.BLACK
             }
             else -> {
-                containerBgColor = Color.WHITE
-                containerStrokeColor = Color.parseColor("#E4E8F0")
+                containerBgColor = ColorUtils.blendARGB(Color.WHITE, themeColor, 0.09f)
+                containerStrokeColor = ColorUtils.blendARGB(Color.WHITE, themeColor, 0.28f)
+                shadowBaseColor = ColorUtils.blendARGB(Color.BLACK, themeColor, 0.35f)
             }
         }
         val density = resources.displayMetrics.density
@@ -998,6 +1008,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             insetBottom = padV,
             isDark = isBlack || isNight,
             density = density,
+            shadowBaseColor = shadowBaseColor,
         )
         tabLayout.outlineProvider = object : android.view.ViewOutlineProvider() {
             override fun getOutline(view: View, outline: android.graphics.Outline) {
@@ -1006,7 +1017,12 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
         tabLayout.clipToOutline = true
-        setupTopBarFloatingCapsules(containerBgColor, containerStrokeColor, isBlack || isNight)
+        setupTopBarFloatingCapsules(
+            fillColor = containerBgColor,
+            strokeColor = containerStrokeColor,
+            shadowBaseColor = shadowBaseColor,
+            isDark = isBlack || isNight,
+        )
 
         // 2. Style Inner Active Sliding Pill & Text colors
         val capsuleBg: Int
