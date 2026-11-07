@@ -1953,7 +1953,8 @@ fun buildConfig(
                 outbound = TAG_DIRECT
             })
 
-            // Telegram 官方数据中心（DC 1~5）及核心媒体 CDN 纯 IP 段
+            // Telegram DC ranges are used only to skip sniffing pure-IP MTProto traffic;
+            // they do not select an outbound or override user routing rules.
             val telegramDcIps = listOf(
                 "91.108.4.0/22",
                 "91.108.8.0/22",
@@ -1965,10 +1966,8 @@ fun buildConfig(
                 "2001:b88::/32",
                 "2001:67c:4e8::/48"
             )
-
             // 2. sing-box 1.13：sniff（嗅探域名以供后续分流规则匹配）
-            // 显式指定 timeout = "100ms" 与 sniffer = ["tls", "http", "quic"]，并通过 ip_cidr + invert 跳过 Telegram 纯 IP MTProto 流量嗅探，
-            // 既杜绝 100ms~300ms 首包等待与断流，又不拦截用户自定义的 Telegram 应用/节点分流规则
+            // 显式指定 timeout = "100ms" 与 sniffer = ["tls", "http", "quic"]，并跳过 Telegram 纯 IP 流量的嗅探等待。
             if (needSniff) {
                 topRouteRules.add(Rule_DefaultOptions().apply {
                     ip_cidr = telegramDcIps
@@ -2040,12 +2039,6 @@ fun buildConfig(
 
             route.rules.addAll(0, topRouteRules)
 
-            // Telegram 官方数据中心（DC 1~5）兜底规则：置于所有用户自定义分流规则之后，
-            // 确保用户为 Telegram 配置的指定节点规则优先命中，未配置时兜底走主代理
-            route.rules.add(Rule_DefaultOptions().apply {
-                ip_cidr = telegramDcIps
-                outbound = mainProxyTag
-            })
 
             if (DataStore.bypassLanInCore) {
                 route.rules.add(Rule_DefaultOptions().apply {
