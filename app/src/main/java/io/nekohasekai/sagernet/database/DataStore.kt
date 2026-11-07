@@ -285,6 +285,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
         if (configurationStore.getString(Key.MIXED_PORT) == null) {
             mixedPort = mixedPort
         }
+        if (configurationStore.getString(Key.SMART_ROUTE_COUNTRY) == null) {
+            smartRouteCountry = "cn"
+        }
     }
 
 
@@ -598,6 +601,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
         set(value) = configurationStore.putString("webdavPath", value)
 
     var globalMode by configurationStore.boolean(Key.GLOBAL_MODE)
+    var smartMode by configurationStore.boolean(Key.SMART_MODE) { false }
+    var smartRouteCountry by configurationStore.string(Key.SMART_ROUTE_COUNTRY) { "cn" }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
     }

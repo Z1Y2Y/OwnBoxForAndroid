@@ -85,6 +85,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
         preferenceManager.preferenceDataStore = DataStore.configurationStore
         DataStore.initGlobal()
         addPreferencesFromResource(R.xml.global_preferences)
+        findPreference<SimpleMenuPreference>(Key.SMART_ROUTE_COUNTRY)?.setOnPreferenceChangeListener(reloadListener)
 
         val iconColor = Theme.getPrimaryColor(requireContext())
         tintPreferenceIcons(preferenceScreen, iconColor)

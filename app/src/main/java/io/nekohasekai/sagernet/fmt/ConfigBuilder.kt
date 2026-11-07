@@ -403,7 +403,18 @@ fun buildConfig(
         return list
     }
 
-    val extraRules = if (forTest) listOf() else SagerDatabase.rulesDao.enabledRules()
+    val isSmartRouting = !forTest && DataStore.smartMode && !DataStore.globalMode
+    val extraRules = if (forTest) {
+        listOf()
+    } else {
+        val userRules = SagerDatabase.rulesDao.enabledRules()
+        val policyRules = when {
+            isSmartRouting -> io.nekohasekai.sagernet.route.SmartRouteRules.buildSmartRules(DataStore.smartRouteCountry)
+            !DataStore.globalMode -> listOf(io.nekohasekai.sagernet.route.SmartRouteRules.googlePlayRule())
+            else -> emptyList()
+        }
+        userRules + policyRules
+    }
     val extraProxies =
         if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(extraRules.mapNotNull { rule ->
             rule.outbound.takeIf { it > 0 && it != proxy.id }
@@ -1852,6 +1863,43 @@ fun buildConfig(
                 })
             }
 
+            // Google Play 商店与核心海外服务防误杀 DNS 专线规则（置于 domesticCoreDomainSuffixes 之前）：
+            // 确保 googleapis.cn / gvt1-cn.com 不被国内 .cn 规则误判为直连，由海外远程安全 DNS 解析
+            val googlePlayDomains = listOf(
+                "googleapis.cn",
+                "google.cn",
+                "play.googleapis.com",
+                "market.android.com",
+                "android.clients.google.com",
+                "playstoregatewayadapter-pa.googleapis.com",
+                "firebaselogging-pa.googleapis.com",
+                "xn--ngstr-lra8j.com",
+                "xn--ngstr-cn-8za9o.com"
+            )
+            val googlePlayDomainSuffixes = listOf(
+                "gvt1.com", "gvt2.com", "gvt3.com", "gvt5.com", "gvt6.com", "gvt7.com", "gvt9.com",
+                "gvt1-cn.com", "gvt2-cn.com",
+                "googleusercontent.com",
+                "ggpht.com"
+            )
+
+            dns.rules.add(DNSRule_DefaultOptions().apply {
+                domain = googlePlayDomains
+                server = "dns-remote"
+            })
+            dns.rules.add(DNSRule_DefaultOptions().apply {
+                domain_suffix = googlePlayDomainSuffixes
+                server = "dns-remote"
+            })
+
+            // 智能模式下才启用本国核心域名的直连 DNS，普通规则模式仍完全由用户规则决定。
+            if (isSmartRouting) {
+                val domesticCoreDomainSuffixes = io.nekohasekai.sagernet.route.SmartRouteRules.domesticCoreDomainSuffixes(DataStore.smartRouteCountry)
+                dns.rules.add(DNSRule_DefaultOptions().apply {
+                    domain_suffix = domesticCoreDomainSuffixes
+                    server = "dns-direct"
+                })
+            }
             // 提取 directDNS 与 remoteDns 的域名及 IP/CIDR 目标
             val (rawDirectDomains, directIps) = extractDnsTargets(directDNS, false)
             val (rawRemoteDomains, remoteIps) = extractDnsTargets(remoteDns, true)
