@@ -1296,10 +1296,14 @@ class ConfigurationFragment @JvmOverloads constructor(
                 tintMenuIcons(toolbar.menu, textPrimary)
             }
             else -> {
-                val tabIndicatorColor = requireContext().getColorAttr(R.attr.tabIndicatorColor)
-                val tabSelectedTextColor = requireContext().getColorAttr(R.attr.tabSelectedTextColor)
-                val tabUnselectedTextColor = requireContext().getColorAttr(R.attr.tabTextColor)
-                val textColorPrimary = requireContext().getColorAttr(android.R.attr.textColorPrimary)
+                val pageBg = ctx.getColorAttr(android.R.attr.colorBackground)
+                val tabIndicatorColor = ctx.getColorAttr(R.attr.tabIndicatorColor)
+                val tabSelectedTextColor = ctx.getColorAttr(R.attr.tabSelectedTextColor)
+                val tabUnselectedTextColor = ctx.getColorAttr(R.attr.tabTextColor)
+                val textColorPrimary = ctx.getColorAttr(android.R.attr.textColorPrimary)
+                view.setBackgroundColor(pageBg)
+                view.findViewById<View>(R.id.appbar)?.setBackgroundColor(pageBg)
+                view.findViewById<View>(R.id.toolbar_container)?.setBackgroundColor(pageBg)
                 toolbar.setBackgroundColor(Color.TRANSPARENT)
                 val tv = view.findViewById<TextView>(R.id.toolbar_title_view)
                 tv?.text = resolvedTitle
