@@ -901,7 +901,6 @@ class ConfigurationFragment @JvmOverloads constructor(
         val primaryTextColor = requireContext().getColorAttr(android.R.attr.textColorPrimary)
         if (!select) {
             toolbar.inflateMenu(R.menu.add_profile_menu)
-            toolbar.menu.findItem(R.id.action_global_mode)?.isChecked = DataStore.globalMode
             toolbar.setOnMenuItemClickListener(this)
             tintMenuIcons(toolbar.menu, primaryTextColor)
             adjustToolbarActionButtons()
@@ -1189,7 +1188,6 @@ class ConfigurationFragment @JvmOverloads constructor(
     }
 
     override fun onPrepareOptionsMenu(menu: Menu) {
-        menu.findItem(R.id.action_global_mode)?.isChecked = DataStore.globalMode
         menu.findItem(R.id.action_hide_unavailable)?.isChecked = DataStore.hideUnavailableProfiles
         updateToolbarMenuTitles()
         super.onPrepareOptionsMenu(menu)
@@ -1843,36 +1841,18 @@ class ConfigurationFragment @JvmOverloads constructor(
                 return true
             }
 
-            R.id.action_global_mode -> {
-                item.isChecked = !item.isChecked
-                DataStore.globalMode = item.isChecked
-                if (DataStore.serviceState.canStop) {
-                    runOnDefaultDispatcher {
-                        try {
-                            // 等待一段时间确保配置已保存
-                            delay(500)
-                            snackbar(getString(R.string.need_reload)).setAction(R.string.apply) {
-                                runOnDefaultDispatcher {
-                                    try {
-                                        // 再次等待确保配置已保存
-                                        delay(100)
-                                        SagerNet.reloadService()
-                                    } catch (e: Exception) {
-                                        Logs.w(e)
-                                        onMainDispatcher {
-                                            snackbar(getString(R.string.service_failed)).show()
-                                        }
-                                    }
-                                }
-                            }.show()
-                        } catch (e: Exception) {
-                            Logs.w(e)
-                            onMainDispatcher {
-                                snackbar(getString(R.string.service_failed)).show()
-                            }
-                        }
-                    }
-                }
+            R.id.action_reorder_profiles -> {
+                enterReorderMode()
+                return true
+            }
+
+            R.id.action_reset_profiles_order -> {
+                resetToDefaultOrder()
+                return true
+            }
+
+            R.id.action_reorder_save -> {
+                saveReorder()
                 return true
             }
         }

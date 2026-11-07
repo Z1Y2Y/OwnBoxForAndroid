@@ -642,10 +642,10 @@ class MainActivity : ThemedActivity(),
     private fun rebuildDrawerItems() {
         drawerMenuItems.removeAllViews()
         val drawerFactor = UiScaleManager.drawerFactor()
-        val rowHeight = (dp(50) * drawerFactor).toInt().coerceIn(dp(34), dp(68))
-        val iconSize = (dp(24) * drawerFactor).toInt().coerceIn(dp(16), dp(34))
-        val groupGap = (dp(14) * drawerFactor).toInt().coerceAtLeast(dp(6))
-        val titleGap = (dp(20) * drawerFactor).toInt().coerceAtLeast(dp(10))
+        val rowHeight = (dp(45) * drawerFactor).toInt().coerceIn(dp(36), dp(64))
+        val iconSize = (dp(22) * drawerFactor).toInt().coerceIn(dp(16), dp(30))
+        val groupGap = (dp(10) * drawerFactor).toInt().coerceAtLeast(dp(6))
+        val titleGap = (dp(14) * drawerFactor).toInt().coerceAtLeast(dp(10))
         var previousGroup: Int? = null
         val menu = navigation.menu
         for (index in 0 until menu.size()) {
@@ -674,9 +674,9 @@ class MainActivity : ThemedActivity(),
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 rowHeight,
             ).apply {
-                marginStart = dp(13)
-                marginEnd = dp(13)
-                bottomMargin = dp(2)
+                marginStart = dp(12)
+                marginEnd = dp(12)
+                bottomMargin = dp(5)
             }
             row.background = drawerRowBackground(selected = item.isChecked)
 
