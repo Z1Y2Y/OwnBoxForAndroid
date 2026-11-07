@@ -4,6 +4,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:clipToPadding="false"
     android:orientation="vertical"
     tools:context=".ui.ConfigurationFragment">
 
@@ -12,13 +14,24 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="?attr/colorSurface"
+        android:clipChildren="false"
+        android:clipToPadding="false"
         app:elevation="0dp"
         app:liftOnScroll="true">
 
         <FrameLayout
             android:id="@+id/toolbar_container"
             android:layout_width="match_parent"
-            android:layout_height="44dp">
+            android:layout_height="44dp"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+            <View
+                android:id="@+id/toolbar_capsules_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clickable="false"
+                android:focusable="false" />
 
             <com.google.android.material.appbar.MaterialToolbar
                 android:id="@+id/toolbar"
@@ -57,27 +70,44 @@
         </FrameLayout>
     </com.google.android.material.appbar.AppBarLayout>
 
-    <com.google.android.material.tabs.TabLayout
-        android:id="@+id/group_tab"
+    <FrameLayout
+        android:id="@+id/group_tab_container"
         android:layout_width="match_parent"
-        android:layout_height="32dp"
-        android:minHeight="32dp"
-        android:background="?android:attr/colorBackground"
-        android:elevation="0dp"
-        android:visibility="gone"
-        app:tabIndicatorColor="?attr/tabIndicatorColor"
-        app:tabIndicatorHeight="2dp"
-        app:tabIndicatorFullWidth="false"
-        app:tabMode="scrollable"
-        app:tabPaddingStart="10dp"
-        app:tabPaddingEnd="10dp"
-        app:tabPaddingTop="0dp"
-        app:tabPaddingBottom="0dp"
-        app:tabRippleColor="?tabRippleColor"
-        app:tabSelectedTextColor="?attr/tabSelectedTextColor"
-        app:tabTextColor="?attr/tabTextColor"
-        app:tabTextAppearance="@style/Widget.SagerNet.TabLayout.TextAppearance.Compact"
-        app:tabUnboundedRipple="false" />
+        android:layout_height="48dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="5dp"
+        android:paddingBottom="5dp"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:background="@drawable/bg_tab_outer_capsule"
+        android:visibility="gone">
+
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/group_tab"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            app:tabContentStart="0dp"
+            android:background="@android:color/transparent"
+            android:elevation="0dp"
+            app:tabIndicator="@drawable/bg_tab_capsule"
+            app:tabIndicatorGravity="center"
+            app:tabIndicatorHeight="30dp"
+            app:tabIndicatorFullWidth="true"
+            app:tabIndicatorAnimationMode="elastic"
+            app:tabMode="scrollable"
+            app:tabPaddingStart="14dp"
+            app:tabPaddingEnd="14dp"
+            app:tabPaddingTop="0dp"
+            app:tabPaddingBottom="0dp"
+            app:tabRippleColor="@android:color/transparent"
+            app:tabTextAppearance="@style/Widget.SagerNet.TabLayout.TextAppearance.Capsule"
+            app:tabSelectedTextAppearance="@style/Widget.SagerNet.TabLayout.TextAppearance.Capsule.Selected"
+            app:tabUnboundedRipple="false" />
+
+    </FrameLayout>
 
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/group_pager"

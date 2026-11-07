@@ -190,6 +190,7 @@ class ConfigurationFragment @JvmOverloads constructor(
 
     lateinit var adapter: GroupPagerAdapter
     lateinit var tabLayout: TabLayout
+    var groupTabContainer: View? = null
     lateinit var groupPager: ViewPager2
 
     val alwaysShowAddress by lazy { DataStore.alwaysShowAddress }
@@ -771,6 +772,286 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
     }
 
+    private fun applyTabMargins() {
+        if (!::tabLayout.isInitialized) return
+        val slidingTabIndicator = tabLayout.getChildAt(0) as? ViewGroup ?: return
+        val count = slidingTabIndicator.childCount
+        if (count == 0) return
+        val innerMargin = dp2px(2)
+        val edgeMargin = dp2px(4)
+        for (i in 0 until count) {
+            val tabView = slidingTabIndicator.getChildAt(i)
+            val lp = tabView.layoutParams as? ViewGroup.MarginLayoutParams
+            if (lp != null) {
+                val left = if (i == 0) edgeMargin else innerMargin
+                val right = if (i == count - 1) edgeMargin else innerMargin
+                if (lp.leftMargin != left || lp.rightMargin != right) {
+                    lp.leftMargin = left
+                    lp.rightMargin = right
+                    tabView.requestLayout()
+                }
+            }
+            if (tabView is ViewGroup) {
+                val isSelected = tabLayout.selectedTabPosition == i
+                for (j in 0 until tabView.childCount) {
+                    val child = tabView.getChildAt(j)
+                    if (child is TextView) {
+                        child.typeface = Typeface.create("sans-serif-medium", if (isSelected) Typeface.BOLD else Typeface.NORMAL)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updateTabTypeface(tab: TabLayout.Tab?, isSelected: Boolean) {
+        val tabView = tab?.view ?: return
+        for (j in 0 until tabView.childCount) {
+            val child = tabView.getChildAt(j)
+            if (child is TextView) {
+                child.typeface = Typeface.create("sans-serif-medium", if (isSelected) Typeface.BOLD else Typeface.NORMAL)
+            }
+        }
+    }
+
+    private var topBarCapsulesDrawable: DualFloatingCapsulesDrawable? = null
+    private var topBarPreDrawListener: android.view.ViewTreeObserver.OnPreDrawListener? = null
+    private var topBarPreDrawTarget: View? = null
+
+    private fun setupTopBarFloatingCapsules(fillColor: Int, strokeColor: Int, isDark: Boolean) {
+        val rootView = view ?: return
+        val toolbarContainer = rootView.findViewById<View>(R.id.toolbar_container) ?: return
+        val capsulesBgView = rootView.findViewById<View>(R.id.toolbar_capsules_bg) ?: return
+        val density = resources.displayMetrics.density
+
+        val drawable = topBarCapsulesDrawable?.apply {
+            this.fillColor = fillColor
+            this.strokeColor = strokeColor
+            this.strokeWidthPx = 0.9f * density
+            this.isDark = isDark
+            invalidateSelf()
+        } ?: DualFloatingCapsulesDrawable(
+            fillColor = fillColor,
+            strokeColor = strokeColor,
+            strokeWidthPx = 0.9f * density,
+            isDark = isDark,
+            density = density,
+        ).also { topBarCapsulesDrawable = it }
+
+        if (capsulesBgView.background !== drawable) {
+            capsulesBgView.background = drawable
+        }
+
+        if (topBarPreDrawTarget !== toolbarContainer || topBarPreDrawListener == null) {
+            topBarPreDrawTarget?.viewTreeObserver?.let { vto ->
+                if (vto.isAlive && topBarPreDrawListener != null) {
+                    vto.removeOnPreDrawListener(topBarPreDrawListener)
+                }
+            }
+            val listener = android.view.ViewTreeObserver.OnPreDrawListener {
+                updateTopBarCapsulesBounds()
+                true
+            }
+            topBarPreDrawListener = listener
+            topBarPreDrawTarget = toolbarContainer
+            toolbarContainer.viewTreeObserver.addOnPreDrawListener(listener)
+        }
+        updateTopBarCapsulesBounds()
+    }
+
+    private fun updateTopBarCapsulesBounds() {
+        val rootView = view ?: return
+        val toolbarContainer = rootView.findViewById<View>(R.id.toolbar_container) ?: return
+        val drawable = topBarCapsulesDrawable ?: return
+        if (!isToolbarInitialized) return
+
+        val cw = toolbarContainer.width
+        val ch = toolbarContainer.height
+        if (cw <= 0 || ch <= 0) return
+
+        val density = resources.displayMetrics.density
+        val iconFactor = UiScaleManager.toolbarIconFactor()
+        val capsuleH = (29f * density * iconFactor).coerceIn(
+            24f * density,
+            (ch - 10f * density).coerceAtLeast(24f * density)
+        )
+        val cy = ch * 0.5f
+        val capTop = cy - capsuleH * 0.5f
+        val capBottom = cy + capsuleH * 0.5f
+        val capRadius = capsuleH * 0.5f
+
+        var rightL = 0f
+        var rightR = 0f
+        var menuView: ActionMenuView? = null
+        var navBtn: View? = null
+        for (i in 0 until toolbar.childCount) {
+            val child = toolbar.getChildAt(i)
+            if (child is ActionMenuView && child.visibility == View.VISIBLE) {
+                menuView = child
+            } else if (child is android.widget.ImageButton && child.visibility == View.VISIBLE) {
+                navBtn = child
+            }
+        }
+
+        if (menuView != null && menuView.width > 0) {
+            var minChildL = Int.MAX_VALUE
+            var maxChildR = Int.MIN_VALUE
+            for (j in 0 until menuView.childCount) {
+                val item = menuView.getChildAt(j)
+                if (item.visibility == View.VISIBLE && item.width > 0) {
+                    if (item.left < minChildL) minChildL = item.left
+                    if (item.right > maxChildR) maxChildR = item.right
+                }
+            }
+            if (minChildL < maxChildR) {
+                val baseOffset = (toolbar.left + menuView.left).toFloat()
+                val rawL = baseOffset + minChildL
+                val rawR = baseOffset + maxChildR
+                rightL = (rawL - 2.5f * density).coerceAtLeast(5.5f * density)
+                rightR = (rawR - 1.5f * density).coerceAtMost(cw - 5.5f * density)
+                if (rightR - rightL < capsuleH) {
+                    val mid = (rightL + rightR) * 0.5f
+                    rightL = mid - capsuleH * 0.5f
+                    rightR = mid + capsuleH * 0.5f
+                }
+            }
+        }
+
+        val titleView = rootView.findViewById<TextView>(R.id.toolbar_title_view)
+        val leftL = 5.5f * density
+        var leftR = if (titleView != null && titleView.visibility == View.VISIBLE && titleView.width > 0) {
+            titleView.right.toFloat() + 10.5f * density
+        } else if (navBtn != null && navBtn.width > 0) {
+            leftL + capsuleH
+        } else {
+            0f
+        }
+
+        if (leftR > leftL && rightR > rightL) {
+            leftR = leftR.coerceAtMost(rightL - 6f * density)
+        }
+
+        drawable.updateCapsules(
+            leftL = if (leftR > leftL) leftL else 0f,
+            leftT = if (leftR > leftL) capTop else 0f,
+            leftR = if (leftR > leftL) leftR else 0f,
+            leftB = if (leftR > leftL) capBottom else 0f,
+            rightL = if (rightR > rightL) rightL else 0f,
+            rightT = if (rightR > rightL) capTop else 0f,
+            rightR = if (rightR > rightL) rightR else 0f,
+            rightB = if (rightR > rightL) capBottom else 0f,
+            radius = capRadius,
+        )
+    }
+
+    private fun styleCapsuleTabLayout() {
+        if (!::tabLayout.isInitialized) return
+        val ctx = context ?: return
+        val isBlack = Theme.isBlackTheme(ctx)
+        val isNight = Theme.usingNightMode(ctx)
+        val isWhite = Theme.isWhiteTheme(ctx)
+        val isLightGray = Theme.isLightGrayTheme(ctx)
+        val themeColor = Theme.getPrimaryColor(ctx)
+
+        // 1. Style Outer Big Capsule Track (groupTabContainer) & Top Bar Dual Floating Capsules
+        val containerRadius = dp2px(19).toFloat()
+        val containerBgColor: Int
+        val containerStrokeColor: Int
+        when {
+            isBlack -> {
+                containerBgColor = Color.parseColor("#141417")
+                containerStrokeColor = Color.parseColor("#27272A")
+            }
+            isWhite -> {
+                containerBgColor = Color.WHITE
+                containerStrokeColor = Color.parseColor("#E4E8F0")
+            }
+            isLightGray -> {
+                containerBgColor = Color.WHITE
+                containerStrokeColor = Color.parseColor("#E2E8F0")
+            }
+            isNight -> {
+                containerBgColor = Color.parseColor("#1E293B")
+                containerStrokeColor = Color.parseColor("#334155")
+            }
+            else -> {
+                containerBgColor = Color.WHITE
+                containerStrokeColor = Color.parseColor("#E4E8F0")
+            }
+        }
+        val density = resources.displayMetrics.density
+        val padH = dp2px(8)
+        val padV = dp2px(5)
+        groupTabContainer?.setPadding(padH, padV, padH, padV)
+        groupTabContainer?.clipToOutline = false
+        (groupTabContainer as? ViewGroup)?.apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+        groupTabContainer?.background = SingleFloatingCapsuleDrawable(
+            fillColor = containerBgColor,
+            strokeColor = containerStrokeColor,
+            strokeWidthPx = 0.9f * density,
+            cornerRadiusPx = containerRadius,
+            insetLeft = padH,
+            insetTop = padV,
+            insetRight = padH,
+            insetBottom = padV,
+            isDark = isBlack || isNight,
+            density = density,
+        )
+        tabLayout.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: android.graphics.Outline) {
+                val r = (view.height * 0.5f).coerceAtLeast(containerRadius)
+                outline.setRoundRect(0, 0, view.width, view.height, r)
+            }
+        }
+        tabLayout.clipToOutline = true
+        setupTopBarFloatingCapsules(containerBgColor, containerStrokeColor, isBlack || isNight)
+
+        // 2. Style Inner Active Sliding Pill & Text colors
+        val capsuleBg: Int
+        val selectedText: Int
+        val unselectedText: Int
+
+        when {
+            isBlack -> {
+                capsuleBg = Color.parseColor("#2E2E35")
+                selectedText = Color.WHITE
+                unselectedText = Color.parseColor("#A1A1AA")
+            }
+            isWhite -> {
+                capsuleBg = Color.parseColor("#E5E7EB")
+                selectedText = Color.parseColor("#0F172A")
+                unselectedText = Color.parseColor("#475569")
+            }
+            isLightGray -> {
+                capsuleBg = Color.parseColor("#E2E8F0")
+                selectedText = Color.parseColor("#0F172A")
+                unselectedText = Color.parseColor("#475569")
+            }
+            isNight -> {
+                capsuleBg = ColorUtils.setAlphaComponent(themeColor, 60)
+                selectedText = ColorUtils.blendARGB(themeColor, Color.WHITE, 0.40f)
+                unselectedText = Color.parseColor("#94A3B8")
+            }
+            else -> {
+                capsuleBg = ColorUtils.setAlphaComponent(themeColor, 36)
+                val lum = ColorUtils.calculateLuminance(themeColor)
+                selectedText = if (lum > 0.45) {
+                    ColorUtils.blendARGB(themeColor, Color.BLACK, 0.45f)
+                } else {
+                    themeColor
+                }
+                unselectedText = Color.parseColor("#475569")
+            }
+        }
+
+        tabLayout.setBackgroundColor(Color.TRANSPARENT)
+        tabLayout.setSelectedTabIndicatorColor(capsuleBg)
+        tabLayout.setTabTextColors(unselectedText, selectedText)
+        tabLayout.tabRippleColor = android.content.res.ColorStateList.valueOf(Color.TRANSPARENT)
+    }
+
     private fun styleSearchView(searchView: SearchView) {
         val ctx = context ?: return
         val textColor: Int
@@ -891,6 +1172,7 @@ class ConfigurationFragment @JvmOverloads constructor(
 
         groupPager = view.findViewById(R.id.group_pager)
         tabLayout = view.findViewById(R.id.group_tab)
+        groupTabContainer = view.findViewById(R.id.group_tab_container)
         adapter = GroupPagerAdapter()
         ProfileManager.addListener(adapter)
         GroupManager.addListener(adapter)
@@ -1083,9 +1365,8 @@ class ConfigurationFragment @JvmOverloads constructor(
 
         val tabFactor = UiScaleManager.tabBarFactor()
         if (tabFactor != 1.0f) {
-            val scaledTabHeight = (dp2px(32) * tabFactor).toInt().coerceIn(dp2px(22), dp2px(48))
-            tabLayout.minimumHeight = scaledTabHeight
-            tabLayout.layoutParams = tabLayout.layoutParams?.apply {
+            val scaledTabHeight = (dp2px(38) * tabFactor).toInt().coerceIn(dp2px(26), dp2px(54)) + dp2px(10)
+            groupTabContainer?.layoutParams = groupTabContainer?.layoutParams?.apply {
                 height = scaledTabHeight
             }
         }
@@ -1095,6 +1376,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             if (adapter.groupList.size > position) {
                 tab.text = adapter.groupList[position].displayName()
             }
+            tab.view.post { applyTabMargins() }
             if (tabFactor != 1.0f) {
                 tab.view.post {
                     for (i in 0 until tab.view.childCount) {
@@ -1153,6 +1435,16 @@ class ConfigurationFragment @JvmOverloads constructor(
                 false
             }
         }.attach()
+
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab?) = updateTabTypeface(tab, true)
+            override fun onTabUnselected(tab: TabLayout.Tab?) = updateTabTypeface(tab, false)
+            override fun onTabReselected(tab: TabLayout.Tab?) = updateTabTypeface(tab, true)
+        })
+        tabLayout.post {
+            applyTabMargins()
+            styleCapsuleTabLayout()
+        }
 
         toolbar.setOnClickListener {
             val fragment = getCurrentGroupFragment()
@@ -1215,6 +1507,18 @@ class ConfigurationFragment @JvmOverloads constructor(
                 refreshProfileState()
             }
         }
+    }
+
+    override fun onDestroyView() {
+        topBarPreDrawTarget?.viewTreeObserver?.let { vto ->
+            if (vto.isAlive && topBarPreDrawListener != null) {
+                vto.removeOnPreDrawListener(topBarPreDrawListener)
+            }
+        }
+        topBarPreDrawListener = null
+        topBarPreDrawTarget = null
+        topBarCapsulesDrawable = null
+        super.onDestroyView()
     }
 
     override fun onDestroy() {
@@ -2647,7 +2951,8 @@ class ConfigurationFragment @JvmOverloads constructor(
                                 // Show tab if there are ≥2 real groups (or ≥3 items including sentinel)
                                 val realGroupCount = groupList.count { it.id != ALL_GROUPS_SENTINEL_ID }
                                 val hideTab = realGroupCount < 2
-                                tabLayout.isGone = hideTab
+                                groupTabContainer?.isGone = hideTab
+                                tabLayout.isVisible = true
                                 toolbar.elevation = if (hideTab) 0F else dp2px(4).toFloat()
                                 if (!select) {
                                     groupPager.registerOnPageChangeCallback(updateSelectedCallback)
@@ -2691,7 +2996,10 @@ class ConfigurationFragment @JvmOverloads constructor(
                 groupList.add(group)
 
                 if (groupList.any { !it.ungrouped }) tabLayout.post {
+                    groupTabContainer?.visibility = View.VISIBLE
                     tabLayout.visibility = View.VISIBLE
+                    applyTabMargins()
+                    styleCapsuleTabLayout()
                 }
 
                 notifyItemInserted(groupList.size - 1)
