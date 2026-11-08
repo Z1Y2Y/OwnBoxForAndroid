@@ -1,6 +1,6 @@
 # OwnBox for Android 更新日志 (Changelog)
 
-# MyBox for Android v26.11.3.68 预览版 (v26.11.3.68-preview.1)
+# MyBox for Android v26.11.3.68 预览版 (v26.11.3.68-preview.2)
 
 ### 安装兼容性（重要）
 * 本预览版使用的签名与此前公开版不同，不能直接覆盖安装；安装前必须先卸载当前版本，再安装本版。

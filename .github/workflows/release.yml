@@ -138,7 +138,7 @@ jobs:
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
           # One-time user-approved reinstall-only release; all other tags stay strict.
-          APPROVED_INCOMPATIBLE_TAG="v26.11.3.68-preview.1"
+          APPROVED_INCOMPATIBLE_TAG="v26.11.3.68-preview.2"
           ALLOW_INCOMPATIBLE_SIGNATURE=false
           if [ "${GITHUB_REF_NAME:-}" = "$APPROVED_INCOMPATIBLE_TAG" ] && [ "${GITHUB_RUN_ATTEMPT:-0}" = "1" ]; then
             ALLOW_INCOMPATIBLE_SIGNATURE=true
@@ -153,7 +153,8 @@ jobs:
           for apk in "$APK_DIR"/*.apk; do
             [ -f "$apk" ] || continue
             APK_COUNT=$((APK_COUNT + 1))
-            cert=$($APKSIGNER verify --print-certs "$apk" 2>&1 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+            cert_output=$($APKSIGNER verify --print-certs "$apk" 2>&1)
+            cert=$(printf '%s\n' "$cert_output" | awk 'tolower($0) ~ /certificate sha-256 digest/ { sub(/^.*digest:[[:space:]]*/, ""); gsub(/[^[:xdigit:]]/, ""); print tolower($0); exit }')
             if [[ ! "$cert" =~ ^[0-9a-f]{64}$ ]]; then
               echo "::error::Could not read a valid signing certificate fingerprint for $apk; refusing to publish."
               exit 1
