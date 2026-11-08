@@ -136,6 +136,35 @@ jobs:
             fi
           done
 
+          EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
+          AAPT=$(find "${ANDROID_HOME}/build-tools" -name aapt | sort -V | tail -n 1)
+          if [ -z "$AAPT" ]; then
+            echo "::error::aapt not found; refusing to publish without package/version verification."
+            exit 1
+          fi
+          APK_COUNT=0
+          for apk in "$APK_DIR"/*.apk; do
+            [ -f "$apk" ] || continue
+            APK_COUNT=$((APK_COUNT + 1))
+            cert=$($APKSIGNER verify --print-certs "$apk" 2>&1 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+            if [ "$cert" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::Unexpected APK signing certificate for $apk; refusing to publish."
+              exit 1
+            fi
+            badging=$($AAPT dump badging "$apk" | sed -n '1p')
+            package=$(printf '%s\n' "$badging" | sed -n "s/.*package: name='\\([^']*\\)'.*/\\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
+            if [ "$package" != "com.ownbox.fork" ] || [ -z "$version_code" ] || [ "$version_code" -le 2335 ]; then
+              echo "::error::Unexpected package or versionCode for $apk; refusing to publish."
+              exit 1
+            fi
+            echo "Verified compatible APK: $apk (package=$package versionCode=$version_code cert=$cert)"
+          done
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "::error::No APKs found to verify; refusing to publish."
+            exit 1
+          fi
+
           rm -f release.keystore
 
           echo "APK=$APK_DIR" >> $GITHUB_ENV
@@ -169,14 +198,14 @@ jobs:
       - name: Sync Release Notes
         run: |
           if [ -f CHANGELOG.md ]; then
-            awk '/^# OwnBox for Android v/{if(found) exit; found=1} found' CHANGELOG.md > RELEASE_NOTES.md
+            awk '/^# (MyBox|OwnBox) for Android v/{if(found) exit; found=1} found' CHANGELOG.md > RELEASE_NOTES.md
           fi
           cat RELEASE_NOTES.md
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: OwnBox ${{ github.event.inputs.tag || github.ref_name }}
+          name: MyBox ${{ github.event.inputs.tag || github.ref_name }}
           body_path: RELEASE_NOTES.md
           files: |
             apks/*.apk
@@ -185,4 +214,3 @@ jobs:
           prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, 'preview') || contains(github.event.inputs.tag || github.ref_name, 'alpha') || contains(github.event.inputs.tag || github.ref_name, 'beta') }}
           make_latest: ${{ !(contains(github.event.inputs.tag || github.ref_name, 'preview') || contains(github.event.inputs.tag || github.ref_name, 'alpha') || contains(github.event.inputs.tag || github.ref_name, 'beta')) }}
           generate_release_notes: false
-

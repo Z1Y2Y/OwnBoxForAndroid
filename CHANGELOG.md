@@ -1,5 +1,12 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# MyBox for Android v26.11.3.68 预览版 (v26.11.3.68-preview)
+
+### 连接管理与稳定性
+* 新增连接管理页，可查看活动、已关闭或全部连接，支持搜索、查看连接详情和断开连接。
+* 修复应用图标与 UID 的匹配显示，并优先展示目标域名。
+* 改进 URL 测试探测的稳定性；保留用户自己的路由配置，不增加 Telegram 专属强制分流规则。
+
 # OwnBox for Android v26.11.3.6 预览版 (v26.11.3.6-preview)
 
 ### 🐛 界面与视觉交互修复 (解决 Issue #81)

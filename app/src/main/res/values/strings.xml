@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">OwnBox</string>
-    <string name="app_name_long" translatable="false">OwnBox for Android</string>
+    <string name="app_name" translatable="false">MyBox</string>
+    <string name="app_name_long" translatable="false">MyBox for Android</string>
     <string name="app_desc">The universal proxy toolchain for Android, written in Kotlin.</string>
     <string name="project">Project</string>
     <string name="github">Source code</string>
@@ -80,7 +80,7 @@
     <string name="lan_sharing">LAN Sharing</string>
     <string name="lan_sharing_disabled_sum">Tap to enable hotspot proxy sharing</string>
     <string name="lan_sharing_enabled_sum">Sharing enabled: set proxy %1$s:%2$d in Wi-Fi settings</string>
-    <string name="lan_sharing_dialog_off">LAN Sharing is currently disabled.\n\n1. Tap \"Turn On\" to enable.\n2. Enable the phone hotspot.\n3. Connect your device to OwnBox VPN.\n4. On the other device, connect to this hotspot, then set Manual Proxy in Wi-Fi settings:\n   Hostname: %1$s\n   Port: %2$d\n\nNo root required.</string>
+    <string name="lan_sharing_dialog_off">LAN Sharing is currently disabled.\n\n1. Tap \"Turn On\" to enable.\n2. Enable the phone hotspot.\n3. Connect your device to MyBox VPN.\n4. On the other device, connect to this hotspot, then set Manual Proxy in Wi-Fi settings:\n   Hostname: %1$s\n   Port: %2$d\n\nNo root required.</string>
     <string name="lan_sharing_dialog_on">LAN Sharing is currently ON.\n\nOther devices on the hotspot can use:\n   Hostname: %1$s\n   Port: %2$d\n\nSet Manual Proxy in Wi-Fi settings on the other device.\n\nTap \"Turn Off\" to disable sharing.</string>
     <string name="lan_sharing_turn_on">Turn On</string>
     <string name="lan_sharing_turn_off">Turn Off</string>
@@ -127,7 +127,7 @@
     <string name="lan_sharing_copied_port">Copied Port: %1$d</string>
     <string name="lan_sharing_restarting_service">Applying LAN sharing settings and restarting core...</string>
     <string name="lan_sharing_tutorial_title">LAN Sharing Setup Guide</string>
-    <string name="lan_sharing_tutorial_content"><![CDATA[【LAN Sharing Setup Guide】\n\n📌 Why Method A vs Method B?\n• Method A (Phone Hotspot): This phone turns on personal hotspot, client devices connect to this hotspot. This is the most common and reliable method!\n• Method B (Same Wi-Fi): Neither device creates a hotspot; both are connected to the same Wi-Fi router.\n💡 Note: Phones supporting Wi-Fi sharing can have both Wi-Fi and Hotspot active simultaneously. If other devices connect to your hotspot, always use Method A\'s IP!\n\n────────────────\n\n📌 Method 1: Phone Hotspot Sharing (Recommended)\n1. Enable [LAN Sharing] switch in this page.\n2. Turn on personal hotspot on this phone, and connect to OwnBox VPN.\n3. On the client device (Phone, PC, Switch, etc.), connect to this hotspot Wi-Fi.\n4. Open the Wi-Fi settings / Advanced options of that hotspot:\n   ⚠️ CRITICAL NOTE (Avoid Common Mistakes):\n   Keep [IP Settings] on [DHCP]! Do NOT change to Static IP, or connection will fail!\n   ✅ Correct Setting Location:\n   Find [Proxy], and change it from [None] to [Manual]:\n   • Proxy Hostname: enter the Hotspot IP (e.g. 192.168.43.1). Do NOT append :2080 or port number!\n   • Proxy Port: enter 2080 (or your customized port).\n   • Bypass / No proxy: leave blank or keep default.\n5. Save Wi-Fi settings. The client device can now enjoy VPN proxy without root!\n\n────────────────\n\n📌 Method 2: Same Wi-Fi Sharing (e.g. PC or Smart TV on same home Wi-Fi)\n1. Connect both devices to the same Wi-Fi router.\n2. In client device proxy settings:\n   • Hostname: enter the Local Wi-Fi IPv4 address shown in Method B.\n   • Port: enter 2080.\n   Save to use shared proxy.]]></string>
+    <string name="lan_sharing_tutorial_content"><![CDATA[【LAN Sharing Setup Guide】\n\n📌 Why Method A vs Method B?\n• Method A (Phone Hotspot): This phone turns on personal hotspot, client devices connect to this hotspot. This is the most common and reliable method!\n• Method B (Same Wi-Fi): Neither device creates a hotspot; both are connected to the same Wi-Fi router.\n💡 Note: Phones supporting Wi-Fi sharing can have both Wi-Fi and Hotspot active simultaneously. If other devices connect to your hotspot, always use Method A\'s IP!\n\n────────────────\n\n📌 Method 1: Phone Hotspot Sharing (Recommended)\n1. Enable [LAN Sharing] switch in this page.\n2. Turn on personal hotspot on this phone, and connect to MyBox VPN.\n3. On the client device (Phone, PC, Switch, etc.), connect to this hotspot Wi-Fi.\n4. Open the Wi-Fi settings / Advanced options of that hotspot:\n   ⚠️ CRITICAL NOTE (Avoid Common Mistakes):\n   Keep [IP Settings] on [DHCP]! Do NOT change to Static IP, or connection will fail!\n   ✅ Correct Setting Location:\n   Find [Proxy], and change it from [None] to [Manual]:\n   • Proxy Hostname: enter the Hotspot IP (e.g. 192.168.43.1). Do NOT append :2080 or port number!\n   • Proxy Port: enter 2080 (or your customized port).\n   • Bypass / No proxy: leave blank or keep default.\n5. Save Wi-Fi settings. The client device can now enjoy VPN proxy without root!\n\n────────────────\n\n📌 Method 2: Same Wi-Fi Sharing (e.g. PC or Smart TV on same home Wi-Fi)\n1. Connect both devices to the same Wi-Fi router.\n2. In client device proxy settings:\n   • Hostname: enter the Local Wi-Fi IPv4 address shown in Method B.\n   • Port: enter 2080.\n   Save to use shared proxy.]]></string>
     <string name="lan_sharing_invalid_port">Please enter a valid port between 1024 and 65535</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_edit">Edit</string>
@@ -936,7 +936,7 @@
     <string name="auto_backup_local_sum">Automatically back up profiles daily to local storage</string>
     <string name="subscription_enabled">Subscription enabled</string>
     <string name="subscription_disabled">Subscription disabled</string>
-    <string name="widget_name">OwnBox Quick Switch</string>
+    <string name="widget_name">MyBox Quick Switch</string>
     <string name="ui_settings">User Interface Settings</string>
     <string name="vpn_settings">VPN Settings</string>
     <string name="core_settings">Core Settings</string>
@@ -949,8 +949,8 @@
         <string name="app_icon_dynamic">Dynamic</string>
         <string name="app_icon_light_mode">Light mode</string>
         <string name="app_icon_dark_mode">Dark mode</string>
-        <string name="app_icon_old_nekobox_plus">Old OwnBox+</string>
-        <string name="app_icon_nekobox" translatable="false">OwnBox</string>
+        <string name="app_icon_old_nekobox_plus">Old MyBox+</string>
+        <string name="app_icon_nekobox" translatable="false">MyBox</string>
         <string name="app_icon_midnight">Midnight</string>
         <string name="app_icon_heavens">Heavens</string>
         <string name="app_icon_black_white">Black and White</string>
@@ -1286,6 +1286,46 @@
     <string name="notification_permission">Notifications</string>
     <string name="notification_permission_allowed">Allowed</string>
     <string name="notification_permission_blocked">Blocked: the service notification and its buttons are hidden. Tap to allow.</string>
-    <string name="notification_permission_rationale">OwnBox shows a notification while the VPN runs, with buttons to stop it and to switch servers. Allow notifications to see it.</string>
+    <string name="notification_permission_rationale">MyBox shows a notification while the VPN runs, with buttons to stop it and to switch servers. Allow notifications to see it.</string>
+
+    <string name="menu_connections">Connections</string>
+    <string name="connections_filter_active_initial">Active 0</string>
+    <string name="connections_filter_active">Active %1$d</string>
+    <string name="connections_filter_closed_initial">Closed 0</string>
+    <string name="connections_filter_closed">Closed %1$d</string>
+    <string name="connections_filter_all">All</string>
+    <string name="connections_search_hint">Search host, app, or rule</string>
+    <string name="connections_loading">Loading connections…</string>
+    <string name="connections_service_offline">Connect the VPN service to view active connections.</string>
+    <string name="connections_api_disabled">Enable the Clash API in Advanced Settings to view connections.</string>
+    <string name="connections_auth_failed">The local controller rejected its authentication token.</string>
+    <string name="connections_api_unavailable">The local connection controller is unavailable. Try refreshing.</string>
+    <string name="connections_unknown_destination">Unknown destination</string>
+    <string name="connections_unknown_process">Unknown process</string>
+    <string name="connections_empty_active">No active connections.</string>
+    <string name="connections_empty_closed">No closed connections observed during this session.</string>
+    <string name="connections_empty_all">No connections observed during this session.</string>
+    <string name="connections_status_active">Active: %1$d · ↑ %2$s · ↓ %3$s</string>
+    <string name="connections_close_all_title">Close all connections?</string>
+    <string name="connections_close_all_message">This will close %1$d active connections.</string>
+    <string name="connections_close_all">Close all</string>
+    <string name="connections_close">Close connection</string>
+    <string name="connections_none_to_close">There are no active connections to close.</string>
+    <string name="connections_closed">Connection close requested.</string>
+    <string name="connections_close_failed">Could not close the connection. Check the local controller.</string>
+    <string name="connections_state_closed">Closed</string>
+    <string name="connections_item_traffic">↑ %1$s/s · ↓ %2$s/s · Total ↑ %3$s · ↓ %4$s</string>
+    <string name="connections_detail_network">Network: %1$s</string>
+    <string name="connections_detail_process">Process: %1$s</string>
+    <string name="connections_detail_source">Source: %1$s</string>
+    <string name="connections_detail_destination">Destination: %1$s</string>
+    <string name="connections_detail_traffic">Uploaded: %1$s · Downloaded: %2$s</string>
+    <string name="connections_detail_chain">Proxy chain: %1$s</string>
+    <string name="connections_detail_rule">Rule: %1$s</string>
+    <string name="connections_detail_rule_payload">Rule detail: %1$s</string>
+    <string name="connections_detail_start">Started: %1$s</string>
+    <string name="connections_detail_closed">Closed %1$s</string>
+    <string name="connections_detail_inbound">Inbound: %1$s</string>
+    <string name="connections_direct">DIRECT</string>
 
 </resources>

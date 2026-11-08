@@ -216,7 +216,7 @@
             android:gravity="center_vertical"
             android:paddingStart="22dp"
             android:paddingEnd="22dp"
-            android:text="OwnBox"
+            android:text="MyBox"
             android:textColor="?android:attr/textColorPrimary"
             android:textSize="21sp"
             android:textStyle="bold" />
@@ -326,7 +326,7 @@
             android:gravity="center_vertical"
             android:paddingStart="22dp"
             android:paddingEnd="22dp"
-            android:text="OwnBox"
+            android:text="MyBox"
             android:textColor="?android:attr/textColorPrimary"
             android:textSize="21sp"
             android:textStyle="bold" />

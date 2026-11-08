@@ -190,7 +190,7 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
                             secondaryPath: "",
                             password: secret,
                             uuid: targetUuid,
-                            label: "OwnBox 本地内核",
+                            label: "MyBox 本地内核",
                             disableUpgradeCore: true,
                             disableTunMode: false
                         });

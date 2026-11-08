@@ -54,7 +54,7 @@
     <string name="lan_sharing">局域网共享</string>
     <string name="lan_sharing_disabled_sum">点击开启热点代理共享</string>
     <string name="lan_sharing_enabled_sum">共享已开启：在 Wi-Fi 设置中将代理设为 %1$s:%2$d</string>
-    <string name="lan_sharing_dialog_off">局域网共享当前未开启。\n\n使用步骤：\n1. 点击「开启」启用共享。\n2. 打开手机热点。\n3. 本机连接 OwnBox VPN。\n4. 其他设备连接该热点后，在 Wi-Fi 设置中手动设置代理：\n   主机名：%1$s\n   端口：%2$d\n\n无需 Root。</string>
+    <string name="lan_sharing_dialog_off">局域网共享当前未开启。\n\n使用步骤：\n1. 点击「开启」启用共享。\n2. 打开手机热点。\n3. 本机连接 MyBox VPN。\n4. 其他设备连接该热点后，在 Wi-Fi 设置中手动设置代理：\n   主机名：%1$s\n   端口：%2$d\n\n无需 Root。</string>
     <string name="lan_sharing_dialog_on">局域网共享当前已开启。\n\n热点内其他设备可使用：\n   主机名：%1$s\n   端口：%2$d\n\n在其他设备的 Wi-Fi 设置中手动设置上述代理。\n\n点击「关闭」可停止共享。</string>
     <string name="lan_sharing_turn_on">开启</string>
     <string name="lan_sharing_turn_off">关闭</string>
@@ -840,7 +840,7 @@
     <string name="auto_backup_local_sum">每日自动在应用私有存储中备份节点配置与分流规则</string>
     <string name="subscription_enabled">启用此订阅</string>
     <string name="subscription_disabled">已禁用此订阅</string>
-    <string name="widget_name">OwnBox 快捷开关</string>
+    <string name="widget_name">MyBox 快捷开关</string>
     <string name="ui_settings">用户界面设置</string>
     <string name="vpn_settings">VPN 设置</string>
     <string name="core_settings">核心设置</string>
@@ -853,8 +853,8 @@
         <string name="app_icon_dynamic">动态</string>
         <string name="app_icon_light_mode">浅色模式</string>
         <string name="app_icon_dark_mode">深色模式</string>
-        <string name="app_icon_old_nekobox_plus">旧版 OwnBox+</string>
-        <string name="app_icon_nekobox">OwnBox</string>
+        <string name="app_icon_old_nekobox_plus">旧版 MyBox+</string>
+        <string name="app_icon_nekobox">MyBox</string>
         <string name="app_icon_midnight">午夜</string>
         <string name="app_icon_heavens">天空</string>
         <string name="app_icon_black_white">黑白</string>
@@ -950,7 +950,7 @@
     <string name="show_subscription_info_card_summary">在订阅分组顶部展示流量配额、剩余与到期时间等资产卡片</string>
     <string name="subscription_info">订阅资产信息</string>
     <string name="cannot_delete_active_profile">正在运行的活动节点无法删除，请先断开连接或切换至其他节点。</string>
-    <string name="ignore_battery_optimizations_summary">将 OwnBox 加入系统电池白名单，保障熄屏长效保活与防休眠掉线</string>
+    <string name="ignore_battery_optimizations_summary">将 MyBox 加入系统电池白名单，保障熄屏长效保活与防休眠掉线</string>
     <string name="already_ignoring_battery_optimizations">已成功加入电池优化白名单，长效保活已生效</string>
     <string name="action_not_supported">当前设备不支持此操作</string>
     <string name="custom_color_title">自定义主题色 (HEX / RGB)</string>
@@ -1196,7 +1196,7 @@
     <string name="notification_permission">通知</string>
     <string name="notification_permission_allowed">已允许</string>
     <string name="notification_permission_blocked">已阻止：服务通知及其按钮被隐藏。点按以允许。</string>
-    <string name="notification_permission_rationale">VPN 运行时 OwnBox 会显示带停止与切换服务器按钮的通知。请允许通知以查看它。</string>
+    <string name="notification_permission_rationale">VPN 运行时 MyBox 会显示带停止与切换服务器按钮的通知。请允许通知以查看它。</string>
     <string name="notification_previous">上一个</string>
     <string name="notification_switch">切换…</string>
     <string name="notification_switching">切换中…</string>
@@ -1204,5 +1204,45 @@
     <string name="settings_appearance_sum">主题、界面与字体大小、语言、通知</string>
     <string name="ui_scale_settings_title">界面与字体大小</string>
     <string name="ui_scale_settings_summary">调节全局界面与字体比例、忽略系统大字体、分区自定义按钮/菜单/卡片大小</string>
+
+    <string name="menu_connections">连接</string>
+    <string name="connections_filter_active_initial">活动 0</string>
+    <string name="connections_filter_active">活动 %1$d</string>
+    <string name="connections_filter_closed_initial">已关闭 0</string>
+    <string name="connections_filter_closed">已关闭 %1$d</string>
+    <string name="connections_filter_all">全部</string>
+    <string name="connections_search_hint">搜索主机、应用或规则</string>
+    <string name="connections_loading">正在读取连接…</string>
+    <string name="connections_service_offline">请先连接 VPN 服务，再查看活动连接。</string>
+    <string name="connections_api_disabled">请在“进阶设置”中启用 Clash API 后查看连接。</string>
+    <string name="connections_auth_failed">本地控制器拒绝了鉴权令牌。</string>
+    <string name="connections_api_unavailable">本地连接控制器暂不可用，请尝试刷新。</string>
+    <string name="connections_unknown_destination">未知目标</string>
+    <string name="connections_unknown_process">未知进程</string>
+    <string name="connections_empty_active">暂无活动连接</string>
+    <string name="connections_empty_closed">本次页面会话中尚未观察到已关闭连接</string>
+    <string name="connections_empty_all">本次页面会话中尚未观察到连接</string>
+    <string name="connections_status_active">活动 %1$d · ↑ %2$s · ↓ %3$s</string>
+    <string name="connections_close_all_title">关闭全部连接？</string>
+    <string name="connections_close_all_message">将关闭 %1$d 条活动连接。</string>
+    <string name="connections_close_all">全部关闭</string>
+    <string name="connections_close">关闭连接</string>
+    <string name="connections_none_to_close">当前没有可关闭的活动连接。</string>
+    <string name="connections_closed">已发送关闭连接请求</string>
+    <string name="connections_close_failed">关闭失败，请检查本地控制器。</string>
+    <string name="connections_state_closed">已关闭</string>
+    <string name="connections_item_traffic">↑ %1$s/s · ↓ %2$s/s · 累计 ↑ %3$s · ↓ %4$s</string>
+    <string name="connections_detail_network">网络：%1$s</string>
+    <string name="connections_detail_process">进程：%1$s</string>
+    <string name="connections_detail_source">来源：%1$s</string>
+    <string name="connections_detail_destination">目标：%1$s</string>
+    <string name="connections_detail_traffic">上传：%1$s · 下载：%2$s</string>
+    <string name="connections_detail_chain">代理链：%1$s</string>
+    <string name="connections_detail_rule">规则：%1$s</string>
+    <string name="connections_detail_rule_payload">规则详情：%1$s</string>
+    <string name="connections_detail_start">开始：%1$s</string>
+    <string name="connections_detail_closed">%1$s前关闭</string>
+    <string name="connections_detail_inbound">入口：%1$s</string>
+    <string name="connections_direct">直连</string>
 
 </resources>

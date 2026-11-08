@@ -314,7 +314,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "VPN 设置",
                 title = "TUN 实现模式 (tunImplementation)",
                 badge = "官方原生: Sing-Tun (sing-box 1.15 标准协议栈)",
-                desc = "OwnBox 已全面统一采用 sing-box 官方原生的 Sing-Tun 高性能用户态网络协议栈，移除了历史已废弃的 gVisor 协议栈。",
+                desc = "MyBox 已全面统一采用 sing-box 官方原生的 Sing-Tun 高性能用户态网络协议栈，移除了历史已废弃的 gVisor 协议栈。",
                 prosCons = "【利】Sing-Tun 具备极高吞吐效率、优异的多路并发能力与超低内存及发热表现，与内核深度契合；【注意】内核已废弃第三方栈，全平台统一标准。",
                 recommendation = "【当前标准：官方原生 Sing-Tun】系统已自动锁定最佳 Sing-Tun 协议栈，无需手动切换。",
                 keywords = "tun sing-tun singtun 协议栈 网络栈",
@@ -410,7 +410,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 badge = "推荐: 开启",
                 desc = "在内核路由判定前，将嗅探或接收到的域名预先解析为 IP 地址，以匹配更完备的 GeoIP 规则。",
                 prosCons = "【利】大幅增强基于 IP 归属地分流的准确度；【弊】配合不当可能触发额外 DNS 请求。",
-                recommendation = "【最稳推荐：开启】OwnBox 内部已内置单栈防穿透过滤，开启可保障分流准确性最大化。",
+                recommendation = "【最稳推荐：开启】MyBox 内部已内置单栈防穿透过滤，开启可保障分流准确性最大化。",
                 keywords = "解析目标地址 resolveDestination geoip 分流",
             )
         )
@@ -785,7 +785,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "路由分流规则",
                 title = "规则匹配架构与自上而下匹配原则 (ruleMatchOrder)",
                 badge = "核心原理: First Match Wins",
-                desc = "OwnBox 与 sing-box 核心的分流路由规则采用严格的“自上而下、先命中先执行 (First Match Wins)”机制。当一个网络连接由应用发起进入 VPN 隧道时，路由引擎会从规则列表的第一条规则开始逐条向下比对；只要有一条规则被完全命中，该连接就会立即被导向指定的出站目标（如代理、直连或阻止），后续的任何规则都不会再被比对。若遍历完所有自定义规则仍未命中，流量将自动落入底部的“默认出站 (Default Outbound)”。",
+                desc = "MyBox 与 sing-box 核心的分流路由规则采用严格的“自上而下、先命中先执行 (First Match Wins)”机制。当一个网络连接由应用发起进入 VPN 隧道时，路由引擎会从规则列表的第一条规则开始逐条向下比对；只要有一条规则被完全命中，该连接就会立即被导向指定的出站目标（如代理、直连或阻止），后续的任何规则都不会再被比对。若遍历完所有自定义规则仍未命中，流量将自动落入底部的“默认出站 (Default Outbound)”。",
                 prosCons = "【利】逻辑清晰、可预测性极高，可通过调整规则上下排序轻松实现局部优先级覆盖；【弊】若误将宽泛的全局放行或直连规则排在精细的特定域名代理规则之前，会导致后续精细规则永远失效。",
                 recommendation = "【最佳实践】严格遵守“特殊规则在顶，通用规则在中，兜底放行/代理在底”的排列顺序。",
                 keywords = "路由 规则 匹配 顺序 优先级 first match wins default outbound 默认出站 排序",
@@ -807,7 +807,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "路由分流规则",
                 title = "高级规则编辑器与 Go RE2 正则校验 (ruleEditorRegex)",
                 badge = "推荐: 进阶配置利器",
-                desc = "OwnBox 内置全新可视化高级路由规则编辑器，支持卡片表单与 JSON 代码模式双向同步。在配置域名正则匹配 (domain_regex) 时，编辑器内置了纯正的 Go 语言 RE2 正则引擎语法实时校验器。由于 sing-box 内核采用 Go 原生 RE2 引擎，不支持回溯与部分高级 PCRE 特性（如前瞻预查 (?=...)、后顾 (?<=...) 等），编辑器会在输入时毫秒级检测并高亮提示不兼容的正则语法，彻底杜绝因配置非法正则导致内核崩溃 (Panic) 或启动失败。",
+                desc = "MyBox 内置全新可视化高级路由规则编辑器，支持卡片表单与 JSON 代码模式双向同步。在配置域名正则匹配 (domain_regex) 时，编辑器内置了纯正的 Go 语言 RE2 正则引擎语法实时校验器。由于 sing-box 内核采用 Go 原生 RE2 引擎，不支持回溯与部分高级 PCRE 特性（如前瞻预查 (?=...)、后顾 (?<=...) 等），编辑器会在输入时毫秒级检测并高亮提示不兼容的正则语法，彻底杜绝因配置非法正则导致内核崩溃 (Panic) 或启动失败。",
                 prosCons = "【利】可视化表单所见即所得，Go RE2 实时校验让语法错误在保存前即被拦截，确保内核 100% 稳定运行；【弊】RE2 语法不支持复杂的零宽断言等 PCRE 扩展。",
                 recommendation = "【推荐】域名匹配优先使用 domain_suffix（后缀匹配）或 domain_keyword（关键词匹配），效率最高；仅在复杂多段匹配时使用 domain_regex 并留意编辑器的绿色校验提示。",
                 keywords = "高级编辑器 规则 正则 re2 go 正则表达式 校验 语法 崩溃 panic domain_regex",
@@ -829,7 +829,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "路由分流规则",
                 title = "二进制规则集 (.srs) 与规则集引用 (ruleSetEngine)",
                 badge = "推荐: 高效分流",
-                desc = "sing-box 官方采用的高性能编译型二进制规则集格式 (.srs)，相比传统的海量纯文本域名/IP 列表，解析速度提升数十倍，内存占用锐减 80% 以上。OwnBox 全面支持在线添加、自动更新与离线缓存官方及第三方 GeoIP、GeoSite 规则集，并在高级规则中直接通过 rule_set 字段引用。",
+                desc = "sing-box 官方采用的高性能编译型二进制规则集格式 (.srs)，相比传统的海量纯文本域名/IP 列表，解析速度提升数十倍，内存占用锐减 80% 以上。MyBox 全面支持在线添加、自动更新与离线缓存官方及第三方 GeoIP、GeoSite 规则集，并在高级规则中直接通过 rule_set 字段引用。",
                 prosCons = "【利】成千上万条规则编译为单一二进制块，内核启动仅需几毫秒，内存占用极低；【弊】二进制文件无法直接用纯文本编辑器直接查看源码（可通过 sing-box rule-set decompile 解码）。",
                 recommendation = "【推荐开启并定期更新规则集】在主页侧边栏或规则设置中按需更新 geosite 与 geoip，保持国内外分流最新。",
                 keywords = "srs 规则集 二进制 geosite geoip 性能 内存 rule_set 高效",
@@ -840,7 +840,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
         allItems.add(
             DocListItem.Header(
                 "12. 分应用代理与 Google Play 生态 (Per-App Proxy & Google Play)",
-                "揭秘 Android 系统 VPN 边界、为什么只选 Google Play 下不动软件、以及 OwnBox 深度联动解决方案"
+                "揭秘 Android 系统 VPN 边界、为什么只选 Google Play 下不动软件、以及 MyBox 深度联动解决方案"
             )
         )
         allItems.add(
@@ -868,9 +868,9 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
         allItems.add(
             DocListItem.Item(
                 category = "分应用代理",
-                title = "OwnBox 智能联动机制与最佳分流实践 (googlePlayOwnBoxSolution)",
+                title = "MyBox 智能联动机制与最佳分流实践 (googlePlayMyBoxSolution)",
                 badge = "推荐: 最佳配置方案",
-                desc = "OwnBox 针对此痛点进行了深度架构优化：\n1. 【智能白名单联动】：在分应用代理中勾选 Google Play (com.android.vending) 时，OwnBox 会自动弹出提示或联动将下载管理器 (com.android.providers.downloads) 及 GMS 服务纳入 VPN 保护隧道，保证下载流量合法进入 TUN 网卡；\n2. 【TUN 内部精准分流】：流量进入 TUN 后，再交由 sing-box 路由规则引擎处理。OwnBox 内置的 Google 专线规则会将 Google Play 的商店 API 域名与 APK CDN 域名（如 *.gvt1.com、*.ggpht.com、*.1e100.net 等）统一精准分流到您指定的境外代理出站，而下载管理器代下的国内普通应用流量依然能够命中直连规则走国内直连，做到“既能秒下 Google Play，国内下载又不浪费代理流量”。",
+                desc = "MyBox 针对此痛点进行了深度架构优化：\n1. 【智能白名单联动】：在分应用代理中勾选 Google Play (com.android.vending) 时，MyBox 会自动弹出提示或联动将下载管理器 (com.android.providers.downloads) 及 GMS 服务纳入 VPN 保护隧道，保证下载流量合法进入 TUN 网卡；\n2. 【TUN 内部精准分流】：流量进入 TUN 后，再交由 sing-box 路由规则引擎处理。MyBox 内置的 Google 专线规则会将 Google Play 的商店 API 域名与 APK CDN 域名（如 *.gvt1.com、*.ggpht.com、*.1e100.net 等）统一精准分流到您指定的境外代理出站，而下载管理器代下的国内普通应用流量依然能够命中直连规则走国内直连，做到“既能秒下 Google Play，国内下载又不浪费代理流量”。",
                 prosCons = "【利】一键解决 Google Play 下载断流卡顿，兼顾国内应用极速直连；【弊】无。",
                 recommendation = "【推荐方案】开启分应用代理并勾选 Google Play + 智能联动，配合路由规则中的 Google 专线，体验最顺滑的 Google 生态应用更新。",
                 keywords = "google play 联动 解决方案 cdn gvt1 专线 分流 下载管理器 最佳实践",
@@ -900,7 +900,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "Sing-box 仪表盘",
                 title = "现代化面板：Zashboard 特性与开箱即用 (zashboardGuide)",
                 badge = "强烈推荐: 颜值首选",
-                desc = "Zashboard 是目前开源社区公认界面最优雅、交互最现代化的代理内核仪表盘。OwnBox 已对 Zashboard 进行原生集成与深度调优：\n1. 【自动免密注入】：从侧边栏进入 Zashboard 时，OwnBox 会自动将本地 Clash API 端口 (9090) 及访问 Secret 注入到页面请求参数中，彻底免去手动填入 IP/端口/密码的繁琐；\n2. 【纯正 WebSocket 极速双向流】：实时推流上传/下载双向网速与内存柱状图，毫秒级捕捉节点切换与连接通断；\n3. 【全多维多主题适配】：完美支持沉浸式暗黑深色模式与跟随系统主题，节点列表支持按地区、延迟、名字多维度筛选排序。",
+                desc = "Zashboard 是目前开源社区公认界面最优雅、交互最现代化的代理内核仪表盘。MyBox 已对 Zashboard 进行原生集成与深度调优：\n1. 【自动免密注入】：从侧边栏进入 Zashboard 时，MyBox 会自动将本地 Clash API 端口 (9090) 及访问 Secret 注入到页面请求参数中，彻底免去手动填入 IP/端口/密码的繁琐；\n2. 【纯正 WebSocket 极速双向流】：实时推流上传/下载双向网速与内存柱状图，毫秒级捕捉节点切换与连接通断；\n3. 【全多维多主题适配】：完美支持沉浸式暗黑深色模式与跟随系统主题，节点列表支持按地区、延迟、名字多维度筛选排序。",
                 prosCons = "【利】界面极度精致，交互流畅顺滑，信息呈现直观完整，全自动登录开箱即用；【弊】视觉动效与图表渲染在极低端手机上占用稍多图形内存。",
                 recommendation = "【首选推荐】日常监控、测速与节点切换强烈推荐使用 Zashboard。",
                 keywords = "zashboard 仪表盘 现代 自动登录 免密 颜值 图表 websocket 暗黑 主题 推荐",
@@ -911,7 +911,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "Sing-box 仪表盘",
                 title = "轻量经典：内置 Yacd 与 MetaCubeXD 面板对比 (yacdAndMetaGuide)",
                 badge = "多样选择",
-                desc = "除了 Zashboard，OwnBox 还提供了多种面板选择：\n1. 【内置 Yacd 面板】：完全离线打包在 APK 本地资产中，零外部网络请求，加载速度极快，内存占用极低，经典复古的四栏卡片布局，适合网络极差或只想极速查个延迟的场景；\n2. 【MetaCubeXD 进阶面板】：面向资深极客用户，具备最强大的路由规则诊断树状图、支持深度连接属性（DNS 响应、真实对端 IP、链式代理跳数）多重筛选。OwnBox 已对 MetaCubeXD 实现零配置鉴权适配，打开即自动注入本地 Clash API 与密钥并自动连接，无需手动输入复杂的 Secret；\n3. 【一键复制密钥】：仪表盘管理弹窗顶部直观展示当前本地 API 地址与密钥，支持一键复制到剪贴板，便于各类面板快速授权。",
+                desc = "除了 Zashboard，MyBox 还提供了多种面板选择：\n1. 【内置 Yacd 面板】：完全离线打包在 APK 本地资产中，零外部网络请求，加载速度极快，内存占用极低，经典复古的四栏卡片布局，适合网络极差或只想极速查个延迟的场景；\n2. 【MetaCubeXD 进阶面板】：面向资深极客用户，具备最强大的路由规则诊断树状图、支持深度连接属性（DNS 响应、真实对端 IP、链式代理跳数）多重筛选。MyBox 已对 MetaCubeXD 实现零配置鉴权适配，打开即自动注入本地 Clash API 与密钥并自动连接，无需手动输入复杂的 Secret；\n3. 【一键复制密钥】：仪表盘管理弹窗顶部直观展示当前本地 API 地址与密钥，支持一键复制到剪贴板，便于各类面板快速授权。",
                 prosCons = "【利】按需选择，离线有 Yacd，极客有 MetaCubeXD，日常有 Zashboard；全部预设均享零配置免密直连；【弊】不同面板的操作习惯略有差异。",
                 recommendation = "【建议】日常使用 Zashboard；排查复杂路由规则判定使用 MetaCubeXD；网络极弱离线使用 Yacd。",
                 keywords = "yacd metacubexd 离线 极客 面板 规则诊断 连接排查 比较 选型 免密 复制密钥",
@@ -922,7 +922,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "Sing-box 仪表盘",
                 title = "自定义 Dashboard URL 导入规范与混合内容安全放行 (customDashboardUrl)",
                 badge = "高级功能",
-                desc = "OwnBox 支持用户在「仪表盘管理」中添加任意外部部署的 Dashboard Web 地址（如内网 NAS 部署的 http://192.168.1.100:8080 或公网部署的 https 面板）。全新优化的「保存并应用」机制支持在输入自定义 URL 后立即生效并加载面板，无需额外手动切换。\n针对 Android WebView 普遍存在的“在 HTTPS 网页中请求本地 HTTP 127.0.0.1:9090 会被系统拦截（混合内容 Mixed Content 阻断）”问题，OwnBox 在底层 WebView 客户端中对仪表盘页面放行了安全的混合内容策略并开启跨域支持，确保无论是自建面板还是云端面板均能无缝直连本地 Clash API。",
+                desc = "MyBox 支持用户在「仪表盘管理」中添加任意外部部署的 Dashboard Web 地址（如内网 NAS 部署的 http://192.168.1.100:8080 或公网部署的 https 面板）。全新优化的「保存并应用」机制支持在输入自定义 URL 后立即生效并加载面板，无需额外手动切换。\n针对 Android WebView 普遍存在的“在 HTTPS 网页中请求本地 HTTP 127.0.0.1:9090 会被系统拦截（混合内容 Mixed Content 阻断）”问题，MyBox 在底层 WebView 客户端中对仪表盘页面放行了安全的混合内容策略并开启跨域支持，确保无论是自建面板还是云端面板均能无缝直连本地 Clash API。",
                 prosCons = "【利】自由度极高，支持私有化部署看板与多端统一管理，保存并应用一步到位；【弊】导入未经审查的第三方外部不可信网址可能存在前端脚本钓鱼风险。",
                 recommendation = "【安全提示】仅添加可信的官方开源仪表盘项目（如 GitHub 开源仓库托管的 Pages 页面或本地自建容器）。",
                 keywords = "自定义 url 仪表盘 保存并应用 混合内容 mixed content https http 跨域 webview 放行",
@@ -933,7 +933,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "Sing-box 仪表盘",
                 title = "仪表盘连接失败与 Connection Refused 排查指南 (dashboardTroubleshoot)",
                 badge = "排查指引",
-                desc = "如果在打开仪表盘时提示“Connection Refused”、“无法连接到内核 API”或一直转圈：\n1. 检查 VPN 状态：请确保 OwnBox VPN 服务已经处于“已连接”状态；\n2. 检查 Clash API 开关：进入「设置 - 进阶设置」，确认「启用 Clash API」已勾选并处于开启状态；\n3. 检查端口与密码：确认「Clash API 端口」保持在 9090（若被其他应用占用可更改并在面板中同步修改）；若设置了 Secret 密码，请确认面板输入的密码与设置完全一致；\n4. 重启核心：若之前进行了热更新，点击主页浮动开关断开并重新连接一次 VPN，确保控制接口成功绑定启动。",
+                desc = "如果在打开仪表盘时提示“Connection Refused”、“无法连接到内核 API”或一直转圈：\n1. 检查 VPN 状态：请确保 MyBox VPN 服务已经处于“已连接”状态；\n2. 检查 Clash API 开关：进入「设置 - 进阶设置」，确认「启用 Clash API」已勾选并处于开启状态；\n3. 检查端口与密码：确认「Clash API 端口」保持在 9090（若被其他应用占用可更改并在面板中同步修改）；若设置了 Secret 密码，请确认面板输入的密码与设置完全一致；\n4. 重启核心：若之前进行了热更新，点击主页浮动开关断开并重新连接一次 VPN，确保控制接口成功绑定启动。",
                 prosCons = "【利】按部就班迅速定位连接故障；【弊】无。",
                 recommendation = "【建议】遇到连接异常时首先确认 VPN 是否连接且 Clash API 是否开启。",
                 keywords = "仪表盘 无法连接 connection refused 失败 排查 9090 clash api 密码 重启",
@@ -1037,9 +1037,9 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "常见疑难排查 FAQ",
                 title = "微信/QQ 接收消息延迟或后台收不到通知？ (faqPushDelay)",
                 badge = "高频排查 2",
-                desc = "排查与解决建议：\n1. 【规则分流确保直连】：在路由规则中确保包含国内直连规则，让微信、QQ 等国内通讯软件走 Direct 国内直连，避免被绕到境外造成推送延迟；\n2. 【开启保持 CPU 唤醒锁 (WakeLock)】：在「设置 - 进阶设置」中开启「保持 CPU 唤醒」，防止 Android 深度息屏休眠时关闭网络通道；\n3. 【授予系统“电池优化免杀”白名单】：在系统设置中找到 OwnBox 与微信，将电池策略调整为“无限制 / 允许后台高耗电运行”，防止系统杀死后台守护进程；\n4. 【检查分应用代理】：若开启了分应用白名单，建议直接将微信等排除在代理之外走物理直连。",
+                desc = "排查与解决建议：\n1. 【规则分流确保直连】：在路由规则中确保包含国内直连规则，让微信、QQ 等国内通讯软件走 Direct 国内直连，避免被绕到境外造成推送延迟；\n2. 【开启保持 CPU 唤醒锁 (WakeLock)】：在「设置 - 进阶设置」中开启「保持 CPU 唤醒」，防止 Android 深度息屏休眠时关闭网络通道；\n3. 【授予系统“电池优化免杀”白名单】：在系统设置中找到 MyBox 与微信，将电池策略调整为“无限制 / 允许后台高耗电运行”，防止系统杀死后台守护进程；\n4. 【检查分应用代理】：若开启了分应用白名单，建议直接将微信等排除在代理之外走物理直连。",
                 prosCons = "【利】彻底保障即时通讯消息毫秒级到达，不错过重要工作与社交信息；【弊】微量增加息屏功耗。",
-                recommendation = "【建议】国内通讯应用一律保持直连，并开启 OwnBox 电池不优化权限。",
+                recommendation = "【建议】国内通讯应用一律保持直连，并开启 MyBox 电池不优化权限。",
                 keywords = "微信 qq 推送 延迟 收不到 消息 后台 杀后台 电池 唤醒锁 wakelock 直连",
             )
         )
@@ -1048,7 +1048,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "常见疑难排查 FAQ",
                 title = "提示端口冲突 (Bind: address already in use)？ (faqPortConflict)",
                 badge = "高频排查 3",
-                desc = "原因分析：OwnBox 默认会在本地监听 Mixed 混合入站端口（默认 2080）以及 Clash API 控制端口（默认 9090）。如果手机上同时安装了其他网络工具（如 Termux、AdGuard、Clash、V2rayNG 等）且其后台服务未彻底退出，就会霸占 2080 或 9090 端口，导致 OwnBox 启动失败并抛出 address already in use 错误。\n解决办法：进入「设置 - 模式与入站设置」，将混合代理端口修改为其他空闲端口（例如 2088 或 10808）；在「设置 - 进阶设置」中将 Clash API 端口修改为 9099，然后重连即可。",
+                desc = "原因分析：MyBox 默认会在本地监听 Mixed 混合入站端口（默认 2080）以及 Clash API 控制端口（默认 9090）。如果手机上同时安装了其他网络工具（如 Termux、AdGuard、Clash、V2rayNG 等）且其后台服务未彻底退出，就会霸占 2080 或 9090 端口，导致 MyBox 启动失败并抛出 address already in use 错误。\n解决办法：进入「设置 - 模式与入站设置」，将混合代理端口修改为其他空闲端口（例如 2088 或 10808）；在「设置 - 进阶设置」中将 Clash API 端口修改为 9099，然后重连即可。",
                 prosCons = "【利】避开端口碰撞，和平共存；【弊】修改后若有局域网设备连接需同步修改端口。",
                 recommendation = "【建议】避免多个 VPN/代理客户端同时在后台驻留运行。",
                 keywords = "端口 冲突 bind address already in use 占用 2080 9090 修改 报错",
@@ -1059,7 +1059,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "常见疑难排查 FAQ",
                 title = "IPv6 泄漏排查与国内双栈路由策略 (faqIpv6Leak)",
                 badge = "隐私安全",
-                desc = "在现代家庭宽带或 5G 蜂窝网络中，运营商普遍已分配 IPv6 公网地址。如果代理节点不支持 IPv6，或者客户端未正确拦截 IPv6 流量，某些浏览器在访问 Google/YouTube 时会尝试通过系统的 IPv6 物理网络直连，导致真实中国 IPv6 地址直接暴露给目标网站甚至因 GFW 阻断导致断流。\n解决方案：在 OwnBox「设置 - 核心设置」中，将「IPv6 路由」设置为“严格路由”或“仅代理 IPv4”，确保所有 IPv6 流量要么被安全封装进代理出站，要么被严格丢弃屏蔽，绝不旁路直连出境。",
+                desc = "在现代家庭宽带或 5G 蜂窝网络中，运营商普遍已分配 IPv6 公网地址。如果代理节点不支持 IPv6，或者客户端未正确拦截 IPv6 流量，某些浏览器在访问 Google/YouTube 时会尝试通过系统的 IPv6 物理网络直连，导致真实中国 IPv6 地址直接暴露给目标网站甚至因 GFW 阻断导致断流。\n解决方案：在 MyBox「设置 - 核心设置」中，将「IPv6 路由」设置为“严格路由”或“仅代理 IPv4”，确保所有 IPv6 流量要么被安全封装进代理出站，要么被严格丢弃屏蔽，绝不旁路直连出境。",
                 prosCons = "【利】100% 根绝真实中国大陆 IPv6 物理公网地址泄露，保护完全隐私；【弊】极少数只支持纯 IPv6 的冷门境外网站可能无法访问。",
                 recommendation = "【推荐】境外节点多为 IPv4 环境，推荐在核心设置中配置 IPv6 严格保护，防范旁路泄露。",
                 keywords = "ipv6 泄漏 泄露 隐私 双栈 严格路由 旁路 5g 宽带 防护",
@@ -1070,7 +1070,7 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "常见疑难排查 FAQ",
                 title = "WebDAV 云端备份同步失败如何排查？ (faqWebdavFailed)",
                 badge = "数据安全",
-                desc = "常见失败原因与排查步骤：\n1. 【坚果云务必使用“应用授权密码”】：坚果云由于安全策略限制，WebDAV 严禁使用您的网页登录主密码！必须登录坚果云官网 -> 账户信息 -> 安全设置 -> 第三方应用管理 -> 添加应用密码，将生成的专用密码填入 OwnBox WebDAV 密码中；\n2. 【服务器 URL 格式需完整】：坚果云标准地址为 https://dav.jianguoyun.com/dav/（末尾斜杠请勿遗漏）；自建 Nextcloud 请使用 https://your-domain/remote.php/dav/files/username/；\n3. 【网络通畅性】：检查是否能正常 ping 通或浏览器访问 WebDAV 服务器域名。",
+                desc = "常见失败原因与排查步骤：\n1. 【坚果云务必使用“应用授权密码”】：坚果云由于安全策略限制，WebDAV 严禁使用您的网页登录主密码！必须登录坚果云官网 -> 账户信息 -> 安全设置 -> 第三方应用管理 -> 添加应用密码，将生成的专用密码填入 MyBox WebDAV 密码中；\n2. 【服务器 URL 格式需完整】：坚果云标准地址为 https://dav.jianguoyun.com/dav/（末尾斜杠请勿遗漏）；自建 Nextcloud 请使用 https://your-domain/remote.php/dav/files/username/；\n3. 【网络通畅性】：检查是否能正常 ping 通或浏览器访问 WebDAV 服务器域名。",
                 prosCons = "【利】一次配置，终身多设备多端一键秒级备份与云端拉取；【弊】需要正确获取第三方应用密码。",
                 recommendation = "【推荐】国内用户首选坚果云，免费且稳定，配置专用应用密码即可永续同步。",
                 keywords = "webdav 备份 失败 坚果云 nextcloud 同步 密码 应用授权密码 错误 报错",

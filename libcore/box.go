@@ -2,15 +2,12 @@ package libcore
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"libcore/device"
 	"log"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -19,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/net/http2"
+	customUrltest "libcore/protocol/urltest"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/experimental/v2rayapi"
@@ -30,7 +27,6 @@ import (
 	sblog "github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
-	M "github.com/sagernet/sing/common/metadata"
 	"github.com/sagernet/sing/service"
 	"github.com/sagernet/sing/service/pause"
 )
@@ -490,10 +486,7 @@ const (
 )
 
 func getFallbackLink(primaryLink string) string {
-	if strings.Contains(primaryLink, "cloudflare.com") {
-		return defaultFallbackURL
-	}
-	return defaultCFURL
+	return customUrltest.GetFallbackLink(primaryLink)
 }
 
 func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err error) {
@@ -527,19 +520,7 @@ func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err err
 			latency, err = urlTestDirect(fbClient, fallback)
 		}
 	} else {
-		latency, err = urlTest(i, link, primaryTimeout)
-		if err != nil {
-			primaryErr := err
-			fallback := getFallbackLink(link)
-			boxPlatformLogWriter.WriteMessage(sblog.LevelDebug, fmt.Sprintf("box.UrlTest primary failed: %v, trying fallback: %s", err, fallback))
-			var fbErr error
-			latency, fbErr = urlTest(i, fallback, fallbackTimeout)
-			if fbErr != nil {
-				err = primaryErr
-			} else {
-				err = nil
-			}
-		}
+		latency, err = urlTest(i, link, timeout)
 	}
 	boxPlatformLogWriter.WriteMessage(sblog.LevelDebug, fmt.Sprintf("box.UrlTest result latency=%dms err=%v", latency, err))
 	return
@@ -550,99 +531,21 @@ func UrlTestFull(i *BoxInstance, link string, timeout int32) (latency int32, err
 	return UrlTest(i, link, timeout)
 }
 
-// urlTest 对齐 Throne 及业界基准（两阶段 Keep-Alive 预热探测）：
-// 阶段一（预热）：通过 outbound 建立代理隧道并完成目标端 HTTP 握手，将保活长连接推入连接池；
-// 若中转/CDN 对 HEAD 请求不兼容（返回 EOF/405/403/400+ 等），自动以 GET 请求重试预热；
-// 阶段二（测量）：复用连接池中已就绪的长连接发送探测，测得纯 1-RTT 网络往返时延（~150-250ms），
-// 彻底消除冷启动握手与 TLS 重建带来的额外虚高延迟，且严格保持真实低延迟水平不退化。
+// urlTest delegates measurement to the shared Go-core probe so per-profile and
+// URLTest outbound paths use the same TTFB, fallback, and timeout rules.
 func urlTest(instance *BoxInstance, link string, timeout int32) (int32, error) {
+	if instance == nil {
+		return 0, E.New("nil URL test instance")
+	}
 	outbound := instance.Outbound().Default()
 	if outbound == nil {
 		return 0, E.New("no default outbound")
 	}
-
 	if link == "" {
 		link = defaultFallbackURL
 	}
-	linkURL, err := url.Parse(link)
-	if err != nil {
-		return 0, E.Cause(err, "parse test link")
-	}
-	hostname := linkURL.Hostname()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
-	defer cancel()
-
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return outbound.DialContext(ctx, network, M.ParseSocksaddr(addr))
-		},
-		TLSClientConfig: &tls.Config{
-			ServerName:         hostname,
-			InsecureSkipVerify: true,
-			NextProtos:         []string{"h2", "http/1.1"},
-		},
-		ForceAttemptHTTP2: true,
-		DisableKeepAlives: false,
-		MaxIdleConns:      5,
-		IdleConnTimeout:   10 * time.Second,
-	}
-	_ = http2.ConfigureTransport(transport)
-	defer transport.CloseIdleConnections()
-
-	client := &http.Client{
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
-	if err != nil {
-		return 0, err
-	}
-	req1.Header.Set("User-Agent", browserUserAgent)
-
-	start1 := time.Now()
-	resp1, err := client.Do(req1)
-	if err == nil {
-		_, _ = io.CopyN(io.Discard, resp1.Body, 8192)
-		_ = resp1.Body.Close()
-		if resp1.StatusCode >= 500 {
-			err = fmt.Errorf("HTTP error %d", resp1.StatusCode)
-		}
-	}
-
-	if err != nil {
-		return 0, err
-	}
-	pass1 := time.Since(start1)
-
-	// 阶段二：复用保活连接，测得纯 1-RTT 真实低延迟
-	req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
-	if err2 == nil {
-		req2.Header.Set("User-Agent", browserUserAgent)
-		start2 := time.Now()
-		resp2, err2Do := client.Do(req2)
-		if err2Do == nil {
-			_, _ = io.CopyN(io.Discard, resp2.Body, 8192)
-			_ = resp2.Body.Close()
-			if resp2.StatusCode < 500 {
-				latency := int32(time.Since(start2).Milliseconds())
-				if latency <= 0 {
-					latency = 1
-				}
-				return latency, nil
-			}
-		}
-	}
-
-	// 备选回退：若远端不支持 Keep-Alive，则使用第一阶段耗时
-	latency := int32(pass1.Milliseconds())
-	if latency <= 0 {
-		latency = 1
-	}
-	return latency, nil
+	delay, err := customUrltest.ProbeOutbound(context.Background(), outbound, link, time.Duration(timeout)*time.Millisecond)
+	return int32(delay), err
 }
 
 // urlTestDirect 为直连测速：同样采用两阶段 Keep-Alive 探测纯 RTT。

@@ -1391,14 +1391,6 @@ fun buildConfig(
                     effectivePackages.add("com.xiaomi.providers.downloads")
                     effectivePackages.add("com.google.android.gms")
                 }
-                val officialTelegramPackages = setOf(
-                    "org.telegram.messenger",
-                    "org.telegram.messenger.web",
-                    "org.telegram.messenger.beta"
-                )
-                if (effectivePackages.any { it in officialTelegramPackages }) {
-                    effectivePackages.addAll(officialTelegramPackages)
-                }
                 val uidList = effectivePackages.mapNotNull {
                     if (!isVPN) {
                         Toast.makeText(
@@ -1888,33 +1880,17 @@ fun buildConfig(
                 action = "hijack-dns"
             })
 
-            // Telegram 官方数据中心（DC 1~5）及核心媒体 CDN 纯 IP 段
-            val telegramDcIps = listOf(
-                "91.108.4.0/22",
-                "91.108.8.0/22",
-                "91.108.12.0/22",
-                "91.108.16.0/22",
-                "91.108.20.0/22",
-                "91.108.56.0/22",
-                "149.154.160.0/20",
-                "2001:b88::/32",
-                "2001:67c:4e8::/48"
-            )
-
             // 2. sing-box 1.13：sniff（嗅探域名以供后续分流规则匹配）
-            // 显式指定 timeout = "100ms" 与 sniffer = ["tls", "http", "quic"]，并通过 ip_cidr + invert 跳过 Telegram 纯 IP MTProto 流量嗅探，
-            // 既杜绝 100ms~300ms 首包等待与断流，又不拦截用户自定义的 Telegram 应用/节点分流规则
+            // 显式指定嗅探超时与协议，供用户配置的域名分流规则正常匹配。
             if (needSniff) {
                 topRouteRules.add(Rule_DefaultOptions().apply {
-                    ip_cidr = telegramDcIps
-                    invert = true
                     action = "sniff"
                     timeout = "100ms"
                     sniffer = listOf("tls", "http", "quic")
                 })
             }
 
-            // 3. resolve 动作：仅当用户显式开启“解析目标地址”时执行，绝不对全局连接强插解析，杜绝 Telegram 等直连 IP 发生解析超时断流
+            // 3. resolve 动作仅当用户显式开启“解析目标地址”时执行，避免对全局连接强插解析。
             if (DataStore.resolveDestination) {
                 topRouteRules.add(Rule_DefaultOptions().apply {
                     action = "resolve"
@@ -1974,13 +1950,6 @@ fun buildConfig(
             })
 
             route.rules.addAll(0, topRouteRules)
-
-            // Telegram 官方数据中心（DC 1~5）兜底规则：置于所有用户自定义分流规则之后，
-            // 确保用户为 Telegram 配置的指定节点规则优先命中，未配置时兜底走主代理
-            route.rules.add(Rule_DefaultOptions().apply {
-                ip_cidr = telegramDcIps
-                outbound = mainProxyTag
-            })
 
             if (DataStore.bypassLanInCore) {
                 route.rules.add(Rule_DefaultOptions().apply {
