@@ -137,28 +137,59 @@ jobs:
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
+          # One-time user-approved reinstall-only release; all other tags stay strict.
+          APPROVED_INCOMPATIBLE_TAG="v26.11.3.68-preview.1"
+          ALLOW_INCOMPATIBLE_SIGNATURE=false
+          if [ "${GITHUB_REF_NAME:-}" = "$APPROVED_INCOMPATIBLE_TAG" ] && [ "${GITHUB_RUN_ATTEMPT:-0}" = "1" ]; then
+            ALLOW_INCOMPATIBLE_SIGNATURE=true
+          fi
           AAPT=$(find "${ANDROID_HOME}/build-tools" -name aapt | sort -V | tail -n 1)
           if [ -z "$AAPT" ]; then
             echo "::error::aapt not found; refusing to publish without package/version verification."
             exit 1
           fi
           APK_COUNT=0
+          FIRST_CERT=""
           for apk in "$APK_DIR"/*.apk; do
             [ -f "$apk" ] || continue
             APK_COUNT=$((APK_COUNT + 1))
             cert=$($APKSIGNER verify --print-certs "$apk" 2>&1 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
-            if [ "$cert" != "$EXPECTED_CERT_SHA256" ]; then
-              echo "::error::Unexpected APK signing certificate for $apk; refusing to publish."
+            if [[ ! "$cert" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "::error::Could not read a valid signing certificate fingerprint for $apk; refusing to publish."
               exit 1
+            fi
+            if [ -z "$FIRST_CERT" ]; then
+              FIRST_CERT="$cert"
+            elif [ "$cert" != "$FIRST_CERT" ]; then
+              echo "::error::APK set contains inconsistent signing certificates; refusing to publish."
+              exit 1
+            fi
+            if [ "$cert" != "$EXPECTED_CERT_SHA256" ]; then
+              if [ "$ALLOW_INCOMPATIBLE_SIGNATURE" = true ]; then
+                echo "::warning::User-approved one-time signature mismatch on $APPROVED_INCOMPATIBLE_TAG; signer SHA-256=$cert. Reinstall is required."
+              else
+                echo "::error::Unexpected APK signing certificate for $apk (actual=$cert expected=$EXPECTED_CERT_SHA256); refusing to publish."
+                exit 1
+              fi
             fi
             badging=$($AAPT dump badging "$apk" | sed -n '1p')
             package=$(printf '%s\n' "$badging" | sed -n "s/.*package: name='\\([^']*\\)'.*/\\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
-            if [ "$package" != "com.ownbox.fork" ] || [ -z "$version_code" ] || [ "$version_code" -le 2335 ]; then
-              echo "::error::Unexpected package or versionCode for $apk; refusing to publish."
+            if [ "$package" != "com.ownbox.fork" ]; then
+              echo "::error::Unexpected package for $apk (actual=$package); refusing to publish."
               exit 1
             fi
-            echo "Verified compatible APK: $apk (package=$package versionCode=$version_code cert=$cert)"
+            if [ -z "$version_code" ]; then
+              echo "::error::Could not read versionCode for $apk; refusing to publish."
+              exit 1
+            elif [ "$ALLOW_INCOMPATIBLE_SIGNATURE" = true ] && [ "$version_code" -ne 2340 ]; then
+              echo "::error::This approved release must have versionCode 2340, got $version_code; refusing to publish."
+              exit 1
+            elif [ "$ALLOW_INCOMPATIBLE_SIGNATURE" != true ] && [ "$version_code" -le 2335 ]; then
+              echo "::error::versionCode must be greater than 2335 for $apk; refusing to publish."
+              exit 1
+            fi
+            echo "Verified APK: $apk (package=$package versionCode=$version_code signerSHA256=$cert)"
           done
           if [ "$APK_COUNT" -eq 0 ]; then
             echo "::error::No APKs found to verify; refusing to publish."
