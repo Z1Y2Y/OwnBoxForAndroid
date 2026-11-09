@@ -201,7 +201,6 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                     .setPositiveButton(R.string.yes) { _, _ ->
                         runOnDefaultDispatcher {
                             SagerDatabase.rulesDao.reset()
-                            DataStore.rulesFirstCreate = false
                             ruleAdapter.reload()
                             autoReloadServiceIfStarted()
                         }

@@ -141,9 +141,17 @@ object RouteRuleEditor {
     fun hasConditions(rule: RuleEntity): Boolean {
         if (listOf(rule.domains, rule.ip, rule.port, rule.sourcePort, rule.network, rule.source, rule.protocol, rule.ruleset).any { it.isNotBlank() } || rule.packages.isNotEmpty()) return true
         val obj = json(rule.config)
-        return (lists - "sniffer").any { values(obj, it).isNotEmpty() } || obj.optBoolean("ip_is_private") ||
+        val hasListCondition = (lists - "sniffer").any { key -> values(obj, key).any { it.isNotBlank() } }
+        val customRules = obj.opt("rules")
+        val hasCustomRules = when (customRules) {
+            is JSONArray -> customRules.length() > 0
+            is JSONObject -> customRules.length() > 0
+            is String -> customRules.isNotBlank()
+            else -> false
+        }
+        return hasListCondition || obj.optBoolean("ip_is_private") ||
             obj.optBoolean("source_ip_is_private") || obj.optBoolean("network_is_expensive") ||
-            obj.optInt("ip_version") in setOf(4, 6) || obj.has("rule_set") || obj.has("rules")
+            obj.optInt("ip_version") in setOf(4, 6) || values(obj, "rule_set").any { it.isNotBlank() } || hasCustomRules
     }
     /** Remove a generated outbound only when an explicit non-routing action requires it. */
     fun applyAction(rule: SingBoxOptions.Rule_DefaultOptions, config: String) {

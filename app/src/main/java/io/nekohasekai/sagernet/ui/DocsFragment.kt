@@ -870,9 +870,9 @@ class DocsFragment : ToolbarFragment(R.layout.layout_docs) {
                 category = "分应用代理",
                 title = "MyBox 智能联动机制与最佳分流实践 (googlePlayMyBoxSolution)",
                 badge = "推荐: 最佳配置方案",
-                desc = "MyBox 针对此痛点进行了深度架构优化：\n1. 【智能白名单联动】：在分应用代理中勾选 Google Play (com.android.vending) 时，MyBox 会自动弹出提示或联动将下载管理器 (com.android.providers.downloads) 及 GMS 服务纳入 VPN 保护隧道，保证下载流量合法进入 TUN 网卡；\n2. 【TUN 内部精准分流】：流量进入 TUN 后，再交由 sing-box 路由规则引擎处理。MyBox 内置的 Google 专线规则会将 Google Play 的商店 API 域名与 APK CDN 域名（如 *.gvt1.com、*.ggpht.com、*.1e100.net 等）统一精准分流到您指定的境外代理出站，而下载管理器代下的国内普通应用流量依然能够命中直连规则走国内直连，做到“既能秒下 Google Play，国内下载又不浪费代理流量”。",
-                prosCons = "【利】一键解决 Google Play 下载断流卡顿，兼顾国内应用极速直连；【弊】无。",
-                recommendation = "【推荐方案】开启分应用代理并勾选 Google Play + 智能联动，配合路由规则中的 Google 专线，体验最顺滑的 Google 生态应用更新。",
+                desc = "分应用代理和路由规则均遵循用户明确选择：只勾选 Google Play 时，下载管理器或 Google 服务不会被 MyBox 自动加入；如确实需要这些组件经过 VPN，请在分应用列表中分别选中。进入 TUN 后，sing-box 只按路由规则中已保存的应用、域名、IP/CIDR、规则集及网络条件匹配，并使用该规则指定的出站；清空的条件不会因为规则名称或其他字段而自动恢复。",
+                prosCons = "【利】应用范围和路由条件可分别自定义；【注意】依赖系统组件联网的功能可能需要用户显式选中对应组件。",
+                recommendation = "【使用提示】按需要在分应用列表中明确选择应用，并在路由规则中填写需要的匹配条件和出站；无需的条件保持为空即可。",
                 keywords = "google play 联动 解决方案 cdn gvt1 专线 分流 下载管理器 最佳实践",
             )
         )

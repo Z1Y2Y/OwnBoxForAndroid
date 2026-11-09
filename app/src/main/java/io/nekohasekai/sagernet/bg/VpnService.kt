@@ -223,17 +223,6 @@ class VpnService : BaseVpnService(),
                 bypass = false
             }
 
-            // In whitelist mode (proxyApps enabled, !bypass), if Google Play Store is selected,
-            // automatically ensure DownloadManager, Xiaomi download provider, and Google services are allowed into VPN
-            // so download tasks never bypass the TUN or leak to direct cellular/wifi.
-            if (proxyApps && !bypass && individual.contains("com.android.vending")) {
-                individual.add("com.android.providers.downloads")
-                individual.add("com.android.providers.downloads.ui")
-                individual.add("com.xiaomi.providers.downloads")
-                individual.add("com.google.android.gsf")
-                individual.add("com.google.android.gms")
-            }
-
             val added = mutableListOf<String>()
 
             individual.apply {

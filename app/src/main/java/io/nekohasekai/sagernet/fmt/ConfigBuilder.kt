@@ -1384,14 +1384,8 @@ fun buildConfig(
                 if (rule.packages.isNotEmpty()) {
                     PackageCache.awaitLoadSync()
                 }
-                val effectivePackages = rule.packages.toMutableSet()
-                if (effectivePackages.contains("com.android.vending")) {
-                    effectivePackages.add("com.android.providers.downloads")
-                    effectivePackages.add("com.android.providers.downloads.ui")
-                    effectivePackages.add("com.xiaomi.providers.downloads")
-                    effectivePackages.add("com.google.android.gms")
-                }
-                val uidList = effectivePackages.mapNotNull {
+                val selectedPackages = rule.packages.toMutableSet()
+                val uidList = selectedPackages.mapNotNull {
                     if (!isVPN) {
                         Toast.makeText(
                             SagerNet.application,
@@ -1423,7 +1417,7 @@ fun buildConfig(
                 val hasIpCriteria = !ipList.isNullOrEmpty() || rulesetTags.any { it.second }
                 val hasDomainRuleset = rulesetTags.any { !it.second }
                 val isAppOnlyDns =
-                    (uidList.isNotEmpty() || effectivePackages.isNotEmpty()) &&
+                    (uidList.isNotEmpty() || selectedPackages.isNotEmpty()) &&
                         !hasDomainCriteria &&
                         !hasIpCriteria &&
                         !hasDomainRuleset &&
@@ -1449,9 +1443,9 @@ fun buildConfig(
 
                 fun makeAppDnsRuleObj(): List<DNSRule_DefaultOptions> {
                     val list = mutableListOf<DNSRule_DefaultOptions>()
-                    if (effectivePackages.isNotEmpty()) {
+                    if (selectedPackages.isNotEmpty()) {
                         list.add(DNSRule_DefaultOptions().apply {
-                            package_name = effectivePackages.toList()
+                            package_name = selectedPackages.toList()
                         })
                     }
                     if (uidList.isNotEmpty()) {
@@ -1544,12 +1538,7 @@ fun buildConfig(
                     }
                 }
 
-                val targetOutbound = when (val outId = rule.outbound) {
-                    0L -> mainProxyTag
-                    -1L -> TAG_BYPASS
-                    -2L -> TAG_BLOCK
-                    else -> if (outId == proxy.id) mainProxyTag else tagMap[outId] ?: ""
-                }
+                val targetOutbound = resolveRouteRuleOutbound(rule.outbound, proxy.id, mainProxyTag, tagMap)
 
                 fun applyCommonFilters(ruleObj: Rule_DefaultOptions) {
                     if (rule.port.isNotBlank()) {
@@ -1593,14 +1582,16 @@ fun buildConfig(
                 }
 
                 val generatedSubRules = mutableListOf<Rule_DefaultOptions>()
-                val hasDomain = hasDomainCriteria || hasDomainRuleset
-                val hasIp = hasIpCriteria
-                val hasApp = uidList.isNotEmpty() || rule.packages.isNotEmpty()
+                val matchKinds = routeMatchKinds(
+                    hasDomain = hasDomainCriteria || hasDomainRuleset,
+                    hasIp = hasIpCriteria,
+                    hasApp = uidList.isNotEmpty() || selectedPackages.isNotEmpty(),
+                )
 
                 // Generate independent sub-rules to achieve true OR semantics in sing-box:
                 // Traffic matching Domain OR IP OR App will route to targetOutbound independently,
                 // without AND criteria deadlocks between package and domain.
-                if (hasDomain) {
+                if (RouteMatchKind.DOMAIN in matchKinds) {
                     val domainSubRule = Rule_DefaultOptions().apply {
                         domainList?.let { makeSingBoxRule(it, false) }
                         val domainRulesetTags = rulesetTags.filter { !it.second }.map { it.first }
@@ -1613,7 +1604,7 @@ fun buildConfig(
                     if (!domainSubRule.checkEmpty()) generatedSubRules.add(domainSubRule)
                 }
 
-                if (hasIp) {
+                if (RouteMatchKind.IP in matchKinds) {
                     val ipSubRule = Rule_DefaultOptions().apply {
                         ipList?.let { makeSingBoxRule(it, true) }
                         val ipRulesetTags = rulesetTags.filter { it.second }.map { it.first }
@@ -1626,7 +1617,7 @@ fun buildConfig(
                     if (!ipSubRule.checkEmpty()) generatedSubRules.add(ipSubRule)
                 }
 
-                if (hasApp) {
+                if (RouteMatchKind.APP in matchKinds) {
                     val appSubRule = Rule_DefaultOptions().apply {
                         if (uidList.isNotEmpty()) {
                             user_id = uidList
@@ -1635,16 +1626,16 @@ fun buildConfig(
                     }
                     if (!appSubRule.checkEmpty()) generatedSubRules.add(appSubRule)
 
-                    if (effectivePackages.isNotEmpty()) {
+                    if (selectedPackages.isNotEmpty()) {
                         val pkgSubRule = Rule_DefaultOptions().apply {
-                            package_name = effectivePackages.toList()
+                            package_name = selectedPackages.toList()
                             applyCommonFilters(this)
                         }
                         if (!pkgSubRule.checkEmpty()) generatedSubRules.add(pkgSubRule)
                     }
                 }
 
-                if (!hasDomain && !hasIp && !hasApp) {
+                if (RouteMatchKind.FALLBACK in matchKinds) {
                     val fallbackRule = Rule_DefaultOptions().apply {
                         applyCommonFilters(this)
                     }

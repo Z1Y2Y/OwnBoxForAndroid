@@ -579,8 +579,6 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var subscriptionFilterRegex by profileCacheStore.string(Key.SUBSCRIPTION_FILTER_REGEX)
     var subscriptionServerDns by profileCacheStore.string(Key.SUBSCRIPTION_SERVER_DNS)
 
-    var rulesFirstCreate by profileCacheStore.boolean("rulesFirstCreate")
-
     // var enableTLSFragment by configurationStore.boolean(Key.ENABLE_TLS_FRAGMENT)
 
     var webdavServer: String?
