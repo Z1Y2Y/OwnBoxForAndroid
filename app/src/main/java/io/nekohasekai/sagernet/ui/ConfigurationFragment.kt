@@ -2226,21 +2226,6 @@ class ConfigurationFragment @JvmOverloads constructor(
                 adapter.groupFragments.values.forEach { it.adapter?.reloadProfiles() }
                 return true
             }
-
-            R.id.action_reorder_profiles -> {
-                enterReorderMode()
-                return true
-            }
-
-            R.id.action_reset_profiles_order -> {
-                resetToDefaultOrder()
-                return true
-            }
-
-            R.id.action_reorder_save -> {
-                saveReorder()
-                return true
-            }
         }
         return false
     }

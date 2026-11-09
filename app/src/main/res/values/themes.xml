@@ -356,6 +356,19 @@
         <item name="android:includeFontPadding">false</item>
     </style>
 
+    <style name="Widget.SagerNet.TabLayout.TextAppearance.Capsule" parent="TextAppearance.MaterialComponents.Body2">
+        <item name="android:textAllCaps">false</item>
+        <item name="textAllCaps">false</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+    <style name="Widget.SagerNet.TabLayout.TextAppearance.Capsule.Selected" parent="Widget.SagerNet.TabLayout.TextAppearance.Capsule">
+        <item name="android:textStyle">bold</item>
+    </style>
+
     <!-- ElevatedCard: shadow + tonal surface, no stroke. -->
     <style name="Widget.SagerNet.CardView.Elevated">
         <item name="cardElevation">@dimen/card_elevation</item>
