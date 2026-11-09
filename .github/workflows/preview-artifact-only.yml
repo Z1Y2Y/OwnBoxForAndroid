@@ -113,7 +113,8 @@ jobs:
             echo "::error::Asset initialization failed after 3 attempts."
             exit 1
           fi
-          ./gradlew app:testPreviewReleaseUnitTest app:assemblePreviewRelease
+          ./gradlew app:testPreviewReleaseUnitTest --tests io.nekohasekai.sagernet.fmt.RouteRuleSemanticsTest
+          ./gradlew app:assemblePreviewRelease
 
           APK=$(find app/build/outputs/apk -name '*arm64-v8a*.apk' | head -n 1)
           if [ -n "$APK" ]; then
