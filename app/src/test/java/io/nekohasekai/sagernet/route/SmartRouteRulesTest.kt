@@ -3,8 +3,18 @@ package io.nekohasekai.sagernet.route
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class SmartRouteRulesTest {
+
+    private fun sourceFile(relative: String): File {
+        return sequenceOf(File(relative), File("app", relative), File("../app", relative))
+            .firstOrNull { it.exists() } ?: File(relative)
+    }
+
+    private val catalog by lazy {
+        RuleSetCatalog.parseSrsList(sourceFile("src/main/assets/routeprofiles/srslist.h").readText())
+    }
 
     @Test
     fun classifyAppsSeparatesDomesticForeignAndExcludesBrowsers() {
@@ -53,17 +63,27 @@ class SmartRouteRulesTest {
 
     @Test
     fun buildSmartRulesAdaptsToSelectedCountry() {
-        val cnRules = SmartRouteRules.buildSmartRules("cn")
+        val cnRules = SmartRouteRules.buildSmartRules("cn", catalog, hasGeositeDb = false, hasGeoipDb = false)
         assertTrue(cnRules.any { it.outbound == -1L && it.domains.contains("geosite:cn") && it.domains.contains("domain:cn") })
         assertTrue(cnRules.any { it.outbound == -1L && it.ip.contains("geoip:cn") })
 
-        val ruRules = SmartRouteRules.buildSmartRules("ru")
+        val ruRules = SmartRouteRules.buildSmartRules("ru", catalog, hasGeositeDb = false, hasGeoipDb = false)
         assertTrue(ruRules.any { it.outbound == -1L && it.domains.contains("geosite:ru") && it.domains.contains("domain:ru") })
         assertTrue(ruRules.any { it.outbound == -1L && it.ip.contains("geoip:ru") })
 
-        val irRules = SmartRouteRules.buildSmartRules("ir")
+        val irRules = SmartRouteRules.buildSmartRules("ir", catalog, hasGeositeDb = false, hasGeoipDb = false)
         assertTrue(irRules.any { it.outbound == -1L && it.domains.contains("geosite:ir") && it.domains.contains("domain:ir") })
         assertTrue(irRules.any { it.outbound == -1L && it.ip.contains("geoip:ir") })
+    }
+
+    @Test
+    fun buildSmartRulesFallsBackToCoreDomainsWhenGeoDataIsUnavailable() {
+        val rules = SmartRouteRules.buildSmartRules("cn", catalog = null, hasGeositeDb = false, hasGeoipDb = false)
+        val domains = rules.single { it.name == "Smart-Domestic-Domains-cn" }.domains
+
+        assertTrue(domains.contains("domain:cn"))
+        assertFalse(domains.contains("geosite:cn"))
+        assertFalse(rules.any { it.ip.contains("geoip:cn") })
     }
 
     @Test

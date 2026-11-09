@@ -522,6 +522,21 @@ object SmartRouteRules {
     )
 
     fun buildSmartRules(rawCountry: String = "cn"): List<RuleEntity> {
+        val catalog = runCatching { RuleSetCatalog.current() }.getOrNull()
+        return buildSmartRules(
+            rawCountry = rawCountry,
+            catalog = catalog,
+            hasGeositeDb = hasLocalDb("geosite.db"),
+            hasGeoipDb = hasLocalDb("geoip.db")
+        )
+    }
+
+    internal fun buildSmartRules(
+        rawCountry: String,
+        catalog: RuleSetCatalog?,
+        hasGeositeDb: Boolean,
+        hasGeoipDb: Boolean
+    ): List<RuleEntity> {
         val country = rawCountry.trim().lowercase().ifBlank { "cn" }
         val rules = ArrayList<RuleEntity>()
 
@@ -552,10 +567,9 @@ object SmartRouteRules {
         }
 
         // 3. 域名级智能分流：本国 GeoSite 规则集 + 本国核心域名后缀走直连与本地抗污染 DNS
-        val catalog = runCatching { RuleSetCatalog.current() }.getOrNull()
         val domainEntries = LinkedHashSet<String>()
         val geositeTag = "geosite:$country"
-        if (catalog?.urlOf(geositeTag) != null || hasLocalDb("geosite.db")) {
+        if (catalog?.urlOf(geositeTag) != null || hasGeositeDb) {
             domainEntries.add(geositeTag)
         }
         domesticCoreDomainSuffixes(country).forEach { suffix ->
@@ -575,7 +589,7 @@ object SmartRouteRules {
         // 4. IP 级智能分流：本国 GeoIP 地址段走直连
         val ipEntries = LinkedHashSet<String>()
         val geoipTag = "geoip:$country"
-        if (catalog?.urlOf(geoipTag) != null || hasLocalDb("geoip.db")) {
+        if (catalog?.urlOf(geoipTag) != null || hasGeoipDb) {
             ipEntries.add(geoipTag)
         }
         if (ipEntries.isNotEmpty()) {

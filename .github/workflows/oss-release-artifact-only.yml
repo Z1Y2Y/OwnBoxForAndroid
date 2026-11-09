@@ -80,8 +80,6 @@ jobs:
           path: ~/.gradle
           key: gradle-oss-${{ hashFiles('**/*.gradle.kts') }}
       - name: Run OSS Release unit tests
-        id: unit_tests
-        continue-on-error: true
         run: ./gradlew app:testOssReleaseUnitTest
       - name: Build signed OSS Release APK
         env:
@@ -91,7 +89,6 @@ jobs:
           ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
           ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
-          UNIT_TEST_OUTCOME: ${{ steps.unit_tests.outcome }}
         run: |
           set -euo pipefail
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
@@ -183,7 +180,7 @@ jobs:
             echo '- Package: com.ownbox.fork'
             echo '- versionCode: 2350'
             echo '- Signing certificate: verified against the established public fingerprint'
-            echo "- Unit tests: ${UNIT_TEST_OUTCOME} (non-blocking; inspect run logs if failed)"
+            echo '- Unit tests: passed (APK build runs only after tests succeed)'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload verified OSS Release APK artifact
         uses: actions/upload-artifact@v4
