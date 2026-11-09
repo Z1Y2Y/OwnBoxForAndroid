@@ -72,7 +72,9 @@ object RouteRuleEditor {
     }
     enum class Error { VALUE, JSON, UNSUPPORTED, EMPTY, ACTION_OPTIONS }
     data class Problem(val field: String, val error: Error)
-    fun problems(rule: RuleEntity): List<Problem> {
+    fun problems(rule: RuleEntity): List<Problem> = problems(rule, RuleSetCatalog.current())
+
+    internal fun problems(rule: RuleEntity, catalog: RuleSetCatalog): List<Problem> {
         val out = mutableListOf<Problem>()
         val obj = try { json(rule.config) } catch (_: Exception) { return listOf(Problem("config", Error.JSON)) }
         fun check(key: String, entries: List<String>, valid: (String) -> Boolean) {
@@ -87,7 +89,6 @@ object RouteRuleEditor {
         check("protocol", rule.protocol.listByLineOrComma()) { it in protocols }
         check("sniffer", values(obj, "sniffer")) { it in protocols }
         check("package_name", rule.packages.toList()) { it.matches(Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*")) }
-        val catalog = RuleSetCatalog.current()
         check("rule_set", rule.ruleset.listByLineOrComma()) { entry ->
             val trimmed = entry.trim()
             when {

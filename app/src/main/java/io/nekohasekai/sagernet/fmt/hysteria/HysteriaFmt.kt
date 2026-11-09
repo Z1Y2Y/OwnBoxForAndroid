@@ -364,8 +364,10 @@ fun buildSingBoxOutboundHysteriaBean(bean: HysteriaBean): SingBoxOptions.SingBox
                 if (!effectiveSni.isNullOrBlank()) {
                     server_name = effectiveSni
                 }
-                if (!bean.alpn.isNullOrBlank()) {
-                    alpn = bean.alpn.listByLineOrComma()
+                alpn = if (!bean.alpn.isNullOrBlank()) {
+                    bean.alpn.listByLineOrComma()
+                } else {
+                    listOf("h3")
                 }
                 if (!bean.caText.isNullOrBlank()) {
                     certificate = bean.caText

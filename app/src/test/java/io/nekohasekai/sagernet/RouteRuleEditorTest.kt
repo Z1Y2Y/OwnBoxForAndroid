@@ -2,6 +2,7 @@ package io.nekohasekai.sagernet
 
 import io.nekohasekai.sagernet.database.RuleEntity
 import io.nekohasekai.sagernet.route.RouteRuleEditor as Editor
+import io.nekohasekai.sagernet.route.RuleSetCatalog
 import moe.matsuri.nb4a.SingBoxOptions
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -13,6 +14,12 @@ class RouteRuleEditorTest {
         return sequenceOf(File(relative), File("app", relative), File("../app", relative))
             .firstOrNull { it.exists() } ?: File(relative)
     }
+
+    private val catalog by lazy {
+        RuleSetCatalog.parseSrsList(sourceFile("src/main/assets/routeprofiles/srslist.h").readText())
+    }
+
+    private fun problems(rule: RuleEntity) = Editor.problems(rule, catalog)
 
     @Test fun fieldEditsPreserveCustomJsonAndOtherState() {
         val original = """{"domain_regex":["a{1,3}\\.example"],"future_match":{"value":7},"invert":true}"""
@@ -32,23 +39,23 @@ class RouteRuleEditorTest {
     }
 
     @Test fun advancedFieldsAndActionOptionsAreValidated() {
-        assertTrue(Editor.problems(RuleEntity(domains = "example.com", config = """{"action":"reject","method":"reply","no_drop":true}""")).isEmpty())
-        val bad = Editor.problems(RuleEntity(ip = "300.0.0.1", port = "65536", config = """{"action":"reject","method":"drop","no_drop":true}"""))
+        assertTrue(problems(RuleEntity(domains = "example.com", config = """{"action":"reject","method":"reply","no_drop":true}""")).isEmpty())
+        val bad = problems(RuleEntity(ip = "300.0.0.1", port = "65536", config = """{"action":"reject","method":"drop","no_drop":true}"""))
         assertEquals(setOf("ip_cidr", "port", "method"), bad.map { it.field }.toSet())
-        assertTrue(Editor.problems(RuleEntity(config = "{}")).any { it.error == Editor.Error.EMPTY })
-        assertTrue(Editor.problems(RuleEntity(config = "[]")).any { it.error == Editor.Error.JSON })
-        assertTrue(Editor.problems(RuleEntity(domains = "example.com", config = """{"action":"sniff","strategy":"ipv4_only"}""")).any { it.field == "strategy" })
+        assertTrue(problems(RuleEntity(config = "{}")).any { it.error == Editor.Error.EMPTY })
+        assertTrue(problems(RuleEntity(config = "[]")).any { it.error == Editor.Error.JSON })
+        assertTrue(problems(RuleEntity(domains = "example.com", config = """{"action":"sniff","strategy":"ipv4_only"}""")).any { it.field == "strategy" })
         for (key in listOf("override_destination", "process_path", "wifi_ssid", "reject_method")) {
-            assertTrue(Editor.problems(RuleEntity(domains = "example.com", config = """{"$key":"kept"}""")).any { it.error == Editor.Error.UNSUPPORTED })
+            assertTrue(problems(RuleEntity(domains = "example.com", config = """{"$key":"kept"}""")).any { it.error == Editor.Error.UNSUPPORTED })
         }
     }
 
     @Test fun unknownSetsAndInboundAreNotSilentlyAccepted() {
-        assertTrue(Editor.problems(RuleEntity(domains = "geosite:cn", config = """{"rule_set":["geosite:cn"]}""")).isEmpty())
-        assertTrue(Editor.problems(RuleEntity(domains = "example.com", config = """{"rule_set":["unknown"]}""")).any { it.field == "rule_set" })
-        assertTrue(Editor.problems(RuleEntity(domains = "example.com", config = """{"inbound":["desktop-tun"]}""")).any { it.field == "inbound" })
-        assertTrue(Editor.problems(RuleEntity(ruleset = "rssite:https://example.com/list.srs")).isEmpty())
-        assertTrue(Editor.problems(RuleEntity(ruleset = "rssite:http://example.com/list.srs")).any { it.field == "rule_set" })
+        assertTrue(problems(RuleEntity(domains = "geosite:cn", config = """{"rule_set":["geosite:cn"]}""")).isEmpty())
+        assertTrue(problems(RuleEntity(domains = "example.com", config = """{"rule_set":["unknown"]}""")).any { it.field == "rule_set" })
+        assertTrue(problems(RuleEntity(domains = "example.com", config = """{"inbound":["desktop-tun"]}""")).any { it.field == "inbound" })
+        assertTrue(problems(RuleEntity(ruleset = "rssite:https://example.com/list.srs")).isEmpty())
+        assertTrue(problems(RuleEntity(ruleset = "rssite:http://example.com/list.srs")).any { it.field == "rule_set" })
     }
 
     @Test fun routeProjectionUsesActionAndOutboundSemantics() {

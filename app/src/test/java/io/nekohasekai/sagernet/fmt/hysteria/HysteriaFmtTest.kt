@@ -76,4 +76,17 @@ class HysteriaFmtTest {
         assertEquals(8443, hy2.server_port)
         assertNull(hy2.server_ports)
     }
+
+    @Test
+    fun buildSingBoxOutboundHysteria2PreservesConfiguredAlpn() {
+        val bean = HysteriaBean().apply {
+            protocolVersion = 2
+            serverAddress = "203.10.99.59"
+            serverPorts = "8443"
+            alpn = "h3,h2"
+        }
+
+        val hy2 = buildSingBoxOutboundHysteriaBean(bean) as SingBoxOptions.Outbound_Hysteria2Options
+        assertEquals(listOf("h3", "h2"), hy2.tls.alpn)
+    }
 }
