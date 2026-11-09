@@ -497,7 +497,7 @@ func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err err
 	boxPlatformLogWriter.WriteMessage(sblog.LevelDebug, fmt.Sprintf("box.UrlTest link=%s timeout=%dms instance=%v", link, timeout, i != nil))
 
 	if link == "" {
-		link = defaultCFURL
+		link = defaultFallbackURL
 	}
 
 	primaryTimeout := timeout

@@ -96,7 +96,7 @@ object RouteRuleEditor {
                 RuleSets.isUrl(trimmed) -> {
                     val cleaned = RuleSets.cleanUrl(trimmed)
                     val parsed = cleaned.toHttpUrlOrNull()
-                    parsed != null && (parsed.scheme == "https" || parsed.scheme == "http") &&
+                    parsed != null && parsed.scheme == "https" &&
                         parsed.username.isEmpty() && parsed.password.isEmpty()
                 }
                 trimmed.startsWith("geoip:") || trimmed.startsWith("geoip-") ||
