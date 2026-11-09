@@ -11,6 +11,7 @@ import io.nekohasekai.sagernet.database.preference.PublicDatabase
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ui.BlankActivity
+import moe.matsuri.nb4a.utils.LogExportSanitizer
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -100,6 +101,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         try {
             report += "Settings: \n"
             for (pair in PublicDatabase.kvPairDao.all()) {
+                if (LogExportSanitizer.isSensitiveSettingKey(pair.key)) continue
                 report += "\n"
                 report += pair.key + ": " + pair.toString()
             }

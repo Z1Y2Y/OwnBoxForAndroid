@@ -404,16 +404,20 @@ fun buildConfig(
     }
 
     val isSmartRouting = !forTest && DataStore.smartMode && !DataStore.globalMode
-    val extraRules = if (forTest) {
-        listOf()
-    } else {
-        val userRules = SagerDatabase.rulesDao.enabledRules()
-        val policyRules = when {
-            isSmartRouting -> io.nekohasekai.sagernet.route.SmartRouteRules.buildSmartRules(DataStore.smartRouteCountry)
-            !DataStore.globalMode -> listOf(io.nekohasekai.sagernet.route.SmartRouteRules.googlePlayRule())
-            else -> emptyList()
-        }
-        userRules + policyRules
+    val extraRules = when {
+        forTest -> selectRouteRules(
+            RouteRuleMode.DISABLED, emptyList(), emptyList()
+        )
+        isSmartRouting -> selectRouteRules(
+            RouteRuleMode.SMART,
+            userRules = emptyList(),
+            smartRules = io.nekohasekai.sagernet.route.SmartRouteRules.buildSmartRules(DataStore.smartRouteCountry),
+        )
+        else -> selectRouteRules(
+            RouteRuleMode.CUSTOM,
+            userRules = SagerDatabase.rulesDao.enabledRules(),
+            smartRules = emptyList(),
+        )
     }
     val extraProxies =
         if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(extraRules.mapNotNull { rule ->

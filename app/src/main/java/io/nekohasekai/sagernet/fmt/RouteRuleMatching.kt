@@ -1,11 +1,29 @@
 package io.nekohasekai.sagernet.fmt
 
+import io.nekohasekai.sagernet.database.RuleEntity
+
 /** Match dimensions are emitted as independent sing-box rules (OR), never inferred from names. */
 internal enum class RouteMatchKind {
     DOMAIN,
     IP,
     APP,
     FALLBACK,
+}
+
+internal enum class RouteRuleMode {
+    SMART,
+    CUSTOM,
+    DISABLED,
+}
+
+internal fun selectRouteRules(
+    mode: RouteRuleMode,
+    userRules: List<RuleEntity>,
+    smartRules: List<RuleEntity>,
+): List<RuleEntity> = when (mode) {
+    RouteRuleMode.SMART -> smartRules
+    RouteRuleMode.CUSTOM -> userRules
+    RouteRuleMode.DISABLED -> emptyList()
 }
 
 internal fun routeMatchKinds(

@@ -7,6 +7,9 @@
         android:id="@+id/action_urltest"
         android:title="URLTEST" />
     <item
+        android:id="@+id/action_tcp_ping"
+        android:title="@string/connection_test_tcp_ping_single" />
+    <item
         android:id="@+id/action_edit"
         android:title="@string/edit" />
     <item

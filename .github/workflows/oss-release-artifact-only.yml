@@ -139,7 +139,8 @@ jobs:
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_VERSION_CODE=2350
+          EXPECTED_VERSION_NAME="26.11.3.71"
+          EXPECTED_VERSION_CODE=2355
           APK_COUNT=0
           for apk in "$APK_DIR"/*.apk; do
             APK_COUNT=$((APK_COUNT + 1))
@@ -155,17 +156,22 @@ jobs:
               exit 1
             fi
             badging=$("$AAPT" dump badging "$apk" | sed -n '1p')
-            package=$(printf '%s\n' "$badging" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p")
-            version_code=$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+            package=$(printf '%s\n' "$badging" | sed -n "s/.*package: name='\\([^']*\\)'.*/\\1/p")
+            version_name=$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
             if [ "$package" != "com.ownbox.fork" ]; then
               echo "::error::Unexpected package ($package); expected com.ownbox.fork."
+              exit 1
+            fi
+            if [ "$version_name" != "$EXPECTED_VERSION_NAME" ]; then
+              echo "::error::Unexpected versionName ($version_name); expected $EXPECTED_VERSION_NAME."
               exit 1
             fi
             if [ "$version_code" != "$EXPECTED_VERSION_CODE" ]; then
               echo "::error::Unexpected versionCode ($version_code); expected $EXPECTED_VERSION_CODE."
               exit 1
             fi
-            echo "Verified official OSS Release APK: $apk (package=$package versionCode=$version_code signerSHA256=$cert)"
+            echo "Verified official OSS Release APK: $apk (package=$package versionName=$version_name versionCode=$version_code signerSHA256=$cert)"
           done
           if [ "$APK_COUNT" -eq 0 ]; then
             echo "::error::No OSS Release APKs found."
@@ -178,14 +184,14 @@ jobs:
             echo '### Verified MyBox OSS Release APKs'
             echo '- Build type: Release (OSS), not Preview or Debug'
             echo '- Package: com.ownbox.fork'
-            echo '- versionCode: 2350'
+            echo '- Version: 26.11.3.71 (versionCode: 2355)'
             echo '- Signing certificate: verified against the established public fingerprint'
             echo '- Unit tests: passed (APK build runs only after tests succeed)'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload verified OSS Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-OSS-Release-26.11.3.70
+          name: MyBox-OSS-Release-26.11.3.71
           path: ${{ env.APK_DIR }}/*
           if-no-files-found: error
           retention-days: 14

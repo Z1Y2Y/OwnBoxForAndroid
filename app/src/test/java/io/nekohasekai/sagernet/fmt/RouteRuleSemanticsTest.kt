@@ -92,6 +92,42 @@ class RouteRuleSemanticsTest {
     }
 
     @Test
+    fun smartAndCustomRouteSourcesAreMutuallyExclusiveAndCustomOrderIsPreserved() {
+        val firstCustom = RuleEntity(id = 1L, userOrder = 1L, enabled = true, name = "first")
+        val secondCustom = RuleEntity(id = 2L, userOrder = 2L, enabled = true, name = "second")
+        val smartBuiltin = RuleEntity(id = 3L, enabled = true, name = "smart")
+        val customRules = listOf(firstCustom, secondCustom)
+        val smartRules = listOf(smartBuiltin)
+
+        assertEquals(
+            smartRules,
+            selectRouteRules(RouteRuleMode.SMART, customRules, smartRules),
+        )
+        assertEquals(
+            customRules,
+            selectRouteRules(RouteRuleMode.CUSTOM, customRules, smartRules),
+        )
+        assertTrue(
+            selectRouteRules(RouteRuleMode.DISABLED, customRules, smartRules).isEmpty(),
+        )
+    }
+
+    @Test
+    fun explicitUnavailableNodeStillResolvesToItsOwnOutboundTag() {
+        val mainNode = "main-node-b"
+        val selectedNode = "specified-node-a"
+        val target = resolveRouteRuleOutbound(
+            outboundId = 42L,
+            currentProxyId = 10L,
+            mainProxyTag = mainNode,
+            tagMap = mapOf(42L to selectedNode),
+        )
+
+        assertEquals(selectedNode, target)
+        assertFalse(target == mainNode)
+    }
+
+    @Test
     fun ruleReadAndEditorSaveDoNotInferConditionsFromNamesOrSpecialPackages() {
         val profileManager = sourceFile("src/main/java/io/nekohasekai/sagernet/database/ProfileManager.kt").readText()
         val readMethod = profileManager.substringAfter("suspend fun getRules(): List<RuleEntity>")
@@ -126,6 +162,12 @@ class RouteRuleSemanticsTest {
         assertTrue(editor.contains("ProfileManager.updateRule(candidate)"))
 
         val builder = sourceFile("src/main/java/io/nekohasekai/sagernet/fmt/ConfigBuilder.kt").readText()
+        assertTrue(builder.contains("RouteRuleMode.SMART"))
+        assertTrue(builder.contains("RouteRuleMode.CUSTOM"))
+        assertTrue(builder.contains("forTest -> selectRouteRules("))
+        assertTrue(builder.contains("isSmartRouting -> selectRouteRules("))
+        assertTrue(builder.contains("userRules = SagerDatabase.rulesDao.enabledRules()"))
+        assertFalse(builder.contains("userRules + policyRules"))
         assertTrue(builder.contains("val selectedPackages = rule.packages.toMutableSet()"))
         assertFalse(builder.contains("effectiveGooglePlayRoutePackages"))
         assertTrue(builder.contains("routeMatchKinds("))

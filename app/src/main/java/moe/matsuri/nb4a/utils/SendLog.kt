@@ -6,17 +6,15 @@ import androidx.core.content.FileProvider
 import io.nekohasekai.sagernet.BuildConfig
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
-import io.nekohasekai.sagernet.ktx.Logs
+import io.nekohasekai.sagernet.database.preference.PublicDatabase
 import io.nekohasekai.sagernet.ktx.app
-import io.nekohasekai.sagernet.ktx.use
 import io.nekohasekai.sagernet.utils.CrashHandler
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
 
 object SendLog {
-    // Create full log and send
+    // Create a sanitized full log and send.
     fun sendLog(context: Context, title: String) {
         val safeTitle = if (title.isBlank() || title.contains("NB4A", ignoreCase = true)) {
             title.replace("NB4A", "OWN", ignoreCase = true).ifBlank { "OWN" }
@@ -26,28 +24,23 @@ object SendLog {
         val logFile = File.createTempFile(
             "$safeTitle ",
             ".log",
-            File(app.cacheDir, "log").also { it.mkdirs() })
+            File(app.cacheDir, "log").also { it.mkdirs() },
+        )
 
-        var report = CrashHandler.buildReportHeader()
-
-        report += "Logcat: \n\n"
-
-        logFile.writeText(report)
-
-        try {
-            Runtime.getRuntime().exec(arrayOf("logcat", "-d")).inputStream.use(
-                FileOutputStream(
-                    logFile, true
-                )
-            )
-            logFile.appendText("\n")
-        } catch (e: IOException) {
-            Logs.w(e)
-            logFile.appendText("Export logcat error: " + CrashHandler.formatThrowable(e))
+        val secret = readStoredClashApiSecret()
+        val report = if (secret == null) {
+            "Sensitive settings could not be read safely; diagnostic logs were omitted.\n"
+        } else {
+            val rawContent = buildString {
+                append(CrashHandler.buildReportHeader())
+                append("Logcat: \n\n")
+                append(readLogcat())
+                append("\n\n")
+                append(getNekoLog(0).toString(Charsets.UTF_8))
+            }
+            LogExportSanitizer.sanitize(rawContent, secret)
         }
-
-        logFile.appendText("\n")
-        logFile.appendBytes(getNekoLog(0))
+        logFile.writeText(report)
 
         context.startActivity(
             Intent.createChooser(
@@ -60,6 +53,21 @@ object SendLog {
                     ), context.getString(R.string.abc_shareactionprovider_share_with)
             )
         )
+    }
+
+    private fun readStoredClashApiSecret(): String? = try {
+        // Read without DataStore.clashApiSecret, whose getter creates a new secret when absent.
+        PublicDatabase.kvPairDao["clashApiSecret"]?.string.orEmpty()
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun readLogcat(): String = try {
+        Runtime.getRuntime().exec(arrayOf("logcat", "-d")).inputStream
+            .bufferedReader(Charsets.UTF_8)
+            .use { it.readText() }
+    } catch (e: IOException) {
+        "Export logcat error: ${CrashHandler.formatThrowable(e)}"
     }
 
     // Get log bytes from neko.log

@@ -83,6 +83,7 @@ import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyGroup
 import io.nekohasekai.sagernet.database.SagerDatabase
+import io.nekohasekai.sagernet.route.RouteProbeWarning
 import io.nekohasekai.sagernet.database.preference.OnPreferenceDataStoreChangeListener
 import io.nekohasekai.sagernet.databinding.LayoutProfileListBinding
 import io.nekohasekai.sagernet.databinding.LayoutProgressListBinding
@@ -2620,6 +2621,7 @@ class ConfigurationFragment @JvmOverloads constructor(
 
         val dialogStatus = AtomicInteger(0) // 1: hidden 2: cancelled
         var notification: ConnectionTestNotification? = null
+        @Volatile var routeFailureWarningTargets: Set<Long> = emptySet()
 
         val results: MutableSet<ProxyEntity> = ConcurrentHashMap.newKeySet()
         var proxyN = 0
@@ -2689,6 +2691,14 @@ class ConfigurationFragment @JvmOverloads constructor(
                         ForegroundColorSpan(profileStatusColor),
                         SPAN_EXCLUSIVE_EXCLUSIVE
                     )
+                    if (profile.status in 2..3 && profile.id in routeFailureWarningTargets) {
+                        append("\n")
+                        append(
+                            getString(R.string.route_probe_failed_no_fallback),
+                            ForegroundColorSpan(profileStatusColor),
+                            SPAN_EXCLUSIVE_EXCLUSIVE,
+                        )
+                    }
                     append("\n")
                 }
 
@@ -2697,6 +2707,24 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
+    }
+
+    private fun routeProbeWarningTargets(): Set<Long> {
+        val smartMode = DataStore.smartMode
+        val globalMode = DataStore.globalMode
+        val enabledRules = if (!smartMode && !globalMode) {
+            SagerDatabase.rulesDao.enabledRules()
+        } else {
+            emptyList()
+        }
+        return RouteProbeWarning.targetProfileIds(enabledRules, smartMode, globalMode)
+    }
+
+    private suspend fun showRouteProbeFailureWarning(profile: ProxyEntity) {
+        if (profile.status !in 2..3 || profile.id !in routeProbeWarningTargets()) return
+        onMainDispatcher {
+            if (isAdded) safeSnackbar(R.string.route_probe_failed_no_fallback)
+        }
     }
 
     fun urlTestSingle(profile: ProxyEntity) {
@@ -2725,6 +2753,32 @@ class ConfigurationFragment @JvmOverloads constructor(
             } catch (e: Exception) {
                 Logs.w(e)
             }
+            showRouteProbeFailureWarning(profile)
+        }
+    }
+
+    fun tcpPingSingle(profile: ProxyEntity) {
+        runOnDefaultDispatcher {
+            profile.status = 0
+            ProfileManager.postUpdate(profile, false)
+            try {
+                val result = kotlinx.coroutines.withTimeoutOrNull(DataStore.connectionTestTimeout + 1500L) {
+                    io.nekohasekai.sagernet.bg.proto.TcpPing().doTest(profile)
+                } ?: throw java.util.concurrent.TimeoutException("TCP ping timeout")
+                profile.status = 1
+                profile.ping = result
+                profile.error = null
+            } catch (e: Exception) {
+                profile.status = 3
+                profile.error = e.readableMessage
+            }
+            try {
+                SagerDatabase.proxyDao.updatePingResult(profile.id, profile.status, profile.ping, profile.error)
+                ProfileManager.postUpdate(profile, false)
+            } catch (e: Exception) {
+                Logs.w(e)
+            }
+            showRouteProbeFailureWarning(profile)
         }
     }
 
@@ -2746,6 +2800,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         )
 
         val mainJob = runOnDefaultDispatcher {
+            test.routeFailureWarningTargets = routeProbeWarningTargets()
             val profilesList = if (isAll) {
                 SagerDatabase.proxyDao.getAll().filter { !DataStore.isGroupDisabled(it.groupId) }
             } else {
@@ -2842,6 +2897,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         Logs.d("TcpPingTrace batch=start isAll=$isAll groupId=${group.id} group=${group.name}")
 
         val mainJob = runOnDefaultDispatcher {
+            test.routeFailureWarningTargets = routeProbeWarningTargets()
             val profilesList = if (isAll) {
                 SagerDatabase.proxyDao.getAll().filter { !DataStore.isGroupDisabled(it.groupId) }
             } else {
@@ -4734,6 +4790,9 @@ class ConfigurationFragment @JvmOverloads constructor(
                         }
                         R.id.action_urltest -> {
                             (parentFragment as? ConfigurationFragment)?.urlTestSingle(entity)
+                        }
+                        R.id.action_tcp_ping -> {
+                            (parentFragment as? ConfigurationFragment)?.tcpPingSingle(entity)
                         }
                         R.id.action_edit -> {
                             val pf = parentFragment as? ConfigurationFragment
