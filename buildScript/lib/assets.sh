@@ -23,15 +23,19 @@ get_latest_release() {
   echo "$tag"
 }
 
+download_asset() {
+  curl --retry 5 --retry-all-errors --retry-delay 5 --retry-max-time 90 "$@"
+}
+
 ####
 VERSION_GEOIP=$(get_latest_release "SagerNet/sing-geoip")
 echo VERSION_GEOIP=$VERSION_GEOIP
 if [ -n "$VERSION_GEOIP" ]; then
   echo -n "$VERSION_GEOIP" > geoip.version.txt
-  curl -fLSso geoip.db "https://github.com/SagerNet/sing-geoip/releases/download/$VERSION_GEOIP/geoip.db" || curl -fLSso geoip.db "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db"
+  download_asset -fLSso geoip.db "https://github.com/SagerNet/sing-geoip/releases/download/$VERSION_GEOIP/geoip.db" || download_asset -fLSso geoip.db "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db"
 else
   echo -n "latest" > geoip.version.txt
-  curl -fLSso geoip.db "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db"
+  download_asset -fLSso geoip.db "https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip.db"
 fi
 xz -9 geoip.db
 
@@ -40,9 +44,9 @@ VERSION_GEOSITE=$(get_latest_release "SagerNet/sing-geosite")
 echo VERSION_GEOSITE=$VERSION_GEOSITE
 if [ -n "$VERSION_GEOSITE" ]; then
   echo -n "$VERSION_GEOSITE" > geosite.version.txt
-  curl -fLSso geosite.db "https://github.com/SagerNet/sing-geosite/releases/download/$VERSION_GEOSITE/geosite.db" || curl -fLSso geosite.db "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db"
+  download_asset -fLSso geosite.db "https://github.com/SagerNet/sing-geosite/releases/download/$VERSION_GEOSITE/geosite.db" || download_asset -fLSso geosite.db "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db"
 else
   echo -n "latest" > geosite.version.txt
-  curl -fLSso geosite.db "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db"
+  download_asset -fLSso geosite.db "https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite.db"
 fi
 xz -9 geosite.db
