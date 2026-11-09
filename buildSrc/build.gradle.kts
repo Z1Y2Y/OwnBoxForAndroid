@@ -3,6 +3,15 @@ plugins {
     `kotlin-dsl`
 }
 
+repositories {
+    maven {
+        url = uri("https://repo1.maven.org/maven2")
+        content {
+            includeModule("org.jetbrains.kotlin", "kotlin-compiler-embeddable")
+        }
+    }
+}
+
 apply(from = "../repositories.gradle.kts")
 
 dependencies {
