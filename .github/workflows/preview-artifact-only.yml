@@ -96,7 +96,23 @@ jobs:
           echo "ALIAS_NAME=$ALIAS_NAME" >> local.properties
           echo "ALIAS_PASS=$ALIAS_PASS" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
-          ./run init action gradle
+          init_complete=false
+          for attempt in 1 2 3; do
+            echo "Initializing build assets (attempt $attempt/3)."
+            if ./run init action gradle; then
+              init_complete=true
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 15))
+              echo "Asset initialization failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          if [ "$init_complete" != true ]; then
+            echo "::error::Asset initialization failed after 3 attempts."
+            exit 1
+          fi
           ./gradlew app:testPreviewReleaseUnitTest app:assemblePreviewRelease
 
           APK=$(find app/build/outputs/apk -name '*arm64-v8a*.apk' | head -n 1)
