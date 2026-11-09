@@ -458,6 +458,19 @@ fun buildConfig(
     // 曾强制 ENABLE——测速拨号的协议族选择与真实路径不同，
     // v6 不通的网络里测速假 err（节点实际可用），反之假成功。
     val ipv6Mode = DataStore.ipv6Mode
+    val hasUnderlyingIpv6DefaultRoute = !forTest && runCatching {
+        val network = SagerNet.underlyingNetwork ?: return@runCatching false
+        SagerNet.connectivity.getLinkProperties(network)?.routes?.any { route ->
+            DirectIpv6DnsPolicy.isIpv6DefaultRoute(
+                isIpv6Destination = route.destination.address is java.net.Inet6Address,
+                prefixLength = route.destination.prefixLength,
+            )
+        } == true
+    }.getOrDefault(false)
+    val rejectDirectAaaa = !forTest && DirectIpv6DnsPolicy.shouldRejectDirectAaaa(
+        ipv6Mode = ipv6Mode,
+        hasUnderlyingIpv6DefaultRoute = hasUnderlyingIpv6DefaultRoute,
+    )
 
     fun genDomainStrategy(noAsIs: Boolean): String {
         return when {
@@ -1798,6 +1811,12 @@ fun buildConfig(
             dns.strategy = "prefer_ipv6"
         }
 
+        val directAaaaRejectRules = if (rejectDirectAaaa) {
+            userDNSRuleList.mapNotNull(DirectIpv6DnsPolicy::rejectAaaaRuleForDirectDnsRule)
+        } else {
+            emptyList()
+        }
+
         // dns object user rules
         if (enableDnsRouting) {
             userDNSRuleList.forEach {
@@ -1805,7 +1824,12 @@ fun buildConfig(
                     it.server = null
                     it.action = "reject"
                 }
-                if (!it.checkEmpty()) dns.rules.add(it)
+                if (!it.checkEmpty()) {
+                    dns.rules.add(it)
+                    if (rejectDirectAaaa && it.server == "dns-direct") {
+                        DirectIpv6DnsPolicy.addRejectBeforeDirectDnsRule(dns.rules, it)
+                    }
+                }
             }
         }
 
@@ -1867,6 +1891,10 @@ fun buildConfig(
                 })
             }
 
+            if (!enableDnsRouting && !isSmartRouting && rejectDirectAaaa) {
+                dns.rules.addAll(directAaaaRejectRules)
+            }
+
             // Google Play 商店与核心海外服务防误杀 DNS 专线规则（置于 domesticCoreDomainSuffixes 之前）：
             // 确保 googleapis.cn / gvt1-cn.com 不被国内 .cn 规则误判为直连，由海外远程安全 DNS 解析
             val googlePlayDomains = listOf(
@@ -1895,6 +1923,12 @@ fun buildConfig(
                 domain_suffix = googlePlayDomainSuffixes
                 server = "dns-remote"
             })
+
+            // Without DNS routing, keep Smart Routing's Google Play proxy exceptions ahead of
+            // its direct-only AAAA gate.
+            if (!enableDnsRouting && isSmartRouting && rejectDirectAaaa) {
+                dns.rules.addAll(directAaaaRejectRules)
+            }
 
             // 智能模式下才启用本国核心域名的直连 DNS，普通规则模式仍完全由用户规则决定。
             if (isSmartRouting) {

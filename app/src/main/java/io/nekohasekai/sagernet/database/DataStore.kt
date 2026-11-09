@@ -305,6 +305,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var proxyApps by configurationStore.boolean(Key.PROXY_APPS)
     var bypass by configurationStore.boolean(Key.BYPASS_MODE) { true }
     var individual by configurationStore.string(Key.INDIVIDUAL)
+    var smartAppPolicies by configurationStore.string(Key.SMART_APP_POLICIES) { "" }
     var showDirectSpeed by configurationStore.boolean(Key.SHOW_DIRECT_SPEED) { true }
     var showLandingIp by configurationStore.boolean(Key.SHOW_LANDING_IP) { true }
     var hideLandingIpAddress by configurationStore.boolean("hide_landing_ip_address") { false }

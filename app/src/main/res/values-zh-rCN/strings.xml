@@ -184,6 +184,16 @@
     <string name="invert_selections">反选</string>
     <string name="clear_selections">清空</string>
     <string name="bypass_apps">绕过</string>
+    <string name="smart_app_route_policy_summary">逐应用智能路由覆盖。原有应用列表选择保持不变；新增覆盖仅在智能分流模式生效。共享 Android UID 的应用会同步使用同一策略。</string>
+    <string name="app_route_policy_dialog_title">%1$s 的智能路由</string>
+    <string name="app_route_policy_option_inherit">沿用现有应用列表／自动分类行为</string>
+    <string name="app_route_policy_option_follow">跟随智能域名／IP规则</string>
+    <string name="app_route_policy_option_proxy">所有目标强制代理</string>
+    <string name="app_route_policy_option_direct">所有目标强制直连</string>
+    <string name="app_route_policy_status_inherit">智能模式：沿用原应用选择／自动分类</string>
+    <string name="app_route_policy_status_follow">智能模式：跟随域名／IP规则</string>
+    <string name="app_route_policy_status_proxy">智能模式：强制代理</string>
+    <string name="app_route_policy_status_direct">智能模式：强制直连</string>
     <string name="show_system_apps">显示系统应用</string>
     <string name="auto_connect">自动连接</string>
     <string name="auto_connect_summary">手机启动或更新后代理会自动重新连接</string>

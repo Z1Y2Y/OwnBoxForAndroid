@@ -1104,7 +1104,7 @@ class MainActivity : ThemedActivity(),
                         is RouteFragment -> fragment.updateBottomPadding()
                     }
                 }
-                Key.PROXY_APPS, Key.BYPASS_MODE, Key.INDIVIDUAL -> {
+                Key.PROXY_APPS, Key.BYPASS_MODE, Key.INDIVIDUAL, Key.SMART_APP_POLICIES -> {
                     if (DataStore.serviceState.canStop) {
                         snackbar(getString(R.string.need_reload)).setAction(R.string.apply) {
                             SagerNet.reloadService()

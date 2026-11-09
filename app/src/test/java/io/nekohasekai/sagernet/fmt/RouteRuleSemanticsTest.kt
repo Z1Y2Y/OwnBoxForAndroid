@@ -181,7 +181,19 @@ class RouteRuleSemanticsTest {
         assertTrue(builder.contains("ruleObj.network = rule.network.listByLineOrComma()"))
         assertTrue(builder.contains("resolveRouteRuleOutbound(rule.outbound, proxy.id, mainProxyTag, tagMap)"))
 
+        val smartRules = sourceFile("src/main/java/io/nekohasekai/sagernet/route/SmartRouteRules.kt").readText()
+        assertTrue(
+            smartRules.indexOf("name = \"Smart-Force-Proxy-Apps\"") < smartRules.indexOf("rules.add(googlePlayRule())"),
+        )
+        assertTrue(
+            smartRules.indexOf("name = \"Smart-Force-Direct-Apps\"") < smartRules.indexOf("rules.add(googlePlayRule())"),
+        )
+        assertTrue(builder.indexOf("for (rule in extraRules)") < builder.indexOf("userDNSRuleList.forEach"))
+        assertTrue(builder.indexOf("userDNSRuleList.forEach") < builder.indexOf("val googlePlayDomains"))
+
         val vpnService = sourceFile("src/main/java/io/nekohasekai/sagernet/bg/VpnService.kt").readText()
+        assertTrue(vpnService.contains("DataStore.smartMode && !DataStore.globalMode"))
+        assertTrue(vpnService.contains("PerAppRoutePolicies.adjustVpnSelection("))
         assertFalse(vpnService.contains("individual.contains(\"com.android.vending\")"))
         assertFalse(vpnService.contains("individual.add(\"com.android.providers.downloads\")"))
     }

@@ -322,6 +322,16 @@
     <string name="invert_selections">Invert selections</string>
     <string name="clear_selections">Clear selections</string>
     <string name="bypass_apps">Bypass</string>
+    <string name="smart_app_route_policy_summary">Per-app Smart Routing override. Existing app-list selections are unchanged; overrides apply only in Smart Routing mode. Apps sharing an Android UID use the same policy.</string>
+    <string name="app_route_policy_dialog_title">Smart Routing for %1$s</string>
+    <string name="app_route_policy_option_inherit">Keep existing app-list / automatic behavior</string>
+    <string name="app_route_policy_option_follow">Follow smart domain/IP rules</string>
+    <string name="app_route_policy_option_proxy">Force proxy for all destinations</string>
+    <string name="app_route_policy_option_direct">Force direct for all destinations</string>
+    <string name="app_route_policy_status_inherit">Smart: existing app-list / automatic behavior</string>
+    <string name="app_route_policy_status_follow">Smart: follow domain/IP rules</string>
+    <string name="app_route_policy_status_proxy">Smart: force proxy</string>
+    <string name="app_route_policy_status_direct">Smart: force direct</string>
     <string name="show_system_apps">Show system apps</string>
     <string name="auto_connect">Auto Connect</string>
     <string name="auto_connect_summary">Enable proxy on startup/app update if it was running before</string>

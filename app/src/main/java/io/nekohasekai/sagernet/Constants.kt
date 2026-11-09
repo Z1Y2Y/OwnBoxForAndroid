@@ -40,6 +40,7 @@ object Key {
     const val PROXY_APPS = "proxyApps"
     const val BYPASS_MODE = "bypassMode"
     const val INDIVIDUAL = "individual"
+    const val SMART_APP_POLICIES = "smartAppPolicies"
     const val METERED_NETWORK = "meteredNetwork"
 
     const val TRAFFIC_SNIFFING = "trafficSniffing"

@@ -14,8 +14,11 @@ import java.io.File
  */
 object SmartRouteRules {
 
-    /** 浏览器与通用混合型宿主应用：不在应用层一刀切锁定，放行至下层按访问的目标域名与 IP 动态分流 */
-    val BROWSER_AND_HYBRID_PACKAGES = setOf(
+    /**
+     * Compatibility set from the pre-policy classifier. Keep this set unchanged so upgrades do
+     * not silently change existing apps' default routing; new apps opt in via per-app policy.
+     */
+    private val LEGACY_TARGET_ROUTED_PACKAGES = setOf(
         "com.android.chrome",
         "com.chrome.beta",
         "com.chrome.dev",
@@ -410,6 +413,9 @@ object SmartRouteRules {
                 .filter { it.isNotEmpty() }
                 .toSet()
         }.getOrDefault(emptySet()),
+        appPolicies: Map<String, PerAppRoutePolicy> = runCatching {
+            PerAppRoutePolicies.decode(DataStore.smartAppPolicies)
+        }.getOrDefault(emptyMap()),
     ): Pair<Set<String>, Set<String>> {
         val normCountry = country.trim().lowercase().ifBlank { "cn" }
         val explicitDomestic = domesticExplicitPackages(normCountry)
@@ -424,7 +430,7 @@ object SmartRouteRules {
 
         if (installedPackages.isNotEmpty()) {
             for (pkg in installedPackages) {
-                if (pkg in SYSTEM_EXCLUDED_PACKAGES || pkg in BROWSER_AND_HYBRID_PACKAGES) continue
+                if (pkg in SYSTEM_EXCLUDED_PACKAGES || pkg in LEGACY_TARGET_ROUTED_PACKAGES) continue
 
                 val isExplicitForeign = pkg in CORE_FOREIGN_PACKAGES ||
                     (pkg in foreignCandidatePool && pkg !in explicitDomestic)
@@ -446,14 +452,14 @@ object SmartRouteRules {
 
         // 确保核心常用应用即使在未完成全量包扫描时也有保底覆盖
         for (pkg in CORE_FOREIGN_PACKAGES) {
-            if (pkg !in SYSTEM_EXCLUDED_PACKAGES && pkg !in BROWSER_AND_HYBRID_PACKAGES) {
+            if (pkg !in SYSTEM_EXCLUDED_PACKAGES && pkg !in LEGACY_TARGET_ROUTED_PACKAGES) {
                 if (installedPackages.isEmpty() || pkg in installedPackages) {
                     resolvedForeign.add(pkg)
                 }
             }
         }
         for (pkg in explicitDomestic) {
-            if (pkg !in SYSTEM_EXCLUDED_PACKAGES && pkg !in BROWSER_AND_HYBRID_PACKAGES && pkg !in resolvedForeign) {
+            if (pkg !in SYSTEM_EXCLUDED_PACKAGES && pkg !in LEGACY_TARGET_ROUTED_PACKAGES && pkg !in resolvedForeign) {
                 if (installedPackages.isEmpty() || pkg in installedPackages) {
                     resolvedDomestic.add(pkg)
                 }
@@ -467,18 +473,34 @@ object SmartRouteRules {
                 for (pkg in individualPackages) {
                     if (pkg in SYSTEM_EXCLUDED_PACKAGES) continue
                     resolvedDomestic.remove(pkg)
-                    if (pkg !in BROWSER_AND_HYBRID_PACKAGES) {
-                        resolvedForeign.add(pkg)
-                    }
+                    if (pkg !in LEGACY_TARGET_ROUTED_PACKAGES) resolvedForeign.add(pkg)
                 }
             } else {
                 // 绕过选中应用模式：用户显式勾选绕过的应用从海外代理名单中移除并归入直连
                 for (pkg in individualPackages) {
                     if (pkg in SYSTEM_EXCLUDED_PACKAGES) continue
                     resolvedForeign.remove(pkg)
-                    if (pkg !in BROWSER_AND_HYBRID_PACKAGES) {
-                        resolvedDomestic.add(pkg)
-                    }
+                    if (pkg !in LEGACY_TARGET_ROUTED_PACKAGES) resolvedDomestic.add(pkg)
+                }
+            }
+        }
+
+        // Explicit Smart-mode per-app policies override country classification and legacy
+        // selections. Missing entries leave the stored legacy settings untouched.
+        for ((pkg, policy) in appPolicies) {
+            if (pkg in SYSTEM_EXCLUDED_PACKAGES || (installedPackages.isNotEmpty() && pkg !in installedPackages)) continue
+            when (policy) {
+                PerAppRoutePolicy.FOLLOW_SMART -> {
+                    resolvedDomestic.remove(pkg)
+                    resolvedForeign.remove(pkg)
+                }
+                PerAppRoutePolicy.FORCE_PROXY -> {
+                    resolvedDomestic.remove(pkg)
+                    resolvedForeign.add(pkg)
+                }
+                PerAppRoutePolicy.FORCE_DIRECT -> {
+                    resolvedForeign.remove(pkg)
+                    resolvedDomestic.add(pkg)
                 }
             }
         }
@@ -535,31 +557,63 @@ object SmartRouteRules {
         rawCountry: String,
         catalog: RuleSetCatalog?,
         hasGeositeDb: Boolean,
-        hasGeoipDb: Boolean
+        hasGeoipDb: Boolean,
+        appPolicies: Map<String, PerAppRoutePolicy> = runCatching {
+            PerAppRoutePolicies.decode(DataStore.smartAppPolicies)
+        }.getOrDefault(emptyMap()),
     ): List<RuleEntity> {
         val country = rawCountry.trim().lowercase().ifBlank { "cn" }
         val rules = ArrayList<RuleEntity>()
 
-        // 1. Google Play 商店专线保护（防止被 .cn 等后缀直连规则误伤）
-        rules.add(googlePlayRule())
-
-        // 2. 应用级智能识别：国外软件走代理，本国软件走直连（浏览器与混合应用自动穿透到域名/IP 层）
-        val (domesticApps, foreignApps) = classifyApps(country)
-        if (foreignApps.isNotEmpty()) {
+        // Explicit force policies must precede every destination exception and automatic rule.
+        val (domesticApps, foreignApps) = classifyApps(country, appPolicies = appPolicies)
+        val forceProxyPackages = appPolicies.filterValues { it == PerAppRoutePolicy.FORCE_PROXY }.keys
+            .intersect(foreignApps)
+        val forceDirectPackages = appPolicies.filterValues { it == PerAppRoutePolicy.FORCE_DIRECT }.keys
+            .intersect(domesticApps)
+        if (forceProxyPackages.isNotEmpty()) {
             rules.add(
                 RuleEntity(
-                    name = "Smart-Foreign-Apps",
-                    packages = foreignApps,
+                    name = "Smart-Force-Proxy-Apps",
+                    packages = forceProxyPackages,
                     outbound = 0L,
                     enabled = true
                 )
             )
         }
-        if (domesticApps.isNotEmpty()) {
+        if (forceDirectPackages.isNotEmpty()) {
+            rules.add(
+                RuleEntity(
+                    name = "Smart-Force-Direct-Apps",
+                    packages = forceDirectPackages,
+                    outbound = -1L,
+                    enabled = true
+                )
+            )
+        }
+
+        // Google Play protection remains ahead of automatic country/domain rules, but below
+        // user-selected force-proxy/force-direct app policies.
+        rules.add(googlePlayRule())
+
+        // Automatic app classification; explicit FOLLOW_SMART apps are absent from these sets.
+        val automaticForeignApps = foreignApps - forceProxyPackages
+        val automaticDomesticApps = domesticApps - forceDirectPackages
+        if (automaticForeignApps.isNotEmpty()) {
+            rules.add(
+                RuleEntity(
+                    name = "Smart-Foreign-Apps",
+                    packages = automaticForeignApps,
+                    outbound = 0L,
+                    enabled = true
+                )
+            )
+        }
+        if (automaticDomesticApps.isNotEmpty()) {
             rules.add(
                 RuleEntity(
                     name = "Smart-Domestic-Apps-$country",
-                    packages = domesticApps,
+                    packages = automaticDomesticApps,
                     outbound = -1L,
                     enabled = true
                 )
