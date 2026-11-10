@@ -24,9 +24,9 @@
         android:id="@+id/misc"
         android:checkableBehavior="single">
         <item
-            android:id="@+id/nav_diagnostics"
-            android:icon="@drawable/ic_baseline_health_and_safety_24"
-            android:title="@string/menu_diagnostics" />
+            android:id="@+id/nav_connections"
+            android:icon="@drawable/ic_baseline_link_24"
+            android:title="@string/menu_connections" />
         <item
             android:id="@+id/nav_apps"
             android:icon="@drawable/ic_navigation_apps"
@@ -50,9 +50,9 @@
         android:id="@+id/about"
         android:checkableBehavior="single">
         <item
-            android:id="@+id/nav_connections"
-            android:icon="@drawable/ic_baseline_link_24"
-            android:title="@string/menu_connections" />
+            android:id="@+id/nav_diagnostics"
+            android:icon="@drawable/ic_baseline_health_and_safety_24"
+            android:title="@string/menu_diagnostics" />
         <item
             android:id="@+id/nav_docs"
             android:icon="@drawable/ic_baseline_import_contacts_24"

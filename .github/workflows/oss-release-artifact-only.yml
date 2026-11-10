@@ -139,8 +139,8 @@ jobs:
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_VERSION_NAME="26.11.3.73"
-          EXPECTED_VERSION_CODE=2365
+          EXPECTED_VERSION_NAME="26.11.3.74"
+          EXPECTED_VERSION_CODE=2370
           EXPECTED_ABIS=(arm64-v8a armeabi-v7a x86 x86_64)
           declare -A FOUND_ABIS=()
           APK_COUNT=0
@@ -211,11 +211,11 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBox 26.11.3.73 — Safer selection controls and connection icons'
+            echo '### MyBox 26.11.3.74 — Drawer navigation order'
             echo '- Build type: Release (OSS), not Preview or Debug'
             echo '- Package: com.ownbox.fork'
-            echo '- Version: 26.11.3.73 (versionCode: 2365); no public tag or Release created'
-            echo '- Changelog: moved multi-select confirmation to the top-right; added navigation-bar safe area to backup actions; improved connection app-icon resolution'
+            echo '- Version: 26.11.3.74 (versionCode: 2370); no public tag or Release created'
+            echo '- Changelog: swapped the Connections and Network Diagnostics positions in the navigation drawer; navigation IDs and click behavior are unchanged'
             echo '- ABI coverage: arm64-v8a, armeabi-v7a, x86, x86_64 (all individually verified)'
             echo '- Signing certificate: verified against the established public fingerprint'
             echo '- Unit tests: passed (APK build runs only after tests succeed)'
@@ -223,7 +223,7 @@ jobs:
       - name: Upload verified OSS Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-OSS-Release-26.11.3.73
+          name: MyBox-OSS-Release-26.11.3.74
           path: ${{ env.APK_DIR }}/*
           if-no-files-found: error
           retention-days: 14
