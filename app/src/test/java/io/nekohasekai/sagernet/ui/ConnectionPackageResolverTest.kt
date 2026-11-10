@@ -114,4 +114,28 @@ class ConnectionPackageResolverTest {
             ),
         )
     }
+
+    @Test
+    fun usesExplicitMetadataPackageWhenUidLookupIsUnavailable() {
+        assertEquals(
+            "com.example.app",
+            ConnectionPackageResolver.selectPackage(
+                hints = listOf("—"),
+                packagesForUid = emptyList(),
+                explicitPackageName = "com.example.app",
+            ),
+        )
+    }
+
+    @Test
+    fun mapsAmbiguousCoreSystemUidToAndroidPackage() {
+        assertEquals(
+            "android",
+            ConnectionPackageResolver.selectPackage(
+                hints = listOf("unknown.system.process"),
+                packagesForUid = listOf("android", "com.android.systemui"),
+                connectionUid = 1000,
+            ),
+        )
+    }
 }

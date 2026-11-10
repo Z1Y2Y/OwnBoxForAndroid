@@ -305,9 +305,10 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
         val ownApplicationInfo = context.applicationInfo
         val ownPackageName = ownApplicationInfo.packageName
         val packages = entry.uid?.let { uid ->
-            packagesByUid.getOrPut(uid) {
-                runCatching { packageManager.getPackagesForUid(uid)?.toList().orEmpty() }
-                    .getOrDefault(emptyList())
+            packagesByUid[uid] ?: runCatching {
+                packageManager.getPackagesForUid(uid)?.toList().orEmpty()
+            }.getOrDefault(emptyList()).also { resolved ->
+                if (resolved.isNotEmpty()) packagesByUid[uid] = resolved
             }
         }.orEmpty()
         val hints = listOf(entry.processPath, entry.process, entry.packageName.orEmpty())
@@ -317,9 +318,14 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
                 applicationUid = ownApplicationInfo.uid,
                 packageName = ownPackageName,
                 packagesForUid = packages,
-            )
+        )
         val packageName = if (isOwnApplication) ownPackageName else {
-            ConnectionPackageResolver.selectPackage(hints, packages) ?: return null
+            ConnectionPackageResolver.selectPackage(
+                hints = hints,
+                packagesForUid = packages,
+                explicitPackageName = entry.packageName,
+                connectionUid = entry.uid,
+            ) ?: return null
         }
 
         if (packageName == ownPackageName) {
@@ -334,10 +340,27 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
         }
         val icon = runCatching {
             val applicationInfo = packageManager.getApplicationInfo(packageName, 0)
-            if ((entry.uid != null && applicationInfo.uid != entry.uid) || applicationInfo.icon == 0) null
-            else applicationInfo.loadIcon(packageManager)
+            if (entry.uid != null && applicationInfo.uid != entry.uid) {
+                null
+            } else {
+                val declaredIcon = if (applicationInfo.icon != 0) {
+                    runCatching { applicationInfo.loadIcon(packageManager) }.getOrNull()
+                } else {
+                    null
+                }
+                val launcherIcon = if (declaredIcon == null) {
+                    runCatching {
+                        val component = packageManager.getLaunchIntentForPackage(packageName)?.component
+                            ?: return@runCatching null
+                        packageManager.getActivityInfo(component, 0).loadIcon(packageManager)
+                    }.getOrNull()
+                } else {
+                    null
+                }
+                declaredIcon ?: launcherIcon ?: applicationInfo.loadIcon(packageManager)
+            }
         }.getOrNull()
-        appIconCache[packageName] = icon
+        if (icon != null) appIconCache[packageName] = icon
         return icon?.copyFor(context)
     }
 

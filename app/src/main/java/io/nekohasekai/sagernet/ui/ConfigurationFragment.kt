@@ -1276,6 +1276,17 @@ class ConfigurationFragment @JvmOverloads constructor(
             toolbar.setNavigationOnClickListener {
                 requireActivity().finish()
             }
+            if (multiSelect && activity is ProfileSelectActivity) {
+                toolbar.inflateMenu(R.menu.profile_select)
+                toolbar.setOnMenuItemClickListener { item ->
+                    if (item.itemId == R.id.action_confirm_selection) {
+                        (activity as? ProfileSelectActivity)?.confirmSelection()
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
             adjustToolbarActionButtons()
         }
 

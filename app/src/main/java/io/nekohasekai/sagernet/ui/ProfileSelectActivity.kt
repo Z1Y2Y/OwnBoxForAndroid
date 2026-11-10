@@ -2,15 +2,8 @@ package io.nekohasekai.sagernet.ui
 
 import android.content.Intent
 import android.os.Bundle
-import android.view.View
-import android.view.ViewGroup
-import android.widget.TextView
-import androidx.core.view.isVisible
-import androidx.core.view.updateLayoutParams
-import com.google.android.material.button.MaterialButton
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.ProxyEntity
-import io.nekohasekai.sagernet.ktx.dp2px
 
 class ProfileSelectActivity : ThemedActivity(R.layout.layout_profile_select),
     ConfigurationFragment.SelectCallback {
@@ -34,27 +27,7 @@ class ProfileSelectActivity : ThemedActivity(R.layout.layout_profile_select),
         isMultiSelect = intent.getBooleanExtra(EXTRA_MULTI_SELECT, false)
         val initialSelected = intent.getLongArrayExtra(EXTRA_SELECTED_IDS)
         val excludeIds = intent.getLongArrayExtra(EXTRA_EXCLUDE_IDS)
-
-        if (initialSelected != null) {
-            selectedIds.addAll(initialSelected.toList())
-        }
-
-        val bottomBar = findViewById<View>(R.id.bottom_bar)
-        if (isMultiSelect) {
-            bottomBar?.isVisible = true
-            findViewById<View>(R.id.fragment_holder)?.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                bottomMargin = dp2px(64)
-            }
-            updateBottomBar()
-            findViewById<MaterialButton>(R.id.btn_confirm)?.setOnClickListener {
-                setResult(RESULT_OK, Intent().apply {
-                    putExtra(EXTRA_PROFILE_IDS, selectedIds.toLongArray())
-                })
-                finish()
-            }
-        } else {
-            bottomBar?.isVisible = false
-        }
+        if (initialSelected != null) selectedIds.addAll(initialSelected.toList())
 
         supportFragmentManager.beginTransaction()
             .replace(
@@ -65,18 +38,18 @@ class ProfileSelectActivity : ThemedActivity(R.layout.layout_profile_select),
                     titleRes = if (isMultiSelect) R.string.select_multi_profile else R.string.select_profile,
                     multiSelect = isMultiSelect,
                     initialSelectedIds = initialSelected,
-                    excludedIds = excludeIds
-                )
+                    excludedIds = excludeIds,
+                ),
             )
             .commitAllowingStateLoss()
     }
 
-    private fun updateBottomBar() {
-        val countText = findViewById<TextView>(R.id.selected_count_text)
-        val btnConfirm = findViewById<MaterialButton>(R.id.btn_confirm)
-        val count = selectedIds.size
-        countText?.text = getString(R.string.selected_count, count)
-        btnConfirm?.isEnabled = true
+    fun confirmSelection() {
+        if (!isMultiSelect) return
+        setResult(RESULT_OK, Intent().apply {
+            putExtra(EXTRA_PROFILE_IDS, selectedIds.toLongArray())
+        })
+        finish()
     }
 
     override fun returnProfile(profileId: Long) {
@@ -87,11 +60,6 @@ class ProfileSelectActivity : ThemedActivity(R.layout.layout_profile_select),
     }
 
     override fun onProfileToggled(profileId: Long, isSelected: Boolean, totalSelected: Int) {
-        if (isSelected) {
-            selectedIds.add(profileId)
-        } else {
-            selectedIds.remove(profileId)
-        }
-        updateBottomBar()
+        if (isSelected) selectedIds.add(profileId) else selectedIds.remove(profileId)
     }
 }

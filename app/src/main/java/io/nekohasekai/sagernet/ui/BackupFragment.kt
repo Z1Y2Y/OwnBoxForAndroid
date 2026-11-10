@@ -10,6 +10,7 @@ import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.jakewharton.processphoenix.ProcessPhoenix
@@ -24,6 +25,7 @@ import io.nekohasekai.sagernet.databinding.LayoutBackupBinding
 import io.nekohasekai.sagernet.databinding.LayoutImportBinding
 import io.nekohasekai.sagernet.databinding.LayoutProgressBinding
 import io.nekohasekai.sagernet.ktx.*
+import io.nekohasekai.sagernet.widget.ListListener
 import kotlinx.coroutines.delay
 import moe.matsuri.nb4a.utils.Util
 import org.json.JSONArray
@@ -107,6 +109,7 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
         super.onViewCreated(view, savedInstanceState)
 
         val binding = LayoutBackupBinding.bind(view)
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root, ListListener)
 
         binding.actionExport.setOnClickListener {
             runOnDefaultDispatcher {
