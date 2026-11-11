@@ -2,6 +2,7 @@
 set -e
 
 source "buildScript/init/env.sh"
+PROJECT_ROOT="$PWD"
 ENV_NB4A=1
 
 ####
@@ -49,6 +50,22 @@ if [ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
   exit 1
 fi
 echo ">> Verified official sing-box $SINGBOX_VERSION at $ACTUAL_COMMIT"
+
+# Apply version-scoped MyBox changes only after verifying the clean official tag.
+# Keep the patch in this repository so CI's fresh upstream clone gets the same fix.
+PATCH_DIR="$PROJECT_ROOT/buildScript/lib/core/patches/$SINGBOX_VERSION"
+if [ -d "$PATCH_DIR" ]; then
+  for patch in "$PATCH_DIR"/*.patch; do
+    [ -f "$patch" ] || continue
+    echo ">> Applying MyBox sing-box patch: $(basename "$patch")"
+    git apply --check "$patch"
+    git apply "$patch"
+  done
+
+  if [ -f "$PATCH_DIR/route/resolve_outbound_test.go" ]; then
+    install -D -m 0644 "$PATCH_DIR/route/resolve_outbound_test.go" route/resolve_outbound_test.go
+  fi
+fi
 popd
 
 popd

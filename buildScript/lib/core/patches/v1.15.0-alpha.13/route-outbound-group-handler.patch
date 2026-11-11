@@ -1,0 +1,24 @@
+diff --git a/route/route.go b/route/route.go
+index d5d06e7..4ee5b06 100644
+--- a/route/route.go
++++ b/route/route.go
+@@ -181,6 +181,19 @@ func resolveOutbound(outbound adapter.Outbound, network string) ([]adapter.Outbo
+ 		if !isGroup {
+ 			break
+ 		}
++		// Some groups (such as load balancers) must receive the connection
++		// themselves so they can apply per-destination selection and retry
++		// alternate members when dialing fails. Selector and URLTest groups do
++		// not implement these handlers, so they continue to resolve to a member.
++		if network == N.NetworkTCP {
++			if _, handlesConnection := outbound.(adapter.ConnectionHandler); handlesConnection {
++				break
++			}
++		} else if network == N.NetworkUDP {
++			if _, handlesPacketConnection := outbound.(adapter.PacketConnectionHandler); handlesPacketConnection {
++				break
++			}
++		}
+ 		outbound = group.Selected(network)
+ 		if outbound == nil {
+ 			return nil, E.New(strings.ToUpper(network), " is not supported by outbound: ", group.Tag())
