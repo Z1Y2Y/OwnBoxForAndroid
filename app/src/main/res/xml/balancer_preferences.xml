@@ -33,6 +33,13 @@
             app:key="balancerTargetGroup"
             app:title="@string/balancer_select_group" />
 
+        <SwitchPreference
+            app:defaultValue="false"
+            app:icon="@drawable/ic_baseline_compare_arrows_24"
+            app:key="balancerStickyByApp"
+            app:summary="@string/balancer_sticky_by_app_sum"
+            app:title="@string/balancer_sticky_by_app" />
+
         <io.nekohasekai.sagernet.widget.OutboundPreference
             app:icon="@drawable/ic_hardware_router"
             app:key="balancerFrontProxy"

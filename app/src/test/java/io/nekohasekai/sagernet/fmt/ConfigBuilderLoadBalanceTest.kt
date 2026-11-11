@@ -1,11 +1,15 @@
 package io.nekohasekai.sagernet.fmt
 
+import com.esotericsoftware.kryo.io.ByteBufferInput
+import com.esotericsoftware.kryo.io.ByteBufferOutput
 import io.nekohasekai.sagernet.Key
 import moe.matsuri.nb4a.SingBoxOptions
 import moe.matsuri.nb4a.makeSingBoxRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayOutputStream
 
 class ConfigBuilderLoadBalanceTest {
 
@@ -29,6 +33,63 @@ class ConfigBuilderLoadBalanceTest {
         val lbLeastLoad = buildLoadBalanceOutbound(members, "leastLoad")
         assertEquals("loadbalance", lbLeastLoad.type)
         assertEquals("leastLoad", lbLeastLoad.strategy)
+    }
+
+    @Test
+    fun perAppStickyOptionIsOptInAndSurvivesBeanSerialization() {
+        val defaultConfig = buildLoadBalanceOutbound(listOf("node1", "node2"), "random").asMap()
+        assertFalse(defaultConfig.containsKey("sticky_by_app"))
+
+        val stickyConfig = buildLoadBalanceOutbound(
+            memberTags = listOf("node1", "node2"),
+            strategy = "random",
+            stickyByApp = true
+        ).asMap()
+        assertEquals(true, stickyConfig["sticky_by_app"])
+
+        val bean = io.nekohasekai.sagernet.fmt.internal.BalancerBean().apply {
+            stickyByApp = true
+        }
+        assertTrue(bean.clone().stickyByApp)
+
+        val fixedSingleNode = buildSelectorOutbound("selected-node", listOf("selected-node")).asMap()
+        assertEquals("selector", fixedSingleNode["type"])
+        assertEquals("selected-node", fixedSingleNode["default"])
+        assertEquals(listOf("selected-node"), fixedSingleNode["outbounds"])
+        assertFalse(fixedSingleNode.containsKey("sticky_by_app"))
+    }
+
+    @Test
+    fun legacyBalancerV5ConfigDefaultsPerAppStickyToFalse() {
+        val bytes = ByteArrayOutputStream()
+        val output = ByteBufferOutput(bytes)
+        output.writeInt(5) // legacy version
+        output.writeInt(io.nekohasekai.sagernet.fmt.internal.BalancerBean.TYPE_GROUP)
+        output.writeLong(0L)
+        output.writeString("random")
+        output.writeString("")
+        output.writeInt(300)
+        output.writeInt(0) // proxies
+        output.writeInt(0) // targetGroupIds
+        output.writeInt(50) // tolerance
+        output.writeString("ms")
+        output.writeBoolean(false) // useFrontProxy
+        output.writeBoolean(false) // useLandingProxy
+        output.writeString("") // nameExclude
+        output.writeString("") // nameInclude
+        output.writeLong(-1L) // frontProxy
+        output.writeLong(-1L) // landingProxy
+        output.writeInt(1) // AbstractBean extra fields version
+        output.writeString("legacy")
+        output.writeString("")
+        output.writeString("")
+        output.flush()
+        output.close()
+
+        val restored = io.nekohasekai.sagernet.fmt.internal.BalancerBean()
+        restored.deserializeFromBuffer(ByteBufferInput(bytes.toByteArray()))
+
+        assertFalse(restored.stickyByApp)
     }
 
     @Test

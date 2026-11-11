@@ -474,6 +474,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var balancerTargetGroup by profileCacheStore.stringToLong("balancerTargetGroup") { 0L }
     var balancerTargetGroups by profileCacheStore.string("balancerTargetGroups") { "" }
     var balancerStrategy by profileCacheStore.string("balancerStrategy") { "random" }
+    var balancerStickyByApp by profileCacheStore.boolean("balancerStickyByApp")
     var balancerTestUrl by profileCacheStore.string("balancerTestUrl") { "" }
     var balancerInterval by profileCacheStore.stringToInt("balancerInterval") { 300 }
     var balancerTolerance by profileCacheStore.stringToInt("balancerTolerance") { 300 }

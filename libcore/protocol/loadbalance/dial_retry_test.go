@@ -13,10 +13,11 @@ import (
 )
 
 type dialRetryTestOutbound struct {
-	tag     string
-	err     error
-	conn    net.Conn
-	attempt int
+	tag        string
+	err        error
+	conn       net.Conn
+	packetConn net.PacketConn
+	attempt    int
 }
 
 func (o *dialRetryTestOutbound) Type() string           { return "test" }
@@ -31,7 +32,14 @@ func (o *dialRetryTestOutbound) DialContext(context.Context, string, M.Socksaddr
 	return o.conn, nil
 }
 func (o *dialRetryTestOutbound) ListenPacket(context.Context, M.Socksaddr) (net.PacketConn, error) {
-	return nil, errors.New("not used in dial retry test")
+	o.attempt++
+	if o.err != nil {
+		return nil, o.err
+	}
+	if o.packetConn == nil {
+		return nil, errors.New("not used in dial retry test")
+	}
+	return o.packetConn, nil
 }
 
 func TestConsistentHashDialRetriesAfterUnreachablePrimary(t *testing.T) {

@@ -95,6 +95,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             null, "" -> BalancerBean.STRATEGY_LEAST_PING
             else -> strategy
         }
+        DataStore.balancerStickyByApp = stickyByApp
         DataStore.balancerTestUrl = testUrl
         DataStore.balancerInterval = interval
         DataStore.balancerTolerance = tolerance
@@ -119,6 +120,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         targetGroupIds = ArrayList(gids)
         targetGroupId = gids.firstOrNull() ?: 0L
         strategy = DataStore.balancerStrategy
+        stickyByApp = DataStore.balancerStickyByApp
         testUrl = DataStore.balancerTestUrl
         interval = DataStore.balancerInterval
         tolerance = DataStore.balancerTolerance
@@ -244,6 +246,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         val useLandingProxyPref = findPreference<Preference>("balancerUseLandingProxy")
         val nameExcludePref = findPreference<EditTextPreference>("balancerNameExclude")
         val nameIncludePref = findPreference<EditTextPreference>("balancerNameInclude")
+        val stickyByAppPref = findPreference<Preference>("balancerStickyByApp")
 
         fun updateTypeVisibility(type: Int) {
             val isGroup = type == BalancerBean.TYPE_GROUP
@@ -252,6 +255,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             useLandingProxyPref?.isVisible = isGroup
             nameExcludePref?.isVisible = isGroup
             nameIncludePref?.isVisible = isGroup
+            stickyByAppPref?.isVisible = isGroup
             if (::configurationList.isInitialized) {
                 configurationList.isVisible = !isGroup
             }
@@ -312,6 +316,10 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         }
         updateToleranceSummary()
         updateStrategyVisibility(DataStore.balancerStrategy)
+        stickyByAppPref?.setOnPreferenceChangeListener { _, newValue ->
+            DataStore.balancerStickyByApp = newValue as? Boolean ?: false
+            true
+        }
 
         val strategyPref = findPreference<SimpleMenuPreference>("balancerStrategy")
         strategyPref?.value = DataStore.balancerStrategy

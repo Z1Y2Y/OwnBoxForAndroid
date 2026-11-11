@@ -30,10 +30,12 @@ jobs:
           path: app/libs/libcore.aar
           key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
       - name: Install Golang
-        if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: ^1.25
+      - name: Run load-balance Go unit tests
+        working-directory: libcore
+        run: go test ./protocol/loadbalance
       - name: Native Build
         if: steps.cache.outputs.cache-hit != 'true'
         run: ./run lib core
@@ -139,8 +141,8 @@ jobs:
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_VERSION_NAME="26.11.3.76"
-          EXPECTED_VERSION_CODE=2380
+          EXPECTED_VERSION_NAME="26.11.3.77"
+          EXPECTED_VERSION_CODE=2385
           EXPECTED_ABIS=(arm64-v8a)
           declare -A FOUND_ABIS=()
           APK_COUNT=0
@@ -211,19 +213,20 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBox 26.11.3.76 — Show the actual strategy-group member'
+            echo '### MyBox 26.11.3.77 — Per-app sticky strategy-group members'
             echo '- Build type: Release (OSS), not Preview or Debug'
             echo '- Package: com.ownbox.fork'
-            echo '- Version: 26.11.3.76 (versionCode: 2380); no public tag or Release created'
-            echo '- Changelog: show the successfully dialed member after its strategy-group name; preserve group fallback and never auto-switch a custom rule that explicitly selects one node'
+            echo '- Version: 26.11.3.77 (versionCode: 2385); no public tag or Release created'
+            echo "- Commit: ${GITHUB_SHA}"
+            echo '- Changelog: optional per-app member pinning across domains; retry other members on TCP/UDP dial failure; retain old-config default-off behavior, fixed single-node routing, and actual successful-member display'
             echo '- ABI coverage: exactly one arm64-v8a APK'
             echo '- Signing certificate: verified against the established public fingerprint'
-            echo '- Unit tests: passed (APK build runs only after tests succeed)'
+            echo '- Unit tests: Go load-balance tests and OSS Release Android unit tests passed before APK build'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload verified OSS Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-OSS-Release-26.11.3.76-arm64-v8a
-          path: ${{ env.APK_DIR }}/MyBox-26.11.3.76-arm64-v8a.apk
+          name: MyBox-OSS-Release-26.11.3.77-arm64-v8a
+          path: ${{ env.APK_DIR }}/MyBox-26.11.3.77-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14

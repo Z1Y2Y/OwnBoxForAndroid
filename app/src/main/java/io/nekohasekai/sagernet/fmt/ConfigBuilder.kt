@@ -143,7 +143,8 @@ internal fun buildLoadBalanceOutbound(
     toleranceMs: Int? = null,
     idleTimeoutStr: String? = null,
     interruptExist: Boolean? = null,
-    customTag: String? = null
+    customTag: String? = null,
+    stickyByApp: Boolean = false
 ) =
     Outbound_SelectorOptions().apply {
         type = "loadbalance"
@@ -159,6 +160,7 @@ internal fun buildLoadBalanceOutbound(
         tolerance = toleranceMs?.takeIf { it >= 0 } ?: 50
         idle_timeout = idleTimeoutStr?.takeIf { it.isNotBlank() } ?: "${iv}s"
         interrupt_exist_connections = interruptExist ?: false
+        if (stickyByApp) _hack_config_map["sticky_by_app"] = true
     }
 
 internal fun buildUrlTestOutbound(
@@ -964,7 +966,8 @@ fun buildConfig(
                         toleranceMs = toleranceMs,
                         idleTimeoutStr = "${iv}s",
                         interruptExist = false,
-                        customTag = balancerTag
+                        customTag = balancerTag,
+                        stickyByApp = balancerBean.balancerType == BalancerBean.TYPE_GROUP && balancerBean.stickyByApp
                     )
                 }
 

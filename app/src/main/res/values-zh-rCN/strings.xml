@@ -982,6 +982,8 @@
     <string name="balancer_strategy_failover">故障转移 (failover)</string>
     <string name="balancer_strategy_stable">最稳定 (stable)</string>
     <string name="balancer_strategy_consistent_hash">一致性哈希 (consistentHash)</string>
+    <string name="balancer_sticky_by_app">同一应用固定使用成功成员</string>
+    <string name="balancer_sticky_by_app_sum">同一应用跨域名优先使用最近成功建立连接的成员；拨号失败时尝试其他成员。连接成功后的播放或应用层错误无法触发重试。</string>
     <string name="balancer_custom_url">自定义测速 URL</string>
     <string name="balancer_custom_url_sum">策略组单独使用的连通性测速地址（留空使用全局默认）</string>
     <string name="balancer_interval">探测间隔 (秒)</string>

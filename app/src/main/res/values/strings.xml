@@ -1078,6 +1078,8 @@
     <string name="balancer_strategy_failover">Failover (failover)</string>
     <string name="balancer_strategy_stable">Most Stable (stable)</string>
     <string name="balancer_strategy_consistent_hash">Consistent Hash (consistentHash)</string>
+    <string name="balancer_sticky_by_app">Keep one member per app</string>
+    <string name="balancer_sticky_by_app_sum">Reuse this app’s last successfully connected member across domains; try other members if dialing fails. Errors after a connection is established cannot trigger a retry.</string>
     <string name="balancer_custom_url">Custom Test URL</string>
     <string name="balancer_custom_url_sum">Custom probe URL for this Strategy Group (leave blank to use global default)</string>
     <string name="balancer_interval">Probe Interval (s)</string>

@@ -40,8 +40,9 @@ const TypeLoadBalance = "loadbalance"
 
 type LoadBalanceOptions struct {
 	option.URLTestOutboundOptions
-	Strategy string `json:"strategy,omitempty"`
-	Default  string `json:"default,omitempty"`
+	Strategy    string `json:"strategy,omitempty"`
+	Default     string `json:"default,omitempty"`
+	StickyByApp bool   `json:"sticky_by_app,omitempty"`
 }
 
 func RegisterLoadBalance(registry *outbound.Registry) {
@@ -193,6 +194,7 @@ type LoadBalance struct {
 	logger                       log.ContextLogger
 	tags                         []string
 	strategy                     string
+	stickyByApp                  bool
 	link                         string
 	interval                     time.Duration
 	tolerance                    uint16
@@ -238,6 +240,7 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		logger:                       logger,
 		tags:                         options.Outbounds,
 		strategy:                     options.Strategy,
+		stickyByApp:                  options.StickyByApp,
 		link:                         link,
 		interval:                     interval,
 		tolerance:                    options.Tolerance,
@@ -449,7 +452,42 @@ type stickyEntry struct {
 }
 
 func (s *LoadBalance) isStickyEnabled() bool {
-	return s.strategy == "consistent_hash" || s.strategy == "consistentHash"
+	return s.stickyByApp || s.strategy == "consistent_hash" || s.strategy == "consistentHash"
+}
+
+func appStickyKey(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	inbound := adapter.ContextFrom(ctx)
+	if inbound == nil || inbound.ProcessInfo == nil || len(inbound.ProcessInfo.PackageNames) == 0 {
+		return ""
+	}
+	packageNames := make([]string, 0, len(inbound.ProcessInfo.PackageNames))
+	for _, packageName := range inbound.ProcessInfo.PackageNames {
+		packageName = strings.ToLower(strings.TrimSpace(packageName))
+		if packageName != "" {
+			packageNames = append(packageNames, packageName)
+		}
+	}
+	if len(packageNames) == 0 {
+		return ""
+	}
+	slices.Sort(packageNames)
+	packageNames = slices.Compact(packageNames)
+	return "app:" + strings.Join(packageNames, ",")
+}
+
+func (s *LoadBalance) stickySessionKey(ctx context.Context, dest M.Socksaddr) string {
+	if s.stickyByApp {
+		if key := appStickyKey(ctx); key != "" {
+			return key
+		}
+	}
+	if s.strategy == "consistent_hash" || s.strategy == "consistentHash" {
+		return destinationKey(ctx, dest)
+	}
+	return ""
 }
 
 func destinationKey(ctx context.Context, dest M.Socksaddr) string {
@@ -823,9 +861,9 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 	}
 
 	if s.isStickyEnabled() {
-		destKey := destinationKey(ctx, dest)
-		if destKey != "" && len(result) > 1 {
-			if stickyIdx, ok := s.getStickySession(destKey, now); ok {
+		stickyKey := s.stickySessionKey(ctx, dest)
+		if stickyKey != "" && len(result) > 1 {
+			if stickyIdx, ok := s.getStickySession(stickyKey, now); ok {
 				for i, idx := range result {
 					if idx == stickyIdx && !s.isNodeDegraded(idx, now) {
 						if i > 0 {
@@ -928,9 +966,9 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 				s.stats[idx].recordDialSuccess()
 			}
 			if s.isStickyEnabled() {
-				destKey := destinationKey(ctx, destination)
-				if destKey != "" {
-					s.setStickySession(destKey, idx)
+				stickyKey := s.stickySessionKey(ctx, destination)
+				if stickyKey != "" {
+					s.setStickySession(stickyKey, idx)
 				}
 			}
 			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {
@@ -1042,9 +1080,9 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 				s.stats[idx].recordDialSuccess()
 			}
 			if s.isStickyEnabled() {
-				destKey := destinationKey(ctx, destination)
-				if destKey != "" {
-					s.setStickySession(destKey, idx)
+				stickyKey := s.stickySessionKey(ctx, destination)
+				if stickyKey != "" {
+					s.setStickySession(stickyKey, idx)
 				}
 			}
 			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {

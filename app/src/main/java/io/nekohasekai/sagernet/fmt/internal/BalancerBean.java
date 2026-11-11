@@ -45,6 +45,8 @@ public class BalancerBean extends InternalBean {
     // v5 fields
     public long frontProxy = -1L;
     public long landingProxy = -1L;
+    // v6 fields
+    public boolean stickyByApp = false;
 
     public long calculateToleranceMs() {
         long value = tolerance;
@@ -140,7 +142,7 @@ public class BalancerBean extends InternalBean {
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(5); // version
+        output.writeInt(6); // version
         output.writeInt(balancerType);
         output.writeLong(targetGroupId);
         output.writeString(strategy);
@@ -169,6 +171,8 @@ public class BalancerBean extends InternalBean {
         // v5 fields
         output.writeLong(frontProxy);
         output.writeLong(landingProxy);
+        // v6 fields
+        output.writeBoolean(stickyByApp);
     }
 
     @Override
@@ -223,6 +227,12 @@ public class BalancerBean extends InternalBean {
             } else {
                 frontProxy = -1L;
                 landingProxy = -1L;
+            }
+
+            if (version >= 6) {
+                stickyByApp = input.readBoolean();
+            } else {
+                stickyByApp = false;
             }
         }
     }
