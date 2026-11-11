@@ -33,9 +33,22 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ^1.25
+      - name: Prepare sing-box test source
+        run: bash buildScript/lib/core/get_source.sh
       - name: Run load-balance Go unit tests
         working-directory: libcore
-        run: go test ./protocol/loadbalance
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if go mod tidy; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+          go test ./protocol/loadbalance
       - name: Native Build
         if: steps.cache.outputs.cache-hit != 'true'
         run: ./run lib core
