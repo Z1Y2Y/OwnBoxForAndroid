@@ -255,7 +255,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             useLandingProxyPref?.isVisible = isGroup
             nameExcludePref?.isVisible = isGroup
             nameIncludePref?.isVisible = isGroup
-            stickyByAppPref?.isVisible = isGroup
+            stickyByAppPref?.isVisible = true
             if (::configurationList.isInitialized) {
                 configurationList.isVisible = !isGroup
             }

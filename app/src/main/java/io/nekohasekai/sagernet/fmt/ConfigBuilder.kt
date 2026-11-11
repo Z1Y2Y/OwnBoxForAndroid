@@ -910,39 +910,7 @@ fun buildConfig(
                     tagMap[front.id] ?: buildChain(front.id, front).also { tagMap[front.id] = it }
                 }
 
-                val memberEntities = (if (balancerBean.balancerType == BalancerBean.TYPE_GROUP) {
-                    val targetGids = when {
-                        balancerBean.targetGroupIds.isNotEmpty() -> balancerBean.targetGroupIds
-                        balancerBean.targetGroupId > 0L -> listOf(balancerBean.targetGroupId)
-                        else -> emptyList()
-                    }
-                    var list = targetGids.flatMap { gid ->
-                        SagerDatabase.proxyDao.getByGroup(gid)
-                    }.distinctBy { it.id }
-
-                    if (!balancerBean.nameInclude.isNullOrBlank()) {
-                        val regex = runCatching { Regex(balancerBean.nameInclude) }.getOrNull()
-                        if (regex != null) {
-                            list = list.filter { regex.containsMatchIn(it.displayName()) }
-                        }
-                    }
-                    if (!balancerBean.nameExclude.isNullOrBlank()) {
-                        val regex = runCatching { Regex(balancerBean.nameExclude) }.getOrNull()
-                        if (regex != null) {
-                            list = list.filterNot { regex.containsMatchIn(it.displayName()) }
-                        }
-                    }
-                    list
-                } else {
-                    val rawEntities = SagerDatabase.proxyDao.getEntities(balancerBean.proxies).associateBy { it.id }
-                    balancerBean.proxies.mapNotNull { rawEntities[it] }
-                }).filter {
-                    it.id != entity.id &&
-                    it.id != (balancerFrontEntity?.id ?: 0L) &&
-                    it.id != (balancerLandingEntity?.id ?: 0L) &&
-                    it.type != ProxyEntity.TYPE_BALANCER &&
-                    !DataStore.isGroupDisabled(it.groupId)
-                }
+                val memberEntities = BalancerMemberResolver.load(entity, balancerBean)
 
                 val useFront = if (balancerBean.balancerType == BalancerBean.TYPE_GROUP) balancerBean.useFrontProxy else true
                 val useLanding = if (balancerBean.balancerType == BalancerBean.TYPE_GROUP) balancerBean.useLandingProxy else true
@@ -968,7 +936,7 @@ fun buildConfig(
 
                 val balancerTag = readableTag(entity.displayName())
 
-                val stickyByApp = balancerBean.balancerType == BalancerBean.TYPE_GROUP && balancerBean.stickyByApp
+                val stickyByApp = shouldEnableStickyByApp(balancerBean)
                 val balancerOutbound: SingBoxOption = if (balancerBean.strategy == "leastPing") {
                     val iv = balancerBean.interval.toLong().coerceAtLeast(10L)
                     val toleranceMs = balancerBean.calculateToleranceMs().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()

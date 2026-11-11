@@ -766,8 +766,9 @@
     <string name="wireguard_listen_port">监听端口</string>
     <string name="wireguard_persistent_keepalive">持久保活间隔</string>
     <string name="connection_test_url_test">URL 测试本组</string>
+    <string name="connection_test_url_single">URL测试</string>
     <string name="connection_test_tcp_ping">TCP Ping 测试本组</string>
-    <string name="connection_test_tcp_ping_single">TCP Ping 测试此节点</string>
+    <string name="connection_test_tcp_ping_single">TCP测试</string>
     <string name="route_probe_failed_no_fallback">测试失败不会修改规则或替换节点；匹配流量仍会尝试此节点，不会自动回退到主节点。</string>
     <string name="action_auto_lowest_latency">自动优选最低延迟节点 (URL-Test)</string>
     <string name="route_preset_title">分流规则一键预设</string>
@@ -825,7 +826,7 @@
     <string name="custom_icon_error_security">安全校验失败：%s</string>
     <string name="custom_icon_requirement_tip">图标包须为 ZIP 压缩包，内含 512x512 的 icon.png 与 tile.png。</string>
     <string name="more">更多</string>
-    <string name="action_test_profile_speed">测试当前节点速度</string>
+    <string name="action_test_profile_speed">速度测试</string>
     <string name="action_qr_code">二维码</string>
     <string name="action_export_clipboard_menu">导出剪贴板</string>
     <string name="format_snlink_upper">SNLINK</string>

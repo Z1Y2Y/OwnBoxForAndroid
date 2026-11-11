@@ -10,6 +10,7 @@ import io.nekohasekai.sagernet.bg.SagerConnection
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.fmt.TAG_BYPASS
+import io.nekohasekai.sagernet.fmt.TAG_DIRECT
 import io.nekohasekai.sagernet.fmt.TAG_PROXY
 import io.nekohasekai.sagernet.ktx.Logs
 import kotlinx.coroutines.*
@@ -201,6 +202,7 @@ class TrafficLooper
         if (baseDelayMs == 0L) return
 
         // for display
+        val itemDirect = TrafficUpdater.TrafficLooperData(tag = TAG_DIRECT)
         val itemBypass = TrafficUpdater.TrafficLooperData(tag = TAG_BYPASS)
         var idleSeconds = 0
         var lastDelayMs = 3000L
@@ -226,8 +228,9 @@ class TrafficLooper
                     idMap.clear()
                     tagMap.clear()
                     idMap[-1] = itemBypass
+                    idMap[-2] = itemDirect
                     //
-                    val tags = hashSetOf(TAG_PROXY, TAG_BYPASS)
+                    val tags = hashSetOf(TAG_PROXY, TAG_DIRECT, TAG_BYPASS)
                     currentConfig.trafficMap.forEach { (tag, ents) ->
                         tags.add(tag)
                         for (ent in ents) {
@@ -261,52 +264,20 @@ class TrafficLooper
                 trafficUpdater!!.updateAll()
                 currentCoroutineContext().ensureActive()
 
-                // Accumulate member traffic into Balancer entity
-                balancerMemberMap.forEach { (balancerId, memberIds) ->
-                    val balancerItem = idMap[balancerId] ?: return@forEach
-                    val members = memberIds.filter { it != balancerId }.mapNotNull { idMap[it] }
-                    if (members.isNotEmpty()) {
-                        var sumTxRate = 0L
-                        var sumRxRate = 0L
-                        var sumTxDelta = 0L
-                        var sumRxDelta = 0L
-                        var hasDelta = false
-                        for (m in members) {
-                            if (m === balancerItem) continue
-                            sumTxRate += m.txRate
-                            sumRxRate += m.rxRate
-                            sumTxDelta += (m.tx - m.txBase)
-                            sumRxDelta += (m.rx - m.rxBase)
-                            if (m.hasTrafficDelta) hasDelta = true
-                        }
-                        if (sumTxRate > 0L || sumRxRate > 0L || sumTxDelta > 0L || sumRxDelta > 0L) {
-                            balancerItem.txRate = sumTxRate
-                            balancerItem.rxRate = sumRxRate
-                            balancerItem.tx = balancerItem.txBase + sumTxDelta
-                            balancerItem.rx = balancerItem.rxBase + sumRxDelta
-                            if (hasDelta) {
-                                balancerItem.hasTrafficDelta = true
-                            }
-                        } else if (balancerItem.tag == TAG_PROXY || balancerId == selectorNowId) {
-                            // Active Balancer proxy: keep real rates queried from TAG_PROXY
-                        }
-                    }
-                }
-
                 // add all non-bypass to "main"
-                var mainTxRate = 0L
-                var mainRxRate = 0L
                 var mainTx = 0L
                 var mainRx = 0L
                 val balancerMemberIds = balancerMemberMap.entries.flatMap { (bId, mIds) ->
                     mIds.filter { it != bId }
                 }.toSet()
+                val proxyRates = TrafficRateAggregator.proxyRates(
+                    itemsById = idMap,
+                    balancerMemberIds = balancerMemberIds,
+                    mainEntityId = currentConfig.mainEntId,
+                )
+                val directRates = TrafficRateAggregator.directRates(itemDirect, itemBypass, showDirectSpeed)
                 idMap.forEach { (id, it) ->
-                    if (id > 0L && id !in balancerMemberIds) {
-                        if (!it.ignore) {
-                            mainTxRate += it.txRate
-                            mainRxRate += it.rxRate
-                        }
+                    if (id > 0L && (id == currentConfig.mainEntId || id !in balancerMemberIds)) {
                         mainTx += it.tx - it.txBase
                         mainRx += it.rx - it.rxBase
                     }
@@ -322,10 +293,10 @@ class TrafficLooper
                 }
                 val loopSnapshot = LoopSnapshot(
                     speed = SpeedDisplayData(
-                        mainTxRate,
-                        mainRxRate,
-                        if (showDirectSpeed) itemBypass.txRate else 0L,
-                        if (showDirectSpeed) itemBypass.rxRate else 0L,
+                        proxyRates.first,
+                        proxyRates.second,
+                        directRates.first,
+                        directRates.second,
                         mainTx,
                         mainRx
                     ),

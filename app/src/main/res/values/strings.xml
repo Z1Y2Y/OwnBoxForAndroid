@@ -497,8 +497,9 @@
     <string name="connection_test">Connection test</string>
     <string name="connection_test_clear_results">Clear test results</string>
     <string name="connection_test_url_test">URL test this group</string>
+    <string name="connection_test_url_single">URL test</string>
     <string name="connection_test_tcp_ping">TCP Ping this group</string>
-    <string name="connection_test_tcp_ping_single">TCP Ping this node</string>
+    <string name="connection_test_tcp_ping_single">TCP test</string>
     <string name="route_probe_failed_no_fallback">A failed test does not change the rule or replace this node; matching traffic will still try this node and will not fall back to the main node.</string>
     <string name="action_auto_lowest_latency">Auto-select lowest latency (URL-Test)</string>
     <string name="route_preset_title">Routing rule presets</string>
@@ -921,7 +922,7 @@
     <string name="custom_icon_error_security">Security verification failed: %s</string>
     <string name="custom_icon_requirement_tip">Icon pack must be a ZIP archive containing 512x512 icon.png and tile.png.</string>
     <string name="more">More</string>
-    <string name="action_test_profile_speed">Test Node Speed</string>
+    <string name="action_test_profile_speed">Speed test</string>
     <string name="action_qr_code">QR Code</string>
     <string name="action_export_clipboard_menu">Export to Clipboard</string>
     <string name="format_snlink_upper">SNLINK</string>

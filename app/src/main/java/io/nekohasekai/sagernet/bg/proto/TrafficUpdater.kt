@@ -1,9 +1,14 @@
 package io.nekohasekai.sagernet.bg.proto
 
-class TrafficUpdater(
-    private val box: libcore.BoxInstance,
-    val items: List<TrafficLooperData>, // contain "bypass"
+class TrafficUpdater internal constructor(
+    private val queryStats: (String, String) -> Long,
+    val items: List<TrafficLooperData>, // includes direct and bypass
 ) {
+
+    constructor(box: libcore.BoxInstance, items: List<TrafficLooperData>) : this(
+        queryStats = { tag, direction -> box.queryStats(tag, direction) },
+        items = items,
+    )
 
     class TrafficLooperData(
         // Don't associate proxyEntity
@@ -31,8 +36,8 @@ class TrafficUpdater(
         }
 
         // query
-        val tx = box.queryStats(item.tag, "uplink")
-        val rx = box.queryStats(item.tag, "downlink")
+        val tx = queryStats(item.tag, "uplink")
+        val rx = queryStats(item.tag, "downlink")
 
         // add diff
         item.rx += rx

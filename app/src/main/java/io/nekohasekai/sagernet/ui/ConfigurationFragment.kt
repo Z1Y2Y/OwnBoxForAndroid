@@ -88,6 +88,7 @@ import io.nekohasekai.sagernet.database.preference.OnPreferenceDataStoreChangeLi
 import io.nekohasekai.sagernet.databinding.LayoutProfileListBinding
 import io.nekohasekai.sagernet.databinding.LayoutProgressListBinding
 import io.nekohasekai.sagernet.fmt.AbstractBean
+import io.nekohasekai.sagernet.fmt.BalancerMemberResolver
 import io.nekohasekai.sagernet.fmt.internal.BalancerBean
 import io.nekohasekai.sagernet.fmt.toUniversalLink
 import io.nekohasekai.sagernet.group.GroupUpdater
@@ -138,7 +139,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -2738,19 +2742,85 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
     }
 
+    private suspend fun testBalancerMembers(
+        profile: ProxyEntity,
+        bean: BalancerBean,
+        timeoutMillis: Long,
+        probe: suspend (ProxyEntity) -> Int,
+    ): BalancerMemberResolver.ProbeSummary {
+        val members = BalancerMemberResolver.load(profile, bean)
+        val semaphore = Semaphore(DataStore.connectionTestConcurrent.coerceAtLeast(1))
+        val outcomes = coroutineScope {
+            members.map { member ->
+                async(Dispatchers.IO) {
+                    semaphore.withPermit {
+                        member.status = 0
+                        member.error = null
+                        ProfileManager.postUpdate(member, false)
+                        val outcome = try {
+                            val ping = kotlinx.coroutines.withTimeoutOrNull(timeoutMillis) {
+                                probe(member)
+                            } ?: throw java.util.concurrent.TimeoutException("Strategy member test timeout")
+                            if (ping <= 0) throw IllegalStateException("Invalid test latency: $ping")
+                            member.status = 1
+                            member.ping = ping
+                            member.error = null
+                            BalancerMemberResolver.ProbeOutcome(status = 1, ping = ping)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: PluginManager.PluginNotFoundException) {
+                            member.status = 2
+                            member.error = e.readableMessage
+                            BalancerMemberResolver.ProbeOutcome(status = 2, error = member.error)
+                        } catch (e: Exception) {
+                            member.status = 3
+                            member.error = e.readableMessage
+                            BalancerMemberResolver.ProbeOutcome(status = 3, error = member.error)
+                        }
+                        runCatching {
+                            SagerDatabase.proxyDao.updatePingResult(
+                                member.id, member.status, member.ping, member.error
+                            )
+                            ProfileManager.postUpdate(member, false)
+                        }.onFailure { Logs.w(it) }
+                        outcome
+                    }
+                }
+            }.awaitAll()
+        }
+        return BalancerMemberResolver.summarize(outcomes)
+    }
+
     fun urlTestSingle(profile: ProxyEntity) {
-        val targetUrl = DataStore.groupUrlTestUrl(profile.groupId).takeIf { it.isNotBlank() } ?: DataStore.connectionTestURL
+        val balancerBean = if (profile.type == ProxyEntity.TYPE_BALANCER) {
+            profile.balancerBean ?: runCatching { profile.requireBean() as? BalancerBean }.getOrNull()
+        } else null
+        val targetUrl = balancerBean?.testUrl?.trim()?.takeIf { it.isNotBlank() }
+            ?: DataStore.groupUrlTestUrl(profile.groupId).trim().takeIf { it.isNotBlank() }
+            ?: DataStore.connectionTestURL
         runOnDefaultDispatcher {
             profile.status = 0
             ProfileManager.postUpdate(profile, false)
             try {
-                val urlTest = UrlTest(targetUrl)
-                val result = kotlinx.coroutines.withTimeoutOrNull(DataStore.connectionTestTimeout * 2 + 2500L) {
-                    urlTest.doTest(profile)
-                } ?: throw java.util.concurrent.TimeoutException("URL test timeout")
-                profile.status = 1
-                profile.ping = result
-                profile.error = null
+                if (profile.type == ProxyEntity.TYPE_BALANCER) {
+                    val bean = balancerBean ?: error("Invalid strategy group")
+                    val result = testBalancerMembers(
+                        profile,
+                        bean,
+                        DataStore.connectionTestTimeout * 2L + 2500L,
+                    ) { member -> UrlTest(targetUrl).doTest(member) }
+                    profile.status = result.status
+                    result.ping?.let { profile.ping = it }
+                    profile.error = result.error
+                } else {
+                    val urlTest = UrlTest(targetUrl)
+                    val result = kotlinx.coroutines.withTimeoutOrNull(DataStore.connectionTestTimeout * 2 + 2500L) {
+                        urlTest.doTest(profile)
+                    } ?: throw java.util.concurrent.TimeoutException("URL test timeout")
+                    profile.status = 1
+                    profile.ping = result
+                    profile.error = null
+                }
             } catch (e: PluginManager.PluginNotFoundException) {
                 profile.status = 2
                 profile.error = e.readableMessage
@@ -2769,16 +2839,31 @@ class ConfigurationFragment @JvmOverloads constructor(
     }
 
     fun tcpPingSingle(profile: ProxyEntity) {
+        val balancerBean = if (profile.type == ProxyEntity.TYPE_BALANCER) {
+            profile.balancerBean ?: runCatching { profile.requireBean() as? BalancerBean }.getOrNull()
+        } else null
         runOnDefaultDispatcher {
             profile.status = 0
             ProfileManager.postUpdate(profile, false)
             try {
-                val result = kotlinx.coroutines.withTimeoutOrNull(DataStore.connectionTestTimeout + 1500L) {
-                    io.nekohasekai.sagernet.bg.proto.TcpPing().doTest(profile)
-                } ?: throw java.util.concurrent.TimeoutException("TCP ping timeout")
-                profile.status = 1
-                profile.ping = result
-                profile.error = null
+                if (profile.type == ProxyEntity.TYPE_BALANCER) {
+                    val bean = balancerBean ?: error("Invalid strategy group")
+                    val result = testBalancerMembers(
+                        profile,
+                        bean,
+                        DataStore.connectionTestTimeout + 1500L,
+                    ) { member -> io.nekohasekai.sagernet.bg.proto.TcpPing().doTest(member) }
+                    profile.status = result.status
+                    result.ping?.let { profile.ping = it }
+                    profile.error = result.error
+                } else {
+                    val result = kotlinx.coroutines.withTimeoutOrNull(DataStore.connectionTestTimeout + 1500L) {
+                        io.nekohasekai.sagernet.bg.proto.TcpPing().doTest(profile)
+                    } ?: throw java.util.concurrent.TimeoutException("TCP ping timeout")
+                    profile.status = 1
+                    profile.ping = result
+                    profile.error = null
+                }
             } catch (e: Exception) {
                 profile.status = 3
                 profile.error = e.readableMessage
@@ -4246,7 +4331,26 @@ class ConfigurationFragment @JvmOverloads constructor(
 
                 if (DataStore.hideUnavailableProfiles) {
                     val selectedProxy = selectedItem?.id ?: DataStore.selectedProxy
-                    val available = newProfiles.filter { it.status == 0 || it.status == 1 || it.id == selectedProxy }
+                    val balancerCandidates by lazy(LazyThreadSafetyMode.NONE) {
+                        SagerDatabase.proxyDao.getAll()
+                    }
+                    val available = newProfiles.filter { profile ->
+                        if (profile.id == selectedProxy || profile.status == 0 || profile.status == 1) {
+                            true
+                        } else if (profile.type == ProxyEntity.TYPE_BALANCER) {
+                            val bean = profile.balancerBean
+                                ?: runCatching { profile.requireBean() as? BalancerBean }.getOrNull()
+                            bean?.let {
+                                BalancerMemberResolver.hasAvailableMember(
+                                    BalancerMemberResolver.select(profile.id, it, balancerCandidates) {
+                                        DataStore.isGroupDisabled(it)
+                                    }
+                                )
+                            } == true
+                        } else {
+                            false
+                        }
+                    }
                     // 兜底策略：若某个分组内所有节点均测试不通，需有合理的空状态或全部展示兜底逻辑，避免列表直接变成空白界面。
                     if (available.isNotEmpty()) {
                         newProfiles = available
