@@ -93,6 +93,47 @@ class ConfigBuilderLoadBalanceTest {
     }
 
     @Test
+    fun leastPingKeepsLegacyUrlTestUnlessPerAppStickyIsEnabled() {
+        val members = listOf("node1", "node2")
+        val url = "https://www.gstatic.com/generate_204"
+
+        val legacy = buildLeastPingBalancerOutbound(
+            memberTags = members,
+            testUrl = url,
+            intervalSec = 120,
+            toleranceMs = 75,
+            customTag = "least-ping",
+            stickyByApp = false
+        ).asMap()
+        assertEquals("urltest", legacy["type"])
+        assertEquals("least-ping", legacy["tag"])
+        assertEquals(members, legacy["outbounds"])
+        assertEquals(url, legacy["url"])
+        assertEquals("120s", legacy["interval"])
+        assertEquals(75L, legacy["tolerance"])
+        assertEquals("30m", legacy["idle_timeout"])
+        assertFalse(legacy.containsKey("sticky_by_app"))
+
+        val sticky = buildLeastPingBalancerOutbound(
+            memberTags = members,
+            testUrl = url,
+            intervalSec = 120,
+            toleranceMs = 75,
+            customTag = "least-ping",
+            stickyByApp = true
+        ).asMap()
+        assertEquals("loadbalance", sticky["type"])
+        assertEquals("leastPing", sticky["strategy"])
+        assertEquals("least-ping", sticky["tag"])
+        assertEquals(members, sticky["outbounds"])
+        assertEquals(url, sticky["url"])
+        assertEquals("120s", sticky["interval"])
+        assertEquals(75L, sticky["tolerance"])
+        assertEquals("30m", sticky["idle_timeout"])
+        assertEquals(true, sticky["sticky_by_app"])
+    }
+
+    @Test
     fun buildUrlTestOutboundAllowsZeroTolerance() {
         val members = listOf("node1", "node2")
         val testUrl = "http://cp.cloudflare.com/generate_204"

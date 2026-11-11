@@ -206,6 +206,40 @@ internal fun buildUrlTestOutbound(
         interrupt_exist_connections = false
     }
 
+internal fun buildLeastPingBalancerOutbound(
+    memberTags: List<String>,
+    testUrl: String?,
+    intervalSec: Long,
+    toleranceMs: Int,
+    customTag: String,
+    stickyByApp: Boolean
+): SingBoxOption {
+    val interval = intervalSec.coerceAtLeast(10L)
+    return if (stickyByApp) {
+        buildLoadBalanceOutbound(
+            memberTags = memberTags,
+            strategy = "leastPing",
+            testUrl = testUrl,
+            intervalSec = interval,
+            toleranceMs = toleranceMs,
+            idleTimeoutStr = "30m",
+            interruptExist = false,
+            customTag = customTag,
+            stickyByApp = true
+        )
+    } else {
+        buildUrlTestOutbound(
+            memberTags = memberTags,
+            testUrl = testUrl,
+            intervalSec = interval,
+            toleranceMs = toleranceMs,
+            idleTimeoutStr = "${interval}s",
+            interruptExist = false,
+            customTag = customTag
+        )
+    }
+}
+
 private fun endpointTag(value: Any?): String? {
     return (value as? Map<*, *>)?.get("tag")?.toString()?.takeIf { it.isNotBlank() }
 }
@@ -934,17 +968,17 @@ fun buildConfig(
 
                 val balancerTag = readableTag(entity.displayName())
 
+                val stickyByApp = balancerBean.balancerType == BalancerBean.TYPE_GROUP && balancerBean.stickyByApp
                 val balancerOutbound: SingBoxOption = if (balancerBean.strategy == "leastPing") {
                     val iv = balancerBean.interval.toLong().coerceAtLeast(10L)
                     val toleranceMs = balancerBean.calculateToleranceMs().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
-                    buildUrlTestOutbound(
+                    buildLeastPingBalancerOutbound(
                         memberTags = memberTags,
                         testUrl = balancerBean.testUrl,
                         intervalSec = iv,
                         toleranceMs = toleranceMs,
-                        idleTimeoutStr = "${iv}s",
-                        interruptExist = false,
-                        customTag = balancerTag
+                        customTag = balancerTag,
+                        stickyByApp = stickyByApp
                     )
                 } else {
                     val iv = balancerBean.interval.toLong().coerceAtLeast(10L)
@@ -967,7 +1001,7 @@ fun buildConfig(
                         idleTimeoutStr = "${iv}s",
                         interruptExist = false,
                         customTag = balancerTag,
-                        stickyByApp = balancerBean.balancerType == BalancerBean.TYPE_GROUP && balancerBean.stickyByApp
+                        stickyByApp = stickyByApp
                     )
                 }
 
