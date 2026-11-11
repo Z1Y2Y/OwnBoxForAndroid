@@ -224,6 +224,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MyBox-OSS-Release-26.11.3.76-arm64-v8a
-          path: ${{ env.APK_DIR }}/*arm64-v8a*-signed.apk
+          path: ${{ env.APK_DIR }}/MyBox-26.11.3.76-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14
