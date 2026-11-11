@@ -923,6 +923,7 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 			conn, err = candidate.DialContext(ctx, network, destination)
 		}
 		if err == nil {
+			adapter.RecordActiveOutbound(ctx, candidate.Tag())
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
@@ -1036,6 +1037,7 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 			conn, err = candidate.ListenPacket(ctx, destination)
 		}
 		if err == nil {
+			adapter.RecordActiveOutbound(ctx, candidate.Tag())
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
@@ -1068,11 +1070,13 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 }
 
 func (s *LoadBalance) NewConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+	ctx = adapter.ContextWithActiveOutboundTracker(ctx, metadata)
 	ctx = interrupt.ContextWithIsExternalConnection(ctx, true)
 	s.connection.NewConnection(ctx, s, conn, metadata, onClose)
 }
 
 func (s *LoadBalance) NewPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+	ctx = adapter.ContextWithActiveOutboundTracker(ctx, metadata)
 	ctx = interrupt.ContextWithIsExternalConnection(ctx, true)
 	s.connection.NewPacketConnection(ctx, s, conn, metadata, onClose)
 }

@@ -145,6 +145,18 @@ fun Project.setupApp() {
     val pkgName = requireMetadata().getProperty("PACKAGE_NAME")
     val verName = requireMetadata().getProperty("VERSION_NAME")
     val verCode = (requireMetadata().getProperty("VERSION_CODE").toInt()) * 5
+    val defaultApkAbis = listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+    val configuredApkAbis = findProperty("myboxApkAbis")
+        ?.toString()
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?.distinct()
+        ?.takeIf { it.isNotEmpty() }
+    val apkAbis = configuredApkAbis ?: defaultApkAbis
+    require(apkAbis.all { it in defaultApkAbis }) {
+        "Unsupported ABI in -PmyboxApkAbis: ${apkAbis.filterNot { it in defaultApkAbis }}"
+    }
     android.apply {
         defaultConfig {
             applicationId = pkgName
@@ -171,10 +183,7 @@ fun Project.setupApp() {
             reset()
             isEnable = true
             isUniversalApk = false
-            include("armeabi-v7a")
-            include("arm64-v8a")
-            include("x86")
-            include("x86_64")
+            apkAbis.forEach { include(it) }
         }
 
         flavorDimensions += "vendor"

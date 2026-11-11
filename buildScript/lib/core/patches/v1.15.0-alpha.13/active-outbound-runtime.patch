@@ -1,0 +1,123 @@
+diff --git a/adapter/inbound.go b/adapter/inbound.go
+index 3027f1e..02340e1 100644
+--- a/adapter/inbound.go
++++ b/adapter/inbound.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"net"
+ 	"net/netip"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/sagernet/sing-box/common/interrupt"
+@@ -56,9 +57,10 @@ type InboundContext struct {
+ 
+ 	// power report
+ 
+-	RouteRule     string
+-	RouteOutbound string
+-	OutboundChain []Outbound
++	RouteRule             string
++	RouteOutbound         string
++	OutboundChain         []Outbound
++	ActiveOutboundTracker *atomic.Pointer[string]
+ 
+ 	// sniffer
+ 
+@@ -213,6 +215,44 @@ func ContextFrom(ctx context.Context) *InboundContext {
+ 	return metadata.(*InboundContext)
+ }
+ 
++func (c *InboundContext) EnableActiveOutboundTracking() {
++	if c.ActiveOutboundTracker == nil {
++		c.ActiveOutboundTracker = new(atomic.Pointer[string])
++	}
++}
++
++func (c InboundContext) ActiveOutbound() string {
++	if c.ActiveOutboundTracker == nil {
++		return ""
++	}
++	activeOutbound := c.ActiveOutboundTracker.Load()
++	if activeOutbound == nil {
++		return ""
++	}
++	return *activeOutbound
++}
++
++type activeOutboundTrackerContextKey struct{}
++
++func ContextWithActiveOutboundTracker(ctx context.Context, metadata InboundContext) context.Context {
++	if metadata.ActiveOutboundTracker == nil {
++		return ctx
++	}
++	return context.WithValue(ctx, (*activeOutboundTrackerContextKey)(nil), metadata.ActiveOutboundTracker)
++}
++
++func RecordActiveOutbound(ctx context.Context, tag string) {
++	if tag == "" {
++		return
++	}
++	tracker, loaded := ctx.Value((*activeOutboundTrackerContextKey)(nil)).(*atomic.Pointer[string])
++	if !loaded || tracker == nil {
++		return
++	}
++	activeOutbound := tag
++	tracker.Store(&activeOutbound)
++}
++
+ func ExtendContext(ctx context.Context) (context.Context, *InboundContext) {
+ 	var newMetadata InboundContext
+ 	if metadata := ContextFrom(ctx); metadata != nil {
+diff --git a/experimental/clashapi/connections.go b/experimental/clashapi/connections.go
+index 3da9dc6..d069f0d 100644
+--- a/experimental/clashapi/connections.go
++++ b/experimental/clashapi/connections.go
+@@ -95,12 +95,13 @@ func (c connectionObject) MarshalJSON() ([]byte, error) {
+ 			"dnsMode":         "normal",
+ 			"processPath":     processPath,
+ 		},
+-		"upload":      c.Upload.Load(),
+-		"download":    c.Download.Load(),
+-		"start":       c.CreatedAt,
+-		"chains":      c.Chain,
+-		"rule":        rule,
+-		"rulePayload": "",
++		"upload":         c.Upload.Load(),
++		"download":       c.Download.Load(),
++		"start":          c.CreatedAt,
++		"chains":         c.Chain,
++		"activeOutbound": c.Metadata.ActiveOutbound(),
++		"rule":           rule,
++		"rulePayload":    "",
+ 	})
+ }
+ 
+diff --git a/route/route.go b/route/route.go
+index d5d06e7..8ce5aa8 100644
+--- a/route/route.go
++++ b/route/route.go
+@@ -160,6 +160,7 @@ func (r *Router) routeConnection(ctx context.Context, conn net.Conn, metadata ad
+ 	}
+ 	metadata.RouteOutbound = selectedOutbound.Tag()
+ 	metadata.OutboundChain = chain
++	metadata.EnableActiveOutboundTracking()
+ 	for _, tracker := range r.trackers {
+ 		conn = tracker.RoutedConnection(ctx, conn, metadata, selectedRule, selectedOutbound)
+ 	}
+@@ -326,6 +340,7 @@ func (r *Router) routePacketConnection(ctx context.Context, conn N.PacketConn, m
+ 	}
+ 	metadata.RouteOutbound = selectedOutbound.Tag()
+ 	metadata.OutboundChain = chain
++	metadata.EnableActiveOutboundTracking()
+ 	for _, tracker := range r.trackers {
+ 		conn = tracker.RoutedPacketConnection(ctx, conn, metadata, selectedRule, selectedOutbound)
+ 	}
+@@ -545,6 +560,7 @@ func (r *Router) preMatchFlow(ctx context.Context, metadata *adapter.InboundCont
+ 		result.Destination = metadata.Destination.AddrPort()
+ 	}
+ 	metadata.OutboundChain = chain
++	metadata.EnableActiveOutboundTracking()
+ 	metadataCopy := *metadata
+ 	result.NewTracker = func() tun.FlowTracker {
+ 		r.logger.InfoContext(ctx, "pre-match: forward ", metadataCopy.Network, " connection from ", metadataCopy.Source, " to ", metadataCopy.Destination, " via outbound/", outbound.Type(), "[", outbound.Tag(), "]")

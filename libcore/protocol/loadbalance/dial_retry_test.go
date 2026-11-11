@@ -56,8 +56,11 @@ func TestConsistentHashDialRetriesAfterUnreachablePrimary(t *testing.T) {
 	fallback := &dialRetryTestOutbound{tag: tags[candidates[1]], conn: clientConn}
 	lb.outbounds[candidates[0]] = primary
 	lb.outbounds[candidates[1]] = fallback
+	var metadata adapter.InboundContext
+	metadata.EnableActiveOutboundTracking()
+	ctx := adapter.ContextWithActiveOutboundTracker(context.Background(), metadata)
 
-	conn, err := lb.DialContext(context.Background(), "tcp", destination)
+	conn, err := lb.DialContext(ctx, "tcp", destination)
 	if err != nil {
 		t.Fatalf("expected fallback candidate to connect after primary failure, got %v", err)
 	}
@@ -68,6 +71,9 @@ func TestConsistentHashDialRetriesAfterUnreachablePrimary(t *testing.T) {
 
 	if primary.attempt != 1 || fallback.attempt != 1 {
 		t.Fatalf("expected primary and fallback to be tried once, got primary=%d fallback=%d", primary.attempt, fallback.attempt)
+	}
+	if got := metadata.ActiveOutbound(); got != fallback.Tag() {
+		t.Fatalf("expected the runtime tracker to report the successful fallback %q, got %q", fallback.Tag(), got)
 	}
 	if got := lb.stats[candidates[0]].consecutiveFails.Load(); got != 1 {
 		t.Fatalf("expected unreachable primary failure to be recorded, got %d", got)

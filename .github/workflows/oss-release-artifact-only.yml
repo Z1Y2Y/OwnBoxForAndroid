@@ -120,7 +120,7 @@ jobs:
             echo "::error::Asset initialization failed after 3 attempts."
             exit 1
           fi
-          ./gradlew app:assembleOssRelease
+          ./gradlew app:assembleOssRelease -PmyboxApkAbis=arm64-v8a
 
           APK_DIR="app/build/outputs/apk/oss/release"
           APKSIGNER=$(find "${ANDROID_HOME}/build-tools" -name apksigner | sort -V | tail -n 1)
@@ -139,9 +139,9 @@ jobs:
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_VERSION_NAME="26.11.3.75"
-          EXPECTED_VERSION_CODE=2375
-          EXPECTED_ABIS=(arm64-v8a armeabi-v7a x86 x86_64)
+          EXPECTED_VERSION_NAME="26.11.3.76"
+          EXPECTED_VERSION_CODE=2380
+          EXPECTED_ABIS=(arm64-v8a)
           declare -A FOUND_ABIS=()
           APK_COUNT=0
           for apk in "$APK_DIR"/*.apk; do
@@ -197,8 +197,8 @@ jobs:
             FOUND_ABIS[$abi]=1
             echo "Verified official OSS Release APK: $apk (package=$package versionName=$version_name versionCode=$version_code signerSHA256=$cert)"
           done
-          if [ "$APK_COUNT" -ne 4 ]; then
-            echo "::error::Expected exactly four OSS Release ABI APKs (found=$APK_COUNT)."
+          if [ "$APK_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly one OSS Release arm64-v8a APK (found=$APK_COUNT)."
             exit 1
           fi
           for abi in "${EXPECTED_ABIS[@]}"; do
@@ -211,19 +211,19 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBox 26.11.3.75 — Consistent-hash route fallback'
+            echo '### MyBox 26.11.3.76 — Show the actual strategy-group member'
             echo '- Build type: Release (OSS), not Preview or Debug'
             echo '- Package: com.ownbox.fork'
-            echo '- Version: 26.11.3.75 (versionCode: 2375); no public tag or Release created'
-            echo '- Changelog: preserve consistent-hash group dialing so a failed primary retries other members; explicit single-node route rules remain fixed'
-            echo '- ABI coverage: arm64-v8a, armeabi-v7a, x86, x86_64 (all individually verified)'
+            echo '- Version: 26.11.3.76 (versionCode: 2380); no public tag or Release created'
+            echo '- Changelog: show the successfully dialed member after its strategy-group name; preserve group fallback and never auto-switch a custom rule that explicitly selects one node'
+            echo '- ABI coverage: exactly one arm64-v8a APK'
             echo '- Signing certificate: verified against the established public fingerprint'
             echo '- Unit tests: passed (APK build runs only after tests succeed)'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload verified OSS Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-OSS-Release-26.11.3.75
-          path: ${{ env.APK_DIR }}/*
+          name: MyBox-OSS-Release-26.11.3.76-arm64-v8a
+          path: ${{ env.APK_DIR }}/*arm64-v8a*-signed.apk
           if-no-files-found: error
           retention-days: 14

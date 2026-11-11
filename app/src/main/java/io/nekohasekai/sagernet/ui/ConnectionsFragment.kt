@@ -52,6 +52,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
         val uploadRate: Long,
         val downloadRate: Long,
         val chains: List<String>,
+        val activeOutbound: String,
         val rule: String,
         val rulePayload: String,
         val start: String,
@@ -236,6 +237,8 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             else -> "$sourceIp:$sourcePort"
         }
         val chains = item.optJSONArray("chains")?.toStringList().orEmpty()
+        val activeOutbound = item.optString("activeOutbound")
+            .takeIf { it.isNotBlank() && it != "null" }.orEmpty()
         val start = item.optString("start")
         val rule = item.optString("rule")
         val processPath = metadata.optString("processPath").trim()
@@ -258,6 +261,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             uploadRate = 0L,
             downloadRate = 0L,
             chains = chains,
+            activeOutbound = activeOutbound,
             rule = rule,
             rulePayload = item.optString("rulePayload"),
             start = start,
@@ -505,7 +509,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             if (entry.source.isNotBlank()) append("\n").append(getString(R.string.connections_detail_source, entry.source))
             append("\n").append(getString(R.string.connections_detail_destination, entry.destination))
             append("\n").append(getString(R.string.connections_detail_traffic, formatSize(entry.upload), formatSize(entry.download)))
-            append("\n").append(getString(R.string.connections_detail_chain, entry.chains.joinToString(" → ").ifBlank { getString(R.string.connections_direct) }))
+            append("\n").append(getString(R.string.connections_detail_chain, ConnectionChainFormatter.format(entry.chains, entry.activeOutbound).ifBlank { getString(R.string.connections_direct) }))
             append("\n").append(getString(R.string.connections_detail_rule, entry.rule.ifBlank { "-" }))
             if (entry.rulePayload.isNotBlank()) append("\n").append(getString(R.string.connections_detail_rule_payload, entry.rulePayload))
             if (entry.start.isNotBlank()) append("\n").append(getString(R.string.connections_detail_start, entry.start))
@@ -582,7 +586,8 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             val closed = entry.closedAt != null
             chains.text = getString(
                 R.string.connections_detail_chain,
-                entry.chains.joinToString(" → ").ifBlank { getString(R.string.connections_direct) },
+                ConnectionChainFormatter.format(entry.chains, entry.activeOutbound)
+                    .ifBlank { getString(R.string.connections_direct) },
             )
             close.visibility = if (closed || !controllerReady) View.GONE else View.VISIBLE
             close.setOnClickListener { closeConnection(entry) }

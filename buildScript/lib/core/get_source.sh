@@ -62,9 +62,11 @@ if [ -d "$PATCH_DIR" ]; then
     git apply "$patch"
   done
 
-  if [ -f "$PATCH_DIR/route/resolve_outbound_test.go" ]; then
-    install -D -m 0644 "$PATCH_DIR/route/resolve_outbound_test.go" route/resolve_outbound_test.go
-  fi
+  while IFS= read -r -d '' test_file; do
+    relative_path=${test_file#"$PATCH_DIR"/}
+    echo ">> Installing MyBox sing-box regression test: $relative_path"
+    install -D -m 0644 "$test_file" "$relative_path"
+  done < <(find "$PATCH_DIR" -type f -name '*_test.go' -print0)
 fi
 popd
 
