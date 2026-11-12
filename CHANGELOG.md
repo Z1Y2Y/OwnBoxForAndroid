@@ -1,5 +1,15 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# MyBox for Android v26.11.3.82 临时诊断测试版
+
+### 按应用粘性换绑原因
+* 增加明确的 `sticky_bind` / `sticky_rebind` 原因：初次绑定、已绑定成员复用、闲置过期、成员健康降级、原成员拨号失败回退，以及 revision / 旧 flight 拒绝；同时记录过期时长、候选序号和 leader/waiter flow 关联。
+* 仅诊断构建包含专用 Go build tag 埋点；正式构建默认关闭。应用/组/成员标签仅记进程内加盐 HMAC 短 hash，日志不包含原始包名、组名、节点标签、目标域名/IP、URL 参数、订阅/凭据或原始错误文本。
+* 无需额外开关：在诊断版中用已导入配置复现一次 ChatGPT 请求，复现后立即导出完整 MyBox 日志；不要先清空日志或只截取末尾，以保留 flight、候选拨号和绑定原因的完整时序。
+
+### 安装提示
+* 包名 `com.ownbox.fork.diag`，正式签名，桌面名称“MyBox诊断”；可覆盖升级现有 `.81` 诊断版并保留其数据，与正式 `com.ownbox.fork` 共存且不改正式版数据。版本 `26.11.3.82-diag`，安装 `versionCode` 2410；仅提供一个 `arm64-v8a` APK。本临时测试不创建 tag 或公开 Release。
+
 # MyBox for Android v26.11.3.81 临时诊断测试版
 
 ### 按应用粘性诊断

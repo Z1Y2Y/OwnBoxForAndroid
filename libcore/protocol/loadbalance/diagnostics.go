@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,14 @@ func (s *LoadBalance) stickyDiagnosticWithFlowID(ctx context.Context) context.Co
 	}
 	flowID := s.diagnosticFlowSequence.Add(1)
 	return context.WithValue(ctx, stickyDiagnosticFlowIDKey{}, flowID)
+}
+
+func stickyDiagnosticFlowID(ctx context.Context) uint64 {
+	if ctx == nil {
+		return 0
+	}
+	flowID, _ := ctx.Value(stickyDiagnosticFlowIDKey{}).(uint64)
+	return flowID
 }
 
 func stickyDiagnosticEnabled(requested bool) bool {
@@ -85,6 +94,40 @@ func stickyDiagnosticStrategy(value string) string {
 	default:
 		return "other"
 	}
+}
+
+func stickyDiagnosticBindingReason(initial, expired, sameMember, degraded, priorDialFailed, rejected bool, rejectReason string) string {
+	if rejected {
+		switch rejectReason {
+		case "stale_revision", "entry_expired", "entry_missing", "stale_flight":
+			return rejectReason
+		default:
+			return "commit_rejected"
+		}
+	}
+	if expired {
+		return "idle_timeout"
+	}
+	if initial {
+		return "initial"
+	}
+	if priorDialFailed {
+		return "dial_failure_fallback"
+	}
+	if degraded {
+		return "degraded_skip"
+	}
+	if sameMember {
+		return "reuse"
+	}
+	return "member_change"
+}
+
+func stickyDiagnosticMemberRef(s *LoadBalance, idx int) string {
+	if idx < 0 {
+		return "none"
+	}
+	return stickyDiagnosticMemberLabel(s, idx)
 }
 
 func stickyDiagnosticErrorClass(err error) string {
@@ -154,7 +197,7 @@ func stickyDiagnosticInt(name string, value int) string {
 }
 
 func stickyDiagnosticUint64(name string, value uint64) string {
-	return name + "=" + strconvItoa(int(value))
+	return name + "=" + strconv.FormatUint(value, 10)
 }
 
 func strconvItoa(value int) string {

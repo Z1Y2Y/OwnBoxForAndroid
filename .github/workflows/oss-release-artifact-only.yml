@@ -54,7 +54,7 @@ jobs:
             fi
             sleep $((attempt * 15))
           done
-          go test ./protocol/loadbalance
+          go test -race ./protocol/loadbalance
       - name: Native Build
         if: steps.cache.outputs.cache-hit != 'true'
         env:
@@ -163,8 +163,8 @@ jobs:
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_VERSION_NAME="26.11.3.81-diag"
-          EXPECTED_VERSION_CODE=2405
+          EXPECTED_VERSION_NAME="26.11.3.82-diag"
+          EXPECTED_VERSION_CODE=2410
           EXPECTED_ABIS=(arm64-v8a)
           declare -A FOUND_ABIS=()
           APK_COUNT=0
@@ -231,7 +231,7 @@ jobs:
               exit 1
             fi
           done
-          FINAL_APK="$APK_DIR/MyBox-26.11.3.81-diagnostic-arm64-v8a.apk"
+          FINAL_APK="$APK_DIR/MyBox-26.11.3.82-diagnostic-arm64-v8a.apk"
           for apk in "$APK_DIR"/*.apk; do
             if [ "$apk" != "$FINAL_APK" ]; then
               mv "$apk" "$FINAL_APK"
@@ -243,20 +243,20 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBox 26.11.3.81 — Sticky routing diagnostic test build'
+            echo '### MyBox 26.11.3.82 — Sticky routing diagnostic test build'
             echo '- Build type: diagnostic (Release-signed), not Preview or Debug'
             echo '- Package: com.ownbox.fork.diag; installs alongside the official app, with a separate data directory and separately imported configuration'
-            echo '- Version: 26.11.3.81-diag (versionCode: 2405); leaves installed 26.11.3.80 and its data untouched; no public tag or Release created'
+            echo '- Version: 26.11.3.82-diag (versionCode: 2410); leaves installed 26.11.3.80 and its data untouched; no public tag or Release created'
             echo "- Commit: ${GITHUB_SHA}"
-            echo '- Changelog: diagnostic-only Go build tag compiles sticky_diag events into this APK; group/member/app labels use process-salted short hashes, with flow IDs, process/mux/detour context, candidate order, TCP/UDP results and binding/fallback; raw destinations, credentials and error text are excluded'
+            echo '- Changelog: diagnostic-only Go build tag adds initial/reuse/idle-expired/degraded-skip/dial-fallback/stale-revision/stale-flight bind reasons, idle age, candidate sequence and flow/leader/waiter correlation; app/group/member labels are process-salted HMAC hashes, and raw destinations, credentials, URLs and error text are excluded'
             echo '- ABI coverage: exactly one arm64-v8a APK'
             echo '- Signing certificate: verified against the established public fingerprint'
-            echo '- Unit tests: Go load-balance race tests, versioned upstream patch tests and OSS Diagnostic Android unit tests passed before APK build'
+            echo '- Tests: diagnostic-tag load-balance Go race tests, versioned sing-box patch tests, and OSS Release plus Diagnostic Android unit tests passed before APK build'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload verified OSS Sticky Diagnostic APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-OSS-Sticky-Diagnostic-26.11.3.81-arm64-v8a
-          path: ${{ env.APK_DIR }}/MyBox-26.11.3.81-diagnostic-arm64-v8a.apk
+          name: MyBox-OSS-Sticky-Diagnostic-26.11.3.82-arm64-v8a
+          path: ${{ env.APK_DIR }}/MyBox-26.11.3.82-diagnostic-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14

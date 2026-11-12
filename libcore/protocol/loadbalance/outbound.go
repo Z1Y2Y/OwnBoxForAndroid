@@ -479,8 +479,38 @@ type stickyEntry struct {
 }
 
 type stickyFlight struct {
-	done    chan struct{}
-	waiters atomic.Int32
+	done         chan struct{}
+	waiters      atomic.Int32
+	leaderFlowID uint64
+	startedAt    time.Time
+}
+
+type stickyDialDiagnosticState struct {
+	hasBinding          bool
+	boundMemberIdx      int
+	idleMs              int64
+	expired             bool
+	expiredMemberIdx    int
+	expiredIdleMs       int64
+	degradedSkipped     bool
+	boundMemberFailed   bool
+	boundFailureAttempt int
+	boundFailureClass   string
+}
+
+type stickyRevisionUpdateResult struct {
+	committed       bool
+	reason          string
+	previousIdx     int
+	currentRevision uint64
+	idleMs          int64
+}
+
+func newStickyDialDiagnosticState(enabled bool) *stickyDialDiagnosticState {
+	if !enabled {
+		return nil
+	}
+	return &stickyDialDiagnosticState{boundMemberIdx: -1, expiredMemberIdx: -1}
 }
 
 func (s *LoadBalance) isStickyEnabled() bool {
@@ -597,24 +627,47 @@ func (s *LoadBalance) setStickySession(key string, nodeIdx int) {
 }
 
 func (s *LoadBalance) setStickySessionIfRevision(key string, nodeIdx int, expectedRevision uint64) bool {
+	return s.setStickySessionIfRevisionDetailed(key, nodeIdx, expectedRevision).committed
+}
+
+func (s *LoadBalance) setStickySessionIfRevisionDetailed(key string, nodeIdx int, expectedRevision uint64) stickyRevisionUpdateResult {
 	if key == "" || nodeIdx < 0 || nodeIdx >= len(s.outbounds) {
-		return false
+		return stickyRevisionUpdateResult{reason: "invalid_member", previousIdx: -1}
 	}
 	now := time.Now().UnixMilli()
 	s.stickyMu.Lock()
 	defer s.stickyMu.Unlock()
 	entry, ok := s.stickySessions[key]
-	if !ok || now > entry.expireAt {
-		if ok {
-			delete(s.stickySessions, key)
+	if !ok {
+		return stickyRevisionUpdateResult{reason: "entry_missing", previousIdx: -1}
+	}
+	if now > entry.expireAt {
+		delete(s.stickySessions, key)
+		return stickyRevisionUpdateResult{
+			reason:          "entry_expired",
+			previousIdx:     entry.nodeIdx,
+			currentRevision: entry.revision,
+			idleMs:          max(int64(0), now-entry.lastAccess),
 		}
-		return false
 	}
 	if entry.revision != expectedRevision {
-		return false
+		return stickyRevisionUpdateResult{
+			reason:          "stale_revision",
+			previousIdx:     entry.nodeIdx,
+			currentRevision: entry.revision,
+			idleMs:          max(int64(0), now-entry.lastAccess),
+		}
 	}
+	previousIdx := entry.nodeIdx
 	s.setStickySessionLocked(key, nodeIdx, now)
-	return true
+	updated := s.stickySessions[key]
+	return stickyRevisionUpdateResult{
+		committed:       true,
+		reason:          "updated",
+		previousIdx:     previousIdx,
+		currentRevision: updated.revision,
+		idleMs:          max(int64(0), now-entry.lastAccess),
+	}
 }
 
 func (s *LoadBalance) setStickySessionLocked(key string, nodeIdx int, now int64) {
@@ -656,6 +709,10 @@ func (s *LoadBalance) setStickySessionLocked(key string, nodeIdx int, now int64)
 }
 
 func (s *LoadBalance) beginStickyDial(ctx context.Context, key string) (*stickyFlight, uint64, error) {
+	return s.beginStickyDialForFlow(ctx, key, nil)
+}
+
+func (s *LoadBalance) beginStickyDialForFlow(ctx context.Context, key string, trace *stickyDialDiagnosticState) (*stickyFlight, uint64, error) {
 	if key == "" {
 		return nil, 0, nil
 	}
@@ -671,20 +728,41 @@ func (s *LoadBalance) beginStickyDial(ctx context.Context, key string) (*stickyF
 		}
 		now := time.Now().UnixMilli()
 		s.stickyMu.Lock()
+		var expiredEntry stickyEntry
+		expired := false
+		expiredReason := "idle_timeout"
 		if entry, ok := s.stickySessions[key]; ok {
 			if now <= entry.expireAt && entry.nodeIdx >= 0 && entry.nodeIdx < len(s.outbounds) {
+				idleMs := max(int64(0), now-entry.lastAccess)
 				entry.lastAccess = now
 				entry.expireAt = now + 5*60*1000
 				s.stickySessions[key] = entry
 				s.stickyMu.Unlock()
+				if trace != nil {
+					trace.hasBinding = true
+					trace.boundMemberIdx = entry.nodeIdx
+					trace.idleMs = idleMs
+					trace.expired = false
+					trace.expiredMemberIdx = -1
+					trace.expiredIdleMs = 0
+				}
 				if s.stickyDiagnostic {
 					s.stickyDiagnosticLog(ctx, "sticky_hit",
+						stickyDiagnosticQuotedField("reason", "reuse"),
 						stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
 						stickyDiagnosticInt("member_idx", entry.nodeIdx),
 						stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, entry.nodeIdx)),
+						stickyDiagnosticInt("idle_ms", int(idleMs)),
+						stickyDiagnosticInt("remaining_ms", int(max(int64(0), entry.expireAt-now))),
+						stickyDiagnosticUint64("revision", entry.revision),
 					)
 				}
 				return nil, entry.revision, nil
+			}
+			expiredEntry = entry
+			expired = true
+			if now <= entry.expireAt {
+				expiredReason = "member_invalid"
 			}
 			delete(s.stickySessions, key)
 		}
@@ -694,37 +772,81 @@ func (s *LoadBalance) beginStickyDial(ctx context.Context, key string) (*stickyF
 		if flight := s.stickyFlights[key]; flight != nil {
 			done := flight.done
 			flight.waiters.Add(1)
+			waiters := flight.waiters.Load()
+			leaderFlowID := flight.leaderFlowID
 			s.stickyMu.Unlock()
+			if expired {
+				s.stickyDiagnosticExpiredEntry(ctx, key, expiredEntry, now, expiredReason)
+			}
+			if trace != nil && expired && expiredReason == "idle_timeout" {
+				trace.expired = true
+				trace.expiredMemberIdx = expiredEntry.nodeIdx
+				trace.expiredIdleMs = max(int64(0), now-expiredEntry.lastAccess)
+			}
 			if s.stickyDiagnostic {
 				s.stickyDiagnosticLog(ctx, "flight_wait",
 					stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
-					stickyDiagnosticInt("waiters", int(flight.waiters.Load())),
+					stickyDiagnosticInt("waiters", int(waiters)),
+					stickyDiagnosticUint64("leader_flow_id", leaderFlowID),
 				)
 			}
 			select {
 			case <-done:
 				flight.waiters.Add(-1)
 				if s.stickyDiagnostic {
-					s.stickyDiagnosticLog(ctx, "flight_wakeup", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+					s.stickyDiagnosticLog(ctx, "flight_wakeup",
+						stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+						stickyDiagnosticUint64("leader_flow_id", leaderFlowID),
+					)
 				}
 				continue
 			case <-ctx.Done():
 				flight.waiters.Add(-1)
 				if s.stickyDiagnostic {
-					s.stickyDiagnosticLog(ctx, "flight_wait_cancel", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+					s.stickyDiagnosticLog(ctx, "flight_wait_cancel",
+						stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+						stickyDiagnosticUint64("leader_flow_id", leaderFlowID),
+					)
 				}
 				return nil, 0, ctx.Err()
 			}
 		}
-		flight := &stickyFlight{done: make(chan struct{})}
+		leaderFlowID := stickyDiagnosticFlowID(ctx)
+		flight := &stickyFlight{done: make(chan struct{}), leaderFlowID: leaderFlowID, startedAt: time.Now()}
 		s.stickyFlights[key] = flight
 		s.stickyMu.Unlock()
+		if expired {
+			s.stickyDiagnosticExpiredEntry(ctx, key, expiredEntry, now, expiredReason)
+		}
+		if trace != nil && expired && expiredReason == "idle_timeout" {
+			trace.expired = true
+			trace.expiredMemberIdx = expiredEntry.nodeIdx
+			trace.expiredIdleMs = max(int64(0), now-expiredEntry.lastAccess)
+		}
 		if s.stickyDiagnostic {
-			s.stickyDiagnosticLog(ctx, "flight_leader", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+			s.stickyDiagnosticLog(ctx, "flight_leader",
+				stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+				stickyDiagnosticUint64("leader_flow_id", leaderFlowID),
+			)
 		}
 		go s.watchStickyDialCancellation(ctx, key, flight)
 		return flight, 0, nil
 	}
+}
+
+func (s *LoadBalance) stickyDiagnosticExpiredEntry(ctx context.Context, key string, entry stickyEntry, now int64, reason string) {
+	if !s.stickyDiagnostic {
+		return
+	}
+	s.stickyDiagnosticLog(ctx, "sticky_expired",
+		stickyDiagnosticQuotedField("reason", reason),
+		stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+		stickyDiagnosticInt("member_idx", entry.nodeIdx),
+		stickyDiagnosticQuotedField("member", stickyDiagnosticMemberRef(s, entry.nodeIdx)),
+		stickyDiagnosticInt("idle_ms", int(max(int64(0), now-entry.lastAccess))),
+		stickyDiagnosticInt("expired_by_ms", int(max(int64(0), now-entry.expireAt))),
+		stickyDiagnosticUint64("revision", entry.revision),
+	)
 }
 
 func (s *LoadBalance) watchStickyDialCancellation(ctx context.Context, key string, flight *stickyFlight) {
@@ -742,19 +864,38 @@ func (s *LoadBalance) watchStickyDialCancellation(ctx context.Context, key strin
 		s.stickyMu.Unlock()
 		if removed {
 			if s.stickyDiagnostic {
-				s.stickyDiagnosticLog(ctx, "flight_owner_cancel", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+				s.stickyDiagnosticLog(ctx, "flight_owner_cancel",
+					stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+					stickyDiagnosticUint64("leader_flow_id", flight.leaderFlowID),
+				)
 			}
 		}
 	}
 }
 
 func (s *LoadBalance) finishStickyDial(key string, flight *stickyFlight, nodeIdx int) bool {
+	return s.finishStickyDialForFlow(context.Background(), key, flight, nodeIdx, "")
+}
+
+func (s *LoadBalance) finishStickyDialForFlow(ctx context.Context, key string, flight *stickyFlight, nodeIdx int, reason string) bool {
 	if key == "" || flight == nil {
 		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	s.stickyMu.Lock()
 	if s.stickyFlights[key] != flight {
 		s.stickyMu.Unlock()
+		if s.stickyDiagnostic && nodeIdx >= 0 {
+			s.stickyDiagnosticLog(ctx, "sticky_flight_rejected",
+				stickyDiagnosticQuotedField("reason", "stale_flight"),
+				stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+				stickyDiagnosticUint64("leader_flow_id", flight.leaderFlowID),
+				stickyDiagnosticInt("candidate_idx", nodeIdx),
+				stickyDiagnosticQuotedField("candidate", stickyDiagnosticMemberRef(s, nodeIdx)),
+			)
+		}
 		return false
 	}
 	if nodeIdx >= 0 {
@@ -762,28 +903,38 @@ func (s *LoadBalance) finishStickyDial(key string, flight *stickyFlight, nodeIdx
 	}
 	delete(s.stickyFlights, key)
 	close(flight.done)
+	flightMs := int64(0)
+	if !flight.startedAt.IsZero() {
+		flightMs = time.Since(flight.startedAt).Milliseconds()
+	}
+	leaderFlowID := flight.leaderFlowID
 	s.stickyMu.Unlock()
-	if nodeIdx >= 0 {
-		if s.stickyDiagnostic {
-			s.stickyDiagnosticLog(context.Background(), "flight_finish",
-				stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+	if s.stickyDiagnostic {
+		fields := []string{
+			stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+			stickyDiagnosticUint64("leader_flow_id", leaderFlowID),
+			stickyDiagnosticInt("flight_ms", int(flightMs)),
+		}
+		if nodeIdx >= 0 {
+			fields = append(fields,
 				stickyDiagnosticQuotedField("result", "bound"),
+				stickyDiagnosticQuotedField("reason", reason),
 				stickyDiagnosticInt("member_idx", nodeIdx),
 				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, nodeIdx)),
 			)
+		} else {
+			fields = append(fields, stickyDiagnosticQuotedField("result", "released_without_success"))
+			if reason == "" {
+				reason = "no_success"
+			}
+			fields = append(fields, stickyDiagnosticQuotedField("reason", reason))
 		}
-	} else {
-		if s.stickyDiagnostic {
-			s.stickyDiagnosticLog(context.Background(), "flight_finish",
-				stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
-				stickyDiagnosticQuotedField("result", "released_without_success"),
-			)
-		}
+		s.stickyDiagnosticLog(ctx, "flight_finish", fields...)
 	}
 	return true
 }
 
-func (s *LoadBalance) recordStickyDialSuccess(ctx context.Context, destination M.Socksaddr, coordinationKey string, flight *stickyFlight, expectedRevision uint64, nodeIdx int) {
+func (s *LoadBalance) recordStickyDialSuccess(ctx context.Context, destination M.Socksaddr, coordinationKey string, flight *stickyFlight, expectedRevision uint64, nodeIdx int, trace *stickyDialDiagnosticState) {
 	if !s.isStickyEnabled() {
 		return
 	}
@@ -792,31 +943,95 @@ func (s *LoadBalance) recordStickyDialSuccess(ctx context.Context, destination M
 		return
 	}
 	if flight != nil && sessionKey == coordinationKey {
-		committed := s.finishStickyDial(coordinationKey, flight, nodeIdx)
+		expired := trace != nil && trace.expired
+		previousIdx := -1
+		idleMs := int64(0)
+		if expired {
+			previousIdx = trace.expiredMemberIdx
+			idleMs = trace.expiredIdleMs
+		}
+		reason := stickyDiagnosticBindingReason(true, expired, false, false, false, false, "")
+		committed := s.finishStickyDialForFlow(ctx, coordinationKey, flight, nodeIdx, reason)
+		if !committed {
+			reason = "stale_flight"
+		}
 		if s.stickyDiagnostic {
 			s.stickyDiagnosticLog(ctx, "sticky_bind",
 				stickyDiagnosticQuotedField("source", "first_dial"),
+				stickyDiagnosticQuotedField("reason", reason),
 				stickyDiagnosticBool("committed", committed),
+				stickyDiagnosticInt("from_member_idx", previousIdx),
+				stickyDiagnosticQuotedField("from_member", stickyDiagnosticMemberRef(s, previousIdx)),
 				stickyDiagnosticInt("member_idx", nodeIdx),
 				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, nodeIdx)),
+				stickyDiagnosticInt("idle_ms", int(idleMs)),
+				stickyDiagnosticUint64("leader_flow_id", flight.leaderFlowID),
+			)
+		}
+		if committed && expired && previousIdx >= 0 && previousIdx != nodeIdx && s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "sticky_rebind",
+				stickyDiagnosticQuotedField("reason", "idle_timeout"),
+				stickyDiagnosticInt("old_idx", previousIdx),
+				stickyDiagnosticQuotedField("old_member", stickyDiagnosticMemberLabel(s, previousIdx)),
+				stickyDiagnosticInt("new_idx", nodeIdx),
+				stickyDiagnosticQuotedField("new_member", stickyDiagnosticMemberLabel(s, nodeIdx)),
+				stickyDiagnosticInt("idle_ms", int(idleMs)),
 			)
 		}
 	} else if coordinationKey != "" && sessionKey == coordinationKey {
-		updated := s.setStickySessionIfRevision(sessionKey, nodeIdx, expectedRevision)
+		update := s.setStickySessionIfRevisionDetailed(sessionKey, nodeIdx, expectedRevision)
+		reason := stickyDiagnosticBindingReason(false, false, update.committed && update.previousIdx == nodeIdx, trace != nil && trace.degradedSkipped, trace != nil && trace.boundMemberFailed, !update.committed, update.reason)
 		if s.stickyDiagnostic {
 			s.stickyDiagnosticLog(ctx, "sticky_bind",
 				stickyDiagnosticQuotedField("source", "revision_guarded_fallback"),
-				stickyDiagnosticBool("committed", updated),
+				stickyDiagnosticQuotedField("reason", reason),
+				stickyDiagnosticBool("committed", update.committed),
+				stickyDiagnosticInt("from_member_idx", update.previousIdx),
+				stickyDiagnosticQuotedField("from_member", stickyDiagnosticMemberRef(s, update.previousIdx)),
 				stickyDiagnosticInt("member_idx", nodeIdx),
 				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, nodeIdx)),
+				stickyDiagnosticInt("idle_ms", int(update.idleMs)),
+				stickyDiagnosticUint64("expected_revision", expectedRevision),
+				stickyDiagnosticUint64("observed_revision", update.currentRevision),
 			)
+		}
+		if !update.committed && s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "sticky_revision_rejected",
+				stickyDiagnosticQuotedField("reason", reason),
+				stickyDiagnosticInt("current_member_idx", update.previousIdx),
+				stickyDiagnosticQuotedField("current_member", stickyDiagnosticMemberRef(s, update.previousIdx)),
+				stickyDiagnosticInt("candidate_idx", nodeIdx),
+				stickyDiagnosticQuotedField("candidate", stickyDiagnosticMemberLabel(s, nodeIdx)),
+				stickyDiagnosticUint64("expected_revision", expectedRevision),
+				stickyDiagnosticUint64("observed_revision", update.currentRevision),
+			)
+		}
+		if update.committed && update.previousIdx >= 0 && update.previousIdx != nodeIdx && s.stickyDiagnostic {
+			fields := []string{
+				stickyDiagnosticQuotedField("reason", reason),
+				stickyDiagnosticInt("old_idx", update.previousIdx),
+				stickyDiagnosticQuotedField("old_member", stickyDiagnosticMemberLabel(s, update.previousIdx)),
+				stickyDiagnosticInt("new_idx", nodeIdx),
+				stickyDiagnosticQuotedField("new_member", stickyDiagnosticMemberLabel(s, nodeIdx)),
+				stickyDiagnosticInt("idle_ms", int(update.idleMs)),
+			}
+			if trace != nil && trace.boundMemberFailed {
+				fields = append(fields,
+					stickyDiagnosticInt("failed_attempt", trace.boundFailureAttempt),
+					stickyDiagnosticQuotedField("error_class", trace.boundFailureClass),
+				)
+			}
+			s.stickyDiagnosticLog(ctx, "sticky_rebind", fields...)
 		}
 	} else {
 		s.setStickySession(sessionKey, nodeIdx)
 		if s.stickyDiagnostic {
 			s.stickyDiagnosticLog(ctx, "sticky_bind",
 				stickyDiagnosticQuotedField("source", "session_key"),
+				stickyDiagnosticQuotedField("reason", "key_based_selection"),
 				stickyDiagnosticBool("committed", true),
+				stickyDiagnosticInt("from_member_idx", -1),
+				stickyDiagnosticQuotedField("from_member", "none"),
 				stickyDiagnosticInt("member_idx", nodeIdx),
 				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, nodeIdx)),
 			)
@@ -834,6 +1049,10 @@ func (s *LoadBalance) isNodeDegraded(idx int, now int64) bool {
 }
 
 func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []int {
+	return s.candidateIndicesForFlow(ctx, dest, nil)
+}
+
+func (s *LoadBalance) candidateIndicesForFlow(ctx context.Context, dest M.Socksaddr, trace *stickyDialDiagnosticState) []int {
 	n := len(s.outbounds)
 	if n == 0 {
 		n = len(s.tags)
@@ -1097,14 +1316,42 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 		stickyKey := s.stickySessionKey(ctx, dest)
 		if stickyKey != "" && len(result) > 1 {
 			if stickyIdx, ok := s.getStickySession(stickyKey, now); ok {
+				stickyPos := -1
 				for i, idx := range result {
-					if idx == stickyIdx && !s.isNodeDegraded(idx, now) {
-						if i > 0 {
-							copy(result[1:i+1], result[0:i])
-							result[0] = stickyIdx
-						}
+					if idx == stickyIdx {
+						stickyPos = i
 						break
 					}
+				}
+				degraded := false
+				if stickyPos >= 0 {
+					degraded = s.isNodeDegraded(stickyIdx, now)
+				}
+				if trace != nil {
+					trace.hasBinding = true
+					trace.boundMemberIdx = stickyIdx
+					trace.degradedSkipped = degraded && stickyPos > 0
+				}
+				if trace != nil && s.stickyDiagnostic && degraded && stickyPos > 0 {
+					fails := int32(0)
+					lastFailAgeMs := int64(0)
+					if stickyIdx >= 0 && stickyIdx < len(s.stats) && s.stats[stickyIdx] != nil {
+						fails = s.stats[stickyIdx].consecutiveFails.Load()
+						lastFailAgeMs = max(int64(0), now-s.stats[stickyIdx].lastFailTime.Load())
+					}
+					s.stickyDiagnosticLog(ctx, "sticky_member_degraded",
+						stickyDiagnosticQuotedField("reason", "health_degraded"),
+						stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(stickyKey)),
+						stickyDiagnosticInt("member_idx", stickyIdx),
+						stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, stickyIdx)),
+						stickyDiagnosticInt("candidate_pos", stickyPos),
+						stickyDiagnosticInt("consecutive_fails", int(fails)),
+						stickyDiagnosticInt("last_fail_age_ms", int(lastFailAgeMs)),
+					)
+				}
+				if stickyPos > 0 && !degraded {
+					copy(result[1:stickyPos+1], result[0:stickyPos])
+					result[0] = stickyIdx
 				}
 			}
 		}
@@ -1153,10 +1400,9 @@ func (c *trackedConn) SyscallConn() (syscall.RawConn, error) {
 func (s *LoadBalance) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
 	ctx = s.stickyDiagnosticWithFlowID(ctx)
 	s.Touch()
+	stickyTrace := newStickyDialDiagnosticState(s.stickyDiagnostic)
 	if s.stickyDiagnostic {
-		if s.stickyDiagnostic {
-			s.stickyDiagnosticLog(ctx, "flow_start", s.stickyDiagnosticFlowFields(ctx, network, destination)...)
-		}
+		s.stickyDiagnosticLog(ctx, "flow_start", s.stickyDiagnosticFlowFields(ctx, network, destination)...)
 	}
 	var stickyKey string
 	var stickyFlight *stickyFlight
@@ -1165,7 +1411,7 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 		stickyKey = appStickyKey(ctx)
 		if stickyKey != "" {
 			var err error
-			stickyFlight, stickyRevision, err = s.beginStickyDial(ctx, stickyKey)
+			stickyFlight, stickyRevision, err = s.beginStickyDialForFlow(ctx, stickyKey, stickyTrace)
 			if err != nil {
 				if s.stickyDiagnostic {
 					s.stickyDiagnosticLog(ctx, "flow_abort", stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)))
@@ -1173,11 +1419,11 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 				return nil, err
 			}
 			if stickyFlight != nil {
-				defer s.finishStickyDial(stickyKey, stickyFlight, -1)
+				defer s.finishStickyDialForFlow(ctx, stickyKey, stickyFlight, -1, "no_success")
 			}
 		}
 	}
-	indices := s.candidateIndices(ctx, destination)
+	indices := s.candidateIndicesForFlow(ctx, destination, stickyTrace)
 	n := len(indices)
 	if n == 0 {
 		if s.stickyDiagnostic {
@@ -1254,7 +1500,7 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
-			s.recordStickyDialSuccess(ctx, destination, stickyKey, stickyFlight, stickyRevision, idx)
+			s.recordStickyDialSuccess(ctx, destination, stickyKey, stickyFlight, stickyRevision, idx, stickyTrace)
 			if s.stickyDiagnostic {
 				s.stickyDiagnosticLog(ctx, "flow_result",
 					stickyDiagnosticQuotedField("result", "success"),
@@ -1280,11 +1526,30 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 		if idx < len(s.stats) && s.stats[idx] != nil {
 			s.stats[idx].recordFailure()
 		}
+		if stickyTrace != nil && stickyTrace.hasBinding && idx == stickyTrace.boundMemberIdx {
+			stickyTrace.boundMemberFailed = true
+			stickyTrace.boundFailureAttempt = i + 1
+			stickyTrace.boundFailureClass = stickyDiagnosticErrorClass(err)
+		}
 		if s.stickyDiagnostic {
 			s.stickyDiagnosticLog(ctx, "attempt_result",
 				stickyDiagnosticInt("candidate_idx", idx),
 				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
 				stickyDiagnosticQuotedField("result", "failure"),
+				stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)),
+			)
+		}
+		if s.stickyDiagnostic && stickyKey != "" && i < n-1 {
+			reason := "candidate_failure"
+			if stickyTrace != nil && stickyTrace.hasBinding && idx == stickyTrace.boundMemberIdx {
+				reason = "bound_member_failure"
+			}
+			s.stickyDiagnosticLog(ctx, "dial_fallback",
+				stickyDiagnosticQuotedField("reason", reason),
+				stickyDiagnosticInt("failed_idx", idx),
+				stickyDiagnosticQuotedField("failed_member", stickyDiagnosticMemberLabel(s, idx)),
+				stickyDiagnosticInt("next_idx", indices[i+1]),
+				stickyDiagnosticInt("attempt", i+1),
 				stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)),
 			)
 		}
@@ -1341,6 +1606,7 @@ func (c *trackedPacketConn) SyscallConn() (syscall.RawConn, error) {
 func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
 	ctx = s.stickyDiagnosticWithFlowID(ctx)
 	s.Touch()
+	stickyTrace := newStickyDialDiagnosticState(s.stickyDiagnostic)
 	if s.stickyDiagnostic {
 		if s.stickyDiagnostic {
 			s.stickyDiagnosticLog(ctx, "flow_start", s.stickyDiagnosticFlowFields(ctx, "udp", destination)...)
@@ -1353,7 +1619,7 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 		stickyKey = appStickyKey(ctx)
 		if stickyKey != "" {
 			var err error
-			stickyFlight, stickyRevision, err = s.beginStickyDial(ctx, stickyKey)
+			stickyFlight, stickyRevision, err = s.beginStickyDialForFlow(ctx, stickyKey, stickyTrace)
 			if err != nil {
 				if s.stickyDiagnostic {
 					s.stickyDiagnosticLog(ctx, "flow_abort", stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)))
@@ -1361,11 +1627,11 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 				return nil, err
 			}
 			if stickyFlight != nil {
-				defer s.finishStickyDial(stickyKey, stickyFlight, -1)
+				defer s.finishStickyDialForFlow(ctx, stickyKey, stickyFlight, -1, "no_success")
 			}
 		}
 	}
-	indices := s.candidateIndices(ctx, destination)
+	indices := s.candidateIndicesForFlow(ctx, destination, stickyTrace)
 	n := len(indices)
 	if n == 0 {
 		if s.stickyDiagnostic {
@@ -1442,7 +1708,7 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
-			s.recordStickyDialSuccess(ctx, destination, stickyKey, stickyFlight, stickyRevision, idx)
+			s.recordStickyDialSuccess(ctx, destination, stickyKey, stickyFlight, stickyRevision, idx, stickyTrace)
 			if s.stickyDiagnostic {
 				s.stickyDiagnosticLog(ctx, "flow_result",
 					stickyDiagnosticQuotedField("result", "success"),
@@ -1468,11 +1734,30 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 		if idx < len(s.stats) && s.stats[idx] != nil {
 			s.stats[idx].recordFailure()
 		}
+		if stickyTrace != nil && stickyTrace.hasBinding && idx == stickyTrace.boundMemberIdx {
+			stickyTrace.boundMemberFailed = true
+			stickyTrace.boundFailureAttempt = i + 1
+			stickyTrace.boundFailureClass = stickyDiagnosticErrorClass(err)
+		}
 		if s.stickyDiagnostic {
 			s.stickyDiagnosticLog(ctx, "attempt_result",
 				stickyDiagnosticInt("candidate_idx", idx),
 				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
 				stickyDiagnosticQuotedField("result", "failure"),
+				stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)),
+			)
+		}
+		if s.stickyDiagnostic && stickyKey != "" && i < n-1 {
+			reason := "candidate_failure"
+			if stickyTrace != nil && stickyTrace.hasBinding && idx == stickyTrace.boundMemberIdx {
+				reason = "bound_member_failure"
+			}
+			s.stickyDiagnosticLog(ctx, "dial_fallback",
+				stickyDiagnosticQuotedField("reason", reason),
+				stickyDiagnosticInt("failed_idx", idx),
+				stickyDiagnosticQuotedField("failed_member", stickyDiagnosticMemberLabel(s, idx)),
+				stickyDiagnosticInt("next_idx", indices[i+1]),
+				stickyDiagnosticInt("attempt", i+1),
 				stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)),
 			)
 		}
