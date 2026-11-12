@@ -214,6 +214,8 @@ type LoadBalance struct {
 	access                       sync.Mutex
 	stickyMu                     sync.RWMutex
 	stickySessions               map[string]stickyEntry
+	stickyFlights                map[string]*stickyFlight
+	stickyRevision               atomic.Uint64
 	lastSelectedIdx              atomic.Int32
 }
 
@@ -248,6 +250,7 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		interruptExternalConnections: options.InterruptExistConnections,
 		interruptGroup:               interrupt.NewGroup(),
 		stickySessions:               make(map[string]stickyEntry),
+		stickyFlights:                make(map[string]*stickyFlight),
 		close:                        make(chan struct{}),
 	}
 	lb.lastSelectedIdx.Store(-1)
@@ -447,8 +450,14 @@ func extractRootDomain(fqdn string) string {
 
 type stickyEntry struct {
 	nodeIdx    int
+	revision   uint64
 	lastAccess int64 // UnixMilli
 	expireAt   int64 // UnixMilli
+}
+
+type stickyFlight struct {
+	done    chan struct{}
+	waiters atomic.Int32
 }
 
 func (s *LoadBalance) isStickyEnabled() bool {
@@ -561,8 +570,39 @@ func (s *LoadBalance) setStickySession(key string, nodeIdx int) {
 	now := time.Now().UnixMilli()
 	s.stickyMu.Lock()
 	defer s.stickyMu.Unlock()
+	s.setStickySessionLocked(key, nodeIdx, now)
+}
+
+func (s *LoadBalance) setStickySessionIfRevision(key string, nodeIdx int, expectedRevision uint64) bool {
+	if key == "" || nodeIdx < 0 || nodeIdx >= len(s.outbounds) {
+		return false
+	}
+	now := time.Now().UnixMilli()
+	s.stickyMu.Lock()
+	defer s.stickyMu.Unlock()
+	entry, ok := s.stickySessions[key]
+	if !ok || now > entry.expireAt {
+		if ok {
+			delete(s.stickySessions, key)
+		}
+		return false
+	}
+	if entry.revision != expectedRevision {
+		return false
+	}
+	s.setStickySessionLocked(key, nodeIdx, now)
+	return true
+}
+
+func (s *LoadBalance) setStickySessionLocked(key string, nodeIdx int, now int64) {
 	if s.stickySessions == nil {
 		s.stickySessions = make(map[string]stickyEntry)
+	}
+	if entry, ok := s.stickySessions[key]; ok && now <= entry.expireAt && entry.nodeIdx == nodeIdx {
+		entry.lastAccess = now
+		entry.expireAt = now + 5*60*1000
+		s.stickySessions[key] = entry
+		return
 	}
 	if len(s.stickySessions) >= 1024 {
 		for k, v := range s.stickySessions {
@@ -586,8 +626,104 @@ func (s *LoadBalance) setStickySession(key string, nodeIdx int) {
 	}
 	s.stickySessions[key] = stickyEntry{
 		nodeIdx:    nodeIdx,
+		revision:   s.stickyRevision.Add(1),
 		lastAccess: now,
 		expireAt:   now + 5*60*1000,
+	}
+}
+
+func (s *LoadBalance) beginStickyDial(ctx context.Context, key string) (*stickyFlight, uint64, error) {
+	if key == "" {
+		return nil, 0, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
+		now := time.Now().UnixMilli()
+		s.stickyMu.Lock()
+		if entry, ok := s.stickySessions[key]; ok {
+			if now <= entry.expireAt && entry.nodeIdx >= 0 && entry.nodeIdx < len(s.outbounds) {
+				entry.lastAccess = now
+				entry.expireAt = now + 5*60*1000
+				s.stickySessions[key] = entry
+				s.stickyMu.Unlock()
+				return nil, entry.revision, nil
+			}
+			delete(s.stickySessions, key)
+		}
+		if s.stickyFlights == nil {
+			s.stickyFlights = make(map[string]*stickyFlight)
+		}
+		if flight := s.stickyFlights[key]; flight != nil {
+			done := flight.done
+			flight.waiters.Add(1)
+			s.stickyMu.Unlock()
+			select {
+			case <-done:
+				flight.waiters.Add(-1)
+				continue
+			case <-ctx.Done():
+				flight.waiters.Add(-1)
+				return nil, 0, ctx.Err()
+			}
+		}
+		flight := &stickyFlight{done: make(chan struct{})}
+		s.stickyFlights[key] = flight
+		s.stickyMu.Unlock()
+		go s.watchStickyDialCancellation(ctx, key, flight)
+		return flight, 0, nil
+	}
+}
+
+func (s *LoadBalance) watchStickyDialCancellation(ctx context.Context, key string, flight *stickyFlight) {
+	select {
+	case <-flight.done:
+		return
+	case <-ctx.Done():
+		s.stickyMu.Lock()
+		defer s.stickyMu.Unlock()
+		if s.stickyFlights[key] == flight {
+			delete(s.stickyFlights, key)
+			close(flight.done)
+		}
+	}
+}
+
+func (s *LoadBalance) finishStickyDial(key string, flight *stickyFlight, nodeIdx int) bool {
+	if key == "" || flight == nil {
+		return false
+	}
+	s.stickyMu.Lock()
+	defer s.stickyMu.Unlock()
+	if s.stickyFlights[key] != flight {
+		return false
+	}
+	if nodeIdx >= 0 {
+		s.setStickySessionLocked(key, nodeIdx, time.Now().UnixMilli())
+	}
+	delete(s.stickyFlights, key)
+	close(flight.done)
+	return true
+}
+
+func (s *LoadBalance) recordStickyDialSuccess(ctx context.Context, destination M.Socksaddr, coordinationKey string, flight *stickyFlight, expectedRevision uint64, nodeIdx int) {
+	if !s.isStickyEnabled() {
+		return
+	}
+	sessionKey := s.stickySessionKey(ctx, destination)
+	if sessionKey == "" {
+		return
+	}
+	if flight != nil && sessionKey == coordinationKey {
+		s.finishStickyDial(coordinationKey, flight, nodeIdx)
+	} else if coordinationKey != "" && sessionKey == coordinationKey {
+		s.setStickySessionIfRevision(sessionKey, nodeIdx, expectedRevision)
+	} else {
+		s.setStickySession(sessionKey, nodeIdx)
 	}
 }
 
@@ -919,6 +1055,22 @@ func (c *trackedConn) SyscallConn() (syscall.RawConn, error) {
 
 func (s *LoadBalance) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
 	s.Touch()
+	var stickyKey string
+	var stickyFlight *stickyFlight
+	var stickyRevision uint64
+	if s.stickyByApp {
+		stickyKey = appStickyKey(ctx)
+		if stickyKey != "" {
+			var err error
+			stickyFlight, stickyRevision, err = s.beginStickyDial(ctx, stickyKey)
+			if err != nil {
+				return nil, err
+			}
+			if stickyFlight != nil {
+				defer s.finishStickyDial(stickyKey, stickyFlight, -1)
+			}
+		}
+	}
 	indices := s.candidateIndices(ctx, destination)
 	n := len(indices)
 	if n == 0 {
@@ -961,16 +1113,15 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 			conn, err = candidate.DialContext(ctx, network, destination)
 		}
 		if err == nil {
+			if stickyKey != "" && ctx.Err() != nil {
+				conn.Close()
+				return nil, ctx.Err()
+			}
 			adapter.RecordActiveOutbound(ctx, candidate.Tag())
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
-			if s.isStickyEnabled() {
-				stickyKey := s.stickySessionKey(ctx, destination)
-				if stickyKey != "" {
-					s.setStickySession(stickyKey, idx)
-				}
-			}
+			s.recordStickyDialSuccess(ctx, destination, stickyKey, stickyFlight, stickyRevision, idx)
 			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {
 				s.activeConns[idx].Add(1)
 				conn = &trackedConn{
@@ -1033,6 +1184,22 @@ func (c *trackedPacketConn) SyscallConn() (syscall.RawConn, error) {
 
 func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
 	s.Touch()
+	var stickyKey string
+	var stickyFlight *stickyFlight
+	var stickyRevision uint64
+	if s.stickyByApp {
+		stickyKey = appStickyKey(ctx)
+		if stickyKey != "" {
+			var err error
+			stickyFlight, stickyRevision, err = s.beginStickyDial(ctx, stickyKey)
+			if err != nil {
+				return nil, err
+			}
+			if stickyFlight != nil {
+				defer s.finishStickyDial(stickyKey, stickyFlight, -1)
+			}
+		}
+	}
 	indices := s.candidateIndices(ctx, destination)
 	n := len(indices)
 	if n == 0 {
@@ -1075,16 +1242,15 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 			conn, err = candidate.ListenPacket(ctx, destination)
 		}
 		if err == nil {
+			if stickyKey != "" && ctx.Err() != nil {
+				conn.Close()
+				return nil, ctx.Err()
+			}
 			adapter.RecordActiveOutbound(ctx, candidate.Tag())
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
-			if s.isStickyEnabled() {
-				stickyKey := s.stickySessionKey(ctx, destination)
-				if stickyKey != "" {
-					s.setStickySession(stickyKey, idx)
-				}
-			}
+			s.recordStickyDialSuccess(ctx, destination, stickyKey, stickyFlight, stickyRevision, idx)
 			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {
 				s.activeConns[idx].Add(1)
 				conn = &trackedPacketConn{

@@ -154,8 +154,8 @@ jobs:
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_VERSION_NAME="26.11.3.79"
-          EXPECTED_VERSION_CODE=2395
+          EXPECTED_VERSION_NAME="26.11.3.80"
+          EXPECTED_VERSION_CODE=2400
           EXPECTED_ABIS=(arm64-v8a)
           declare -A FOUND_ABIS=()
           APK_COUNT=0
@@ -226,12 +226,12 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBox 26.11.3.79 — Strategy group reliability and live traffic stats'
+            echo '### MyBox 26.11.3.80 — Per-app sticky first-dial coordination'
             echo '- Build type: Release (OSS), not Preview or Debug'
             echo '- Package: com.ownbox.fork'
-            echo '- Version: 26.11.3.79 (versionCode: 2395); no public tag or Release created'
+            echo '- Version: 26.11.3.80 (versionCode: 2400); no public tag or Release created'
             echo "- Commit: ${GITHUB_SHA}"
-            echo '- Changelog: list-type Balancers can opt into per-app sticky members; URL/TCP tests cover group members; auto-hide keeps groups with available members; notifications use outer Balancer proxy counters without member double-counting; direct/bypass tags are sampled'
+            echo '- Changelog: concurrent initial TCP/UDP dials for an app and strategy group share one successful member; failures retain ordered fallback; canceled stale dials cannot overwrite a newer binding; other apps/groups and sticky-disabled behavior remain independent'
             echo '- ABI coverage: exactly one arm64-v8a APK'
             echo '- Signing certificate: verified against the established public fingerprint'
             echo '- Unit tests: Go load-balance tests and OSS Release Android unit tests passed before APK build'
@@ -239,7 +239,7 @@ jobs:
       - name: Upload verified OSS Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-OSS-Release-26.11.3.79-arm64-v8a
-          path: ${{ env.APK_DIR }}/MyBox-26.11.3.79-arm64-v8a.apk
+          name: MyBox-OSS-Release-26.11.3.80-arm64-v8a
+          path: ${{ env.APK_DIR }}/MyBox-26.11.3.80-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14
