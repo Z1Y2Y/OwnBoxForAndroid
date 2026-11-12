@@ -1,5 +1,15 @@
 # OwnBox for Android 更新日志 (Changelog)
 
+# MyBox for Android v26.11.3.81 临时诊断测试版
+
+### 按应用粘性诊断
+* 仅此诊断 APK 用专用 Go build tag 编译 `sticky_diag` 事件，正式构建默认关闭。事件含组实例、flow ID、进程身份状态、mux/detour 标记、TCP/UDP 候选序号、拨号结果及最终成功绑定/fallback；组、成员、路由与应用标签仅记进程内加盐 HMAC 短 hash，同一进程内稳定，重启后会变化。
+* 不记录原始应用包名、组/节点标签、目标域名/IP、URL 查询参数、订阅/凭据或原始错误文本；错误仅记固定类别，且现有日志导出脱敏仍生效。
+* 无需额外打开诊断开关；安装后按原配置复现并导出 MyBox 日志即可。请在 ChatGPT 请求发生时保留完整日志窗口。
+
+### 安装提示
+* 使用独立包名 `com.ownbox.fork.diag`，沿用正式签名证书，与正式版共存且不会覆盖或修改正式版数据；诊断版使用独立数据目录，需要在诊断版中单独导入配置。`versionCode` 为 2405，桌面应用名称显示为“MyBox诊断”。此为临时测试产物，不创建 tag 或公开 Release。
+
 # MyBox for Android v26.11.3.80 正式版（产物构建）
 
 ### 同应用粘性拨号修复

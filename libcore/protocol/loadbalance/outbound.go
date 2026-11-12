@@ -40,9 +40,10 @@ const TypeLoadBalance = "loadbalance"
 
 type LoadBalanceOptions struct {
 	option.URLTestOutboundOptions
-	Strategy    string `json:"strategy,omitempty"`
-	Default     string `json:"default,omitempty"`
-	StickyByApp bool   `json:"sticky_by_app,omitempty"`
+	Strategy         string `json:"strategy,omitempty"`
+	Default          string `json:"default,omitempty"`
+	StickyByApp      bool   `json:"sticky_by_app,omitempty"`
+	StickyDiagnostic bool   `json:"sticky_diagnostic,omitempty"`
 }
 
 func RegisterLoadBalance(registry *outbound.Registry) {
@@ -217,6 +218,10 @@ type LoadBalance struct {
 	stickyFlights                map[string]*stickyFlight
 	stickyRevision               atomic.Uint64
 	lastSelectedIdx              atomic.Int32
+	stickyDiagnostic             bool
+	diagnosticInstanceID         uint64
+	diagnosticFlowSequence       atomic.Uint64
+	diagnosticGroupTag           string
 }
 
 func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options LoadBalanceOptions) (adapter.Outbound, error) {
@@ -243,6 +248,8 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		tags:                         options.Outbounds,
 		strategy:                     options.Strategy,
 		stickyByApp:                  options.StickyByApp,
+		stickyDiagnostic:             stickyDiagnosticEnabled(options.StickyDiagnostic),
+		diagnosticGroupTag:           tag,
 		link:                         link,
 		interval:                     interval,
 		tolerance:                    options.Tolerance,
@@ -254,6 +261,22 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		close:                        make(chan struct{}),
 	}
 	lb.lastSelectedIdx.Store(-1)
+	if lb.stickyDiagnostic {
+		lb.diagnosticInstanceID = nextStickyDiagnosticInstanceID()
+		memberOrder := make([]int, len(lb.tags))
+		for i := range memberOrder {
+			memberOrder[i] = i
+		}
+		if lb.stickyDiagnostic {
+			lb.stickyDiagnosticLog(ctx, "lb_init",
+				stickyDiagnosticBool("sticky_by_app", lb.stickyByApp),
+				stickyDiagnosticBool("proxy_tag", tag == "proxy"),
+				stickyDiagnosticQuotedField("strategy", stickyDiagnosticStrategy(lb.strategy)),
+				stickyDiagnosticInt("member_count", len(lb.tags)),
+				stickyDiagnosticQuotedField("members", stickyDiagnosticCandidateOrder(lb, memberOrder)),
+			)
+		}
+	}
 	if len(lb.tags) == 0 {
 		return nil, E.New("missing tags")
 	}
@@ -641,6 +664,9 @@ func (s *LoadBalance) beginStickyDial(ctx context.Context, key string) (*stickyF
 	}
 	for {
 		if err := ctx.Err(); err != nil {
+			if s.stickyDiagnostic {
+				s.stickyDiagnosticLog(ctx, "flight_cancelled", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+			}
 			return nil, 0, err
 		}
 		now := time.Now().UnixMilli()
@@ -651,6 +677,13 @@ func (s *LoadBalance) beginStickyDial(ctx context.Context, key string) (*stickyF
 				entry.expireAt = now + 5*60*1000
 				s.stickySessions[key] = entry
 				s.stickyMu.Unlock()
+				if s.stickyDiagnostic {
+					s.stickyDiagnosticLog(ctx, "sticky_hit",
+						stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+						stickyDiagnosticInt("member_idx", entry.nodeIdx),
+						stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, entry.nodeIdx)),
+					)
+				}
 				return nil, entry.revision, nil
 			}
 			delete(s.stickySessions, key)
@@ -662,18 +695,33 @@ func (s *LoadBalance) beginStickyDial(ctx context.Context, key string) (*stickyF
 			done := flight.done
 			flight.waiters.Add(1)
 			s.stickyMu.Unlock()
+			if s.stickyDiagnostic {
+				s.stickyDiagnosticLog(ctx, "flight_wait",
+					stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+					stickyDiagnosticInt("waiters", int(flight.waiters.Load())),
+				)
+			}
 			select {
 			case <-done:
 				flight.waiters.Add(-1)
+				if s.stickyDiagnostic {
+					s.stickyDiagnosticLog(ctx, "flight_wakeup", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+				}
 				continue
 			case <-ctx.Done():
 				flight.waiters.Add(-1)
+				if s.stickyDiagnostic {
+					s.stickyDiagnosticLog(ctx, "flight_wait_cancel", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+				}
 				return nil, 0, ctx.Err()
 			}
 		}
 		flight := &stickyFlight{done: make(chan struct{})}
 		s.stickyFlights[key] = flight
 		s.stickyMu.Unlock()
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "flight_leader", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+		}
 		go s.watchStickyDialCancellation(ctx, key, flight)
 		return flight, 0, nil
 	}
@@ -685,10 +733,17 @@ func (s *LoadBalance) watchStickyDialCancellation(ctx context.Context, key strin
 		return
 	case <-ctx.Done():
 		s.stickyMu.Lock()
-		defer s.stickyMu.Unlock()
+		removed := false
 		if s.stickyFlights[key] == flight {
 			delete(s.stickyFlights, key)
 			close(flight.done)
+			removed = true
+		}
+		s.stickyMu.Unlock()
+		if removed {
+			if s.stickyDiagnostic {
+				s.stickyDiagnosticLog(ctx, "flight_owner_cancel", stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)))
+			}
 		}
 	}
 }
@@ -698,8 +753,8 @@ func (s *LoadBalance) finishStickyDial(key string, flight *stickyFlight, nodeIdx
 		return false
 	}
 	s.stickyMu.Lock()
-	defer s.stickyMu.Unlock()
 	if s.stickyFlights[key] != flight {
+		s.stickyMu.Unlock()
 		return false
 	}
 	if nodeIdx >= 0 {
@@ -707,6 +762,24 @@ func (s *LoadBalance) finishStickyDial(key string, flight *stickyFlight, nodeIdx
 	}
 	delete(s.stickyFlights, key)
 	close(flight.done)
+	s.stickyMu.Unlock()
+	if nodeIdx >= 0 {
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(context.Background(), "flight_finish",
+				stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+				stickyDiagnosticQuotedField("result", "bound"),
+				stickyDiagnosticInt("member_idx", nodeIdx),
+				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, nodeIdx)),
+			)
+		}
+	} else {
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(context.Background(), "flight_finish",
+				stickyDiagnosticQuotedField("key_hash", stickyDiagnosticHash(key)),
+				stickyDiagnosticQuotedField("result", "released_without_success"),
+			)
+		}
+	}
 	return true
 }
 
@@ -719,11 +792,35 @@ func (s *LoadBalance) recordStickyDialSuccess(ctx context.Context, destination M
 		return
 	}
 	if flight != nil && sessionKey == coordinationKey {
-		s.finishStickyDial(coordinationKey, flight, nodeIdx)
+		committed := s.finishStickyDial(coordinationKey, flight, nodeIdx)
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "sticky_bind",
+				stickyDiagnosticQuotedField("source", "first_dial"),
+				stickyDiagnosticBool("committed", committed),
+				stickyDiagnosticInt("member_idx", nodeIdx),
+				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, nodeIdx)),
+			)
+		}
 	} else if coordinationKey != "" && sessionKey == coordinationKey {
-		s.setStickySessionIfRevision(sessionKey, nodeIdx, expectedRevision)
+		updated := s.setStickySessionIfRevision(sessionKey, nodeIdx, expectedRevision)
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "sticky_bind",
+				stickyDiagnosticQuotedField("source", "revision_guarded_fallback"),
+				stickyDiagnosticBool("committed", updated),
+				stickyDiagnosticInt("member_idx", nodeIdx),
+				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, nodeIdx)),
+			)
+		}
 	} else {
 		s.setStickySession(sessionKey, nodeIdx)
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "sticky_bind",
+				stickyDiagnosticQuotedField("source", "session_key"),
+				stickyDiagnosticBool("committed", true),
+				stickyDiagnosticInt("member_idx", nodeIdx),
+				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, nodeIdx)),
+			)
+		}
 	}
 }
 
@@ -1054,7 +1151,13 @@ func (c *trackedConn) SyscallConn() (syscall.RawConn, error) {
 }
 
 func (s *LoadBalance) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	ctx = s.stickyDiagnosticWithFlowID(ctx)
 	s.Touch()
+	if s.stickyDiagnostic {
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "flow_start", s.stickyDiagnosticFlowFields(ctx, network, destination)...)
+		}
+	}
 	var stickyKey string
 	var stickyFlight *stickyFlight
 	var stickyRevision uint64
@@ -1064,6 +1167,9 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 			var err error
 			stickyFlight, stickyRevision, err = s.beginStickyDial(ctx, stickyKey)
 			if err != nil {
+				if s.stickyDiagnostic {
+					s.stickyDiagnosticLog(ctx, "flow_abort", stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)))
+				}
 				return nil, err
 			}
 			if stickyFlight != nil {
@@ -1074,11 +1180,24 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 	indices := s.candidateIndices(ctx, destination)
 	n := len(indices)
 	if n == 0 {
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "flow_result", stickyDiagnosticQuotedField("result", "no_candidates"))
+		}
 		return nil, E.New("no outbounds available")
+	}
+	if s.stickyDiagnostic {
+		s.stickyDiagnosticLog(ctx, "candidate_order", stickyDiagnosticQuotedField("order", stickyDiagnosticCandidateOrder(s, indices)))
 	}
 	var lastErr error
 	for i, idx := range indices {
 		candidate := s.outbounds[idx]
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "attempt_start",
+				stickyDiagnosticInt("candidate_idx", idx),
+				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+				stickyDiagnosticInt("attempt", i+1),
+			)
+		}
 		var (
 			conn net.Conn
 			err  error
@@ -1115,13 +1234,35 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 		if err == nil {
 			if stickyKey != "" && ctx.Err() != nil {
 				conn.Close()
+				if s.stickyDiagnostic {
+					s.stickyDiagnosticLog(ctx, "attempt_discarded",
+						stickyDiagnosticInt("candidate_idx", idx),
+						stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+						stickyDiagnosticQuotedField("reason", "context_cancelled"),
+					)
+				}
 				return nil, ctx.Err()
+			}
+			if s.stickyDiagnostic {
+				s.stickyDiagnosticLog(ctx, "attempt_result",
+					stickyDiagnosticInt("candidate_idx", idx),
+					stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+					stickyDiagnosticQuotedField("result", "success"),
+				)
 			}
 			adapter.RecordActiveOutbound(ctx, candidate.Tag())
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
 			s.recordStickyDialSuccess(ctx, destination, stickyKey, stickyFlight, stickyRevision, idx)
+			if s.stickyDiagnostic {
+				s.stickyDiagnosticLog(ctx, "flow_result",
+					stickyDiagnosticQuotedField("result", "success"),
+					stickyDiagnosticQuotedField("transport", "tcp"),
+					stickyDiagnosticInt("member_idx", idx),
+					stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+				)
+			}
 			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {
 				s.activeConns[idx].Add(1)
 				conn = &trackedConn{
@@ -1139,7 +1280,22 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 		if idx < len(s.stats) && s.stats[idx] != nil {
 			s.stats[idx].recordFailure()
 		}
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "attempt_result",
+				stickyDiagnosticInt("candidate_idx", idx),
+				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+				stickyDiagnosticQuotedField("result", "failure"),
+				stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)),
+			)
+		}
 		lastErr = err
+	}
+	if s.stickyDiagnostic {
+		s.stickyDiagnosticLog(ctx, "flow_result",
+			stickyDiagnosticQuotedField("result", "failure"),
+			stickyDiagnosticQuotedField("transport", "tcp"),
+			stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(lastErr)),
+		)
 	}
 	return nil, lastErr
 }
@@ -1183,7 +1339,13 @@ func (c *trackedPacketConn) SyscallConn() (syscall.RawConn, error) {
 }
 
 func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+	ctx = s.stickyDiagnosticWithFlowID(ctx)
 	s.Touch()
+	if s.stickyDiagnostic {
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "flow_start", s.stickyDiagnosticFlowFields(ctx, "udp", destination)...)
+		}
+	}
 	var stickyKey string
 	var stickyFlight *stickyFlight
 	var stickyRevision uint64
@@ -1193,6 +1355,9 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 			var err error
 			stickyFlight, stickyRevision, err = s.beginStickyDial(ctx, stickyKey)
 			if err != nil {
+				if s.stickyDiagnostic {
+					s.stickyDiagnosticLog(ctx, "flow_abort", stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)))
+				}
 				return nil, err
 			}
 			if stickyFlight != nil {
@@ -1203,11 +1368,24 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 	indices := s.candidateIndices(ctx, destination)
 	n := len(indices)
 	if n == 0 {
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "flow_result", stickyDiagnosticQuotedField("result", "no_candidates"))
+		}
 		return nil, E.New("no outbounds available")
+	}
+	if s.stickyDiagnostic {
+		s.stickyDiagnosticLog(ctx, "candidate_order", stickyDiagnosticQuotedField("order", stickyDiagnosticCandidateOrder(s, indices)))
 	}
 	var lastErr error
 	for i, idx := range indices {
 		candidate := s.outbounds[idx]
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "attempt_start",
+				stickyDiagnosticInt("candidate_idx", idx),
+				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+				stickyDiagnosticInt("attempt", i+1),
+			)
+		}
 		var (
 			conn net.PacketConn
 			err  error
@@ -1244,13 +1422,35 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 		if err == nil {
 			if stickyKey != "" && ctx.Err() != nil {
 				conn.Close()
+				if s.stickyDiagnostic {
+					s.stickyDiagnosticLog(ctx, "attempt_discarded",
+						stickyDiagnosticInt("candidate_idx", idx),
+						stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+						stickyDiagnosticQuotedField("reason", "context_cancelled"),
+					)
+				}
 				return nil, ctx.Err()
+			}
+			if s.stickyDiagnostic {
+				s.stickyDiagnosticLog(ctx, "attempt_result",
+					stickyDiagnosticInt("candidate_idx", idx),
+					stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+					stickyDiagnosticQuotedField("result", "success"),
+				)
 			}
 			adapter.RecordActiveOutbound(ctx, candidate.Tag())
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
 			s.recordStickyDialSuccess(ctx, destination, stickyKey, stickyFlight, stickyRevision, idx)
+			if s.stickyDiagnostic {
+				s.stickyDiagnosticLog(ctx, "flow_result",
+					stickyDiagnosticQuotedField("result", "success"),
+					stickyDiagnosticQuotedField("transport", "udp"),
+					stickyDiagnosticInt("member_idx", idx),
+					stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+				)
+			}
 			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {
 				s.activeConns[idx].Add(1)
 				conn = &trackedPacketConn{
@@ -1268,7 +1468,22 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 		if idx < len(s.stats) && s.stats[idx] != nil {
 			s.stats[idx].recordFailure()
 		}
+		if s.stickyDiagnostic {
+			s.stickyDiagnosticLog(ctx, "attempt_result",
+				stickyDiagnosticInt("candidate_idx", idx),
+				stickyDiagnosticQuotedField("member", stickyDiagnosticMemberLabel(s, idx)),
+				stickyDiagnosticQuotedField("result", "failure"),
+				stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(err)),
+			)
+		}
 		lastErr = err
+	}
+	if s.stickyDiagnostic {
+		s.stickyDiagnosticLog(ctx, "flow_result",
+			stickyDiagnosticQuotedField("result", "failure"),
+			stickyDiagnosticQuotedField("transport", "udp"),
+			stickyDiagnosticQuotedField("error_class", stickyDiagnosticErrorClass(lastErr)),
+		)
 	}
 	return nil, lastErr
 }

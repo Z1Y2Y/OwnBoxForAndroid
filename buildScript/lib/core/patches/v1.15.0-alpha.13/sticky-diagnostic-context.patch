@@ -1,0 +1,116 @@
+diff --git a/adapter/inbound.go b/adapter/inbound.go
+index 02340e1..65ca063 100644
+--- a/adapter/inbound.go
++++ b/adapter/inbound.go
+@@ -57,10 +57,11 @@ type InboundContext struct {
+ 
+ 	// power report
+ 
+-	RouteRule             string
+-	RouteOutbound         string
+-	OutboundChain         []Outbound
+-	ActiveOutboundTracker *atomic.Pointer[string]
++	RouteRule                  string
++	RouteOutbound              string
++	OutboundChain              []Outbound
++	ActiveOutboundTracker      *atomic.Pointer[string]
++	StickyDiagnosticMuxSession bool
+ 
+ 	// sniffer
+ 
+@@ -198,11 +199,34 @@ func ContextForMultiplexSession(ctx context.Context) context.Context {
+ 	if metadata != nil {
+ 		sessionContext.Outbound = metadata.Outbound
+ 	}
++	sessionContext.StickyDiagnosticMuxSession = stickyDiagnosticBuildEnabled
+ 	ctx = ContextWithDNSTransportTag(ctx, "")
+ 	ctx = interrupt.ContextWithIsExternalConnection(ctx, false)
+ 	return WithContext(ctx, &sessionContext)
+ }
+ 
++type stickyDiagnosticDetourPathKey struct{}
++
++func StickyDiagnosticDetourPathFromContext(ctx context.Context) []string {
++	if ctx == nil {
++		return nil
++	}
++	path, _ := ctx.Value(stickyDiagnosticDetourPathKey{}).([]string)
++	return append([]string(nil), path...)
++}
++
++func ContextWithStickyDiagnosticDetour(ctx context.Context, outboundTag string) context.Context {
++	if !stickyDiagnosticBuildEnabled || ctx == nil || outboundTag == "" {
++		return ctx
++	}
++	path := StickyDiagnosticDetourPathFromContext(ctx)
++	if len(path) >= 8 {
++		return ctx
++	}
++	path = append(path, outboundTag)
++	return context.WithValue(ctx, stickyDiagnosticDetourPathKey{}, path)
++}
++
+ func WithContext(ctx context.Context, inboundContext *InboundContext) context.Context {
+ 	return context.WithValue(ctx, (*inboundContextKey)(nil), inboundContext)
+ }
+diff --git a/adapter/sticky_diagnostic_build_disabled.go b/adapter/sticky_diagnostic_build_disabled.go
+new file mode 100644
+index 0000000..b546f8a
+--- /dev/null
++++ b/adapter/sticky_diagnostic_build_disabled.go
+@@ -0,0 +1,5 @@
++//go:build !mybox_sticky_diagnostic
++
++package adapter
++
++const stickyDiagnosticBuildEnabled = false
+diff --git a/adapter/sticky_diagnostic_build_enabled.go b/adapter/sticky_diagnostic_build_enabled.go
+new file mode 100644
+index 0000000..7443b62
+--- /dev/null
++++ b/adapter/sticky_diagnostic_build_enabled.go
+@@ -0,0 +1,5 @@
++//go:build mybox_sticky_diagnostic
++
++package adapter
++
++const stickyDiagnosticBuildEnabled = true
+diff --git a/common/dialer/detour.go b/common/dialer/detour.go
+index b2fc3ef..e0d3d6d 100644
+--- a/common/dialer/detour.go
++++ b/common/dialer/detour.go
+@@ -54,6 +54,16 @@ func (d *DetourDialer) Dialer() (N.Dialer, error) {
+ 	return d.dialer, d.initErr
+ }
+ 
++func (d *DetourDialer) contextWithDiagnosticDetour(ctx context.Context, dialer N.Dialer) context.Context {
++	tag := d.detour
++	if tag == "" {
++		if outbound, ok := dialer.(adapter.Outbound); ok {
++			tag = outbound.Tag()
++		}
++	}
++	return adapter.ContextWithStickyDiagnosticDetour(ctx, tag)
++}
++
+ func (d *DetourDialer) init() {
+ 	var dialer adapter.Outbound
+ 	if d.detour != "" {
+@@ -82,7 +92,7 @@ func (d *DetourDialer) DialContext(ctx context.Context, network string, destinat
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	return dialer.DialContext(ctx, network, destination)
++	return dialer.DialContext(d.contextWithDiagnosticDetour(ctx, dialer), network, destination)
+ }
+ 
+ func (d *DetourDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+@@ -90,7 +100,7 @@ func (d *DetourDialer) ListenPacket(ctx context.Context, destination M.Socksaddr
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	return dialer.ListenPacket(ctx, destination)
++	return dialer.ListenPacket(d.contextWithDiagnosticDetour(ctx, dialer), destination)
+ }
+ 
+ func (d *DetourDialer) Upstream() any {

@@ -63,6 +63,9 @@ const val TAG_DNS_HOSTS = "dns-hosts"
 
 const val LOCALHOST = "127.0.0.1"
 
+internal fun isStickyDiagnosticBuild(applicationId: String = BuildConfig.APPLICATION_ID): Boolean =
+    applicationId == "com.ownbox.fork.diag"
+
 // Only types backed by the target sing-box endpoint registry belong here. Keeping this
 // whitelist explicit prevents a user-supplied legacy/custom outbound from being silently
 // reinterpreted as an endpoint.
@@ -144,7 +147,8 @@ internal fun buildLoadBalanceOutbound(
     idleTimeoutStr: String? = null,
     interruptExist: Boolean? = null,
     customTag: String? = null,
-    stickyByApp: Boolean = false
+    stickyByApp: Boolean = false,
+    stickyDiagnostic: Boolean = false
 ) =
     Outbound_SelectorOptions().apply {
         type = "loadbalance"
@@ -161,6 +165,7 @@ internal fun buildLoadBalanceOutbound(
         idle_timeout = idleTimeoutStr?.takeIf { it.isNotBlank() } ?: "${iv}s"
         interrupt_exist_connections = interruptExist ?: false
         if (stickyByApp) _hack_config_map["sticky_by_app"] = true
+        if (stickyDiagnostic) _hack_config_map["sticky_diagnostic"] = true
     }
 
 internal fun buildUrlTestOutbound(
@@ -212,7 +217,8 @@ internal fun buildLeastPingBalancerOutbound(
     intervalSec: Long,
     toleranceMs: Int,
     customTag: String,
-    stickyByApp: Boolean
+    stickyByApp: Boolean,
+    stickyDiagnostic: Boolean = false
 ): SingBoxOption {
     val interval = intervalSec.coerceAtLeast(10L)
     return if (stickyByApp) {
@@ -225,7 +231,8 @@ internal fun buildLeastPingBalancerOutbound(
             idleTimeoutStr = "30m",
             interruptExist = false,
             customTag = customTag,
-            stickyByApp = true
+            stickyByApp = true,
+            stickyDiagnostic = stickyDiagnostic
         )
     } else {
         buildUrlTestOutbound(
@@ -946,7 +953,8 @@ fun buildConfig(
                         intervalSec = iv,
                         toleranceMs = toleranceMs,
                         customTag = balancerTag,
-                        stickyByApp = stickyByApp
+                        stickyByApp = stickyByApp,
+                        stickyDiagnostic = isStickyDiagnosticBuild()
                     )
                 } else {
                     val iv = balancerBean.interval.toLong().coerceAtLeast(10L)
@@ -969,7 +977,8 @@ fun buildConfig(
                         idleTimeoutStr = "${iv}s",
                         interruptExist = false,
                         customTag = balancerTag,
-                        stickyByApp = stickyByApp
+                        stickyByApp = stickyByApp,
+                        stickyDiagnostic = isStickyDiagnosticBuild()
                     )
                 }
 
@@ -1351,7 +1360,14 @@ fun buildConfig(
                     )
                 )
             } else if (useLoadBalance && tagMap.isNotEmpty()) {
-                outbounds.add(0, buildLoadBalanceOutbound(tagMap.values.toList(), customTag = TAG_PROXY))
+                outbounds.add(
+                    0,
+                    buildLoadBalanceOutbound(
+                        tagMap.values.toList(),
+                        customTag = TAG_PROXY,
+                        stickyDiagnostic = isStickyDiagnosticBuild()
+                    )
+                )
                 balancerMemberMap[proxy.id] = list.mapNotNull { it.id.takeIf { id -> id != proxy.id } }
             } else {
                 outbounds.add(0, buildSelectorOutbound(tagMap[proxy.id], tagMap.values.toList(), customTag = TAG_PROXY))

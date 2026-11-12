@@ -39,6 +39,23 @@ class LogExportSanitizerTest {
     }
 
     @Test
+    fun keepsSafeStickyDiagnosticSummaryWhileRedactingExistingSecrets() {
+        val fakeSecret = "fake-sticky-export-secret"
+        val input = """
+            sticky_diag event=flow_start instance=7 group="AI相关" package_hash="a1b2c3d4" mux_session=true destination_kind="domain"
+            Config: {"experimental":{"clash_api":{"secret":"$fakeSecret"}}}
+            Dashboard: http://127.0.0.1:9090/ui?secret=$fakeSecret
+        """.trimIndent()
+
+        val exported = LogExportSanitizer.sanitize(input, fakeSecret)
+
+        assertTrue(exported.contains("sticky_diag event=flow_start"))
+        assertTrue(exported.contains("package_hash=\"a1b2c3d4\""))
+        assertFalse(exported.contains(fakeSecret))
+        assertTrue(exported.contains("[REDACTED]"))
+    }
+
+    @Test
     fun crashSettingsAndSendLogUseDefenseInDepthBeforeExport() {
         assertTrue(LogExportSanitizer.isSensitiveSettingKey("clashApiSecret"))
         assertTrue(LogExportSanitizer.isSensitiveSettingKey("clash_api_secret"))

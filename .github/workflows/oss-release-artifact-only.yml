@@ -1,4 +1,4 @@
-name: MyBox OSS Release APK Artifact Only
+name: MyBox Sticky Diagnostic APK Artifact Only
 
 on:
   push:
@@ -35,7 +35,13 @@ jobs:
           go-version: ^1.25
       - name: Prepare sing-box test source
         run: bash buildScript/lib/core/get_source.sh
+      - name: Run versioned sing-box patch regression tests
+        env:
+          GOFLAGS: -tags=mybox_sticky_diagnostic
+        run: bash buildScript/lib/core/test_patches.sh
       - name: Run load-balance Go unit tests
+        env:
+          GOFLAGS: -tags=mybox_sticky_diagnostic
         working-directory: libcore
         run: |
           set -euo pipefail
@@ -51,6 +57,8 @@ jobs:
           go test ./protocol/loadbalance
       - name: Native Build
         if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          GOFLAGS: -tags=mybox_sticky_diagnostic
         run: ./run lib core
       - name: Verify LibCore AAR
         run: |
@@ -67,7 +75,7 @@ jobs:
           retention-days: 1
 
   build:
-    name: Build and Verify OSS Release APK
+    name: Build and Verify OSS Sticky Diagnostic APK
     runs-on: ubuntu-latest
     needs: libcore
     steps:
@@ -94,9 +102,9 @@ jobs:
         with:
           path: ~/.gradle
           key: gradle-oss-${{ hashFiles('**/*.gradle.kts') }}
-      - name: Run OSS Release unit tests
-        run: ./gradlew app:testOssReleaseUnitTest
-      - name: Build signed OSS Release APK
+      - name: Run OSS Release and Diagnostic unit tests
+        run: ./gradlew app:testOssReleaseUnitTest app:testOssDiagnosticUnitTest
+      - name: Build signed OSS Sticky Diagnostic APK
         env:
           BUILD_PLUGIN: none
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -135,9 +143,9 @@ jobs:
             echo "::error::Asset initialization failed after 3 attempts."
             exit 1
           fi
-          ./gradlew app:assembleOssRelease -PmyboxApkAbis=arm64-v8a
+          ./gradlew app:assembleOssDiagnostic -PmyboxApkAbis=arm64-v8a
 
-          APK_DIR="app/build/outputs/apk/oss/release"
+          APK_DIR="app/build/outputs/apk/oss/diagnostic"
           APKSIGNER=$(find "${ANDROID_HOME}/build-tools" -name apksigner | sort -V | tail -n 1)
           AAPT=$(find "${ANDROID_HOME}/build-tools" -name aapt | sort -V | tail -n 1)
           if [ -z "$APKSIGNER" ] || [ -z "$AAPT" ]; then
@@ -148,21 +156,21 @@ jobs:
           shopt -s nullglob
           for apk in "$APK_DIR"/*-unsigned.apk; do
             signed_apk="${apk%-unsigned.apk}-signed.apk"
-            echo "Signing unsigned Release APK: $apk"
+            echo "Signing unsigned diagnostic APK: $apk"
             "$APKSIGNER" sign --ks release.keystore --ks-pass "pass:$KEYSTORE_PASS" --key-pass "pass:${ALIAS_PASS:-$KEYSTORE_PASS}" --ks-key-alias "$ALIAS_NAME" --out "$signed_apk" "$apk"
             rm "$apk"
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_VERSION_NAME="26.11.3.80"
-          EXPECTED_VERSION_CODE=2400
+          EXPECTED_VERSION_NAME="26.11.3.81-diag"
+          EXPECTED_VERSION_CODE=2405
           EXPECTED_ABIS=(arm64-v8a)
           declare -A FOUND_ABIS=()
           APK_COUNT=0
           for apk in "$APK_DIR"/*.apk; do
             APK_COUNT=$((APK_COUNT + 1))
             if [[ "$apk" == *preview* || "$apk" == *debug* ]]; then
-              echo "::error::Preview or Debug APK is not allowed in the Release artifact: $apk"
+              echo "::error::Preview or Debug APK is not allowed in the diagnostic artifact: $apk"
               exit 1
             fi
             "$APKSIGNER" verify --verbose "$apk"
@@ -176,8 +184,8 @@ jobs:
             package=$(printf '%s\n' "$badging" | sed -n "s/.*package: name='\\([^']*\\)'.*/\\1/p")
             version_name=$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p")
             version_code=$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
-            if [ "$package" != "com.ownbox.fork" ]; then
-              echo "::error::Unexpected package ($package); expected com.ownbox.fork."
+            if [ "$package" != "com.ownbox.fork.diag" ]; then
+              echo "::error::Unexpected package ($package); expected com.ownbox.fork.diag."
               exit 1
             fi
             if [ "$version_name" != "$EXPECTED_VERSION_NAME" ]; then
@@ -210,36 +218,44 @@ jobs:
               exit 1
             fi
             FOUND_ABIS[$abi]=1
-            echo "Verified official OSS Release APK: $apk (package=$package versionName=$version_name versionCode=$version_code signerSHA256=$cert)"
+            echo "Verified signed OSS diagnostic APK: $apk (package=$package versionName=$version_name versionCode=$version_code signerSHA256=$cert)"
           done
           if [ "$APK_COUNT" -ne 1 ]; then
-            echo "::error::Expected exactly one OSS Release arm64-v8a APK (found=$APK_COUNT)."
+            echo "::error::Expected exactly one OSS diagnostic arm64-v8a APK (found=$APK_COUNT)."
             exit 1
           fi
           for abi in "${EXPECTED_ABIS[@]}"; do
             if [[ -z "${FOUND_ABIS[$abi]:-}" ]]; then
-              echo "::error::Missing OSS Release ABI APK ($abi)."
+              echo "::error::Missing OSS diagnostic ABI APK ($abi)."
               exit 1
             fi
           done
-          sha256sum "$APK_DIR"/*.apk > "$APK_DIR/sha256sums.txt"
+          FINAL_APK="$APK_DIR/MyBox-26.11.3.81-diagnostic-arm64-v8a.apk"
+          for apk in "$APK_DIR"/*.apk; do
+            if [ "$apk" != "$FINAL_APK" ]; then
+              mv "$apk" "$FINAL_APK"
+              break
+            fi
+          done
+          test -s "$FINAL_APK"
+          sha256sum "$FINAL_APK" > "$APK_DIR/sha256sums.txt"
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBox 26.11.3.80 — Per-app sticky first-dial coordination'
-            echo '- Build type: Release (OSS), not Preview or Debug'
-            echo '- Package: com.ownbox.fork'
-            echo '- Version: 26.11.3.80 (versionCode: 2400); no public tag or Release created'
+            echo '### MyBox 26.11.3.81 — Sticky routing diagnostic test build'
+            echo '- Build type: diagnostic (Release-signed), not Preview or Debug'
+            echo '- Package: com.ownbox.fork.diag; installs alongside the official app, with a separate data directory and separately imported configuration'
+            echo '- Version: 26.11.3.81-diag (versionCode: 2405); leaves installed 26.11.3.80 and its data untouched; no public tag or Release created'
             echo "- Commit: ${GITHUB_SHA}"
-            echo '- Changelog: concurrent initial TCP/UDP dials for an app and strategy group share one successful member; failures retain ordered fallback; canceled stale dials cannot overwrite a newer binding; other apps/groups and sticky-disabled behavior remain independent'
+            echo '- Changelog: diagnostic-only Go build tag compiles sticky_diag events into this APK; group/member/app labels use process-salted short hashes, with flow IDs, process/mux/detour context, candidate order, TCP/UDP results and binding/fallback; raw destinations, credentials and error text are excluded'
             echo '- ABI coverage: exactly one arm64-v8a APK'
             echo '- Signing certificate: verified against the established public fingerprint'
-            echo '- Unit tests: Go load-balance tests and OSS Release Android unit tests passed before APK build'
+            echo '- Unit tests: Go load-balance race tests, versioned upstream patch tests and OSS Diagnostic Android unit tests passed before APK build'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload verified OSS Release APK artifact
+      - name: Upload verified OSS Sticky Diagnostic APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-OSS-Release-26.11.3.80-arm64-v8a
-          path: ${{ env.APK_DIR }}/MyBox-26.11.3.80-arm64-v8a.apk
+          name: MyBox-OSS-Sticky-Diagnostic-26.11.3.81-arm64-v8a
+          path: ${{ env.APK_DIR }}/MyBox-26.11.3.81-diagnostic-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14

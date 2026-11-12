@@ -20,6 +20,15 @@ android {
         versionName = requireMetadata().getProperty("VERSION_NAME")
         versionCode = requireMetadata().getProperty("VERSION_CODE").toInt() * 5
     }
+    buildTypes {
+        create("diagnostic") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".diag"
+            versionNameSuffix = "-diag"
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
     }
