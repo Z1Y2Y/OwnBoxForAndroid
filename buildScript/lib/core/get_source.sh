@@ -55,6 +55,20 @@ echo ">> Verified official sing-box $SINGBOX_VERSION at $ACTUAL_COMMIT"
 # Keep the patch in this repository so CI's fresh upstream clone gets the same fix.
 PATCH_DIR="$PROJECT_ROOT/buildScript/lib/core/patches/$SINGBOX_VERSION"
 if [ -d "$PATCH_DIR" ]; then
+  # get_source.sh may run more than once in one job. git checkout resets tracked
+  # patch edits but leaves patch-created untracked files behind; remove only
+  # those exact new-file outputs before applying the versioned patches again.
+  for patch in "$PATCH_DIR"/*.patch; do
+    [ -f "$patch" ] || continue
+    while IFS= read -r stale_file; do
+      [ -n "$stale_file" ] || continue
+      if ! git ls-files --error-unmatch -- "$stale_file" >/dev/null 2>&1 && [ -f "$stale_file" ]; then
+        echo ">> Removing stale untracked patch output: $stale_file"
+        rm -f -- "$stale_file"
+      fi
+    done < <(awk '/^diff --git / { path=$4; sub(/^b\//, "", path) } /^new file mode / { print path }' "$patch")
+  done
+
   for patch in "$PATCH_DIR"/*.patch; do
     [ -f "$patch" ] || continue
     echo ">> Applying MyBox sing-box patch: $(basename "$patch")"

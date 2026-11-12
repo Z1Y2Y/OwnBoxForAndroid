@@ -37,7 +37,12 @@ if [ -z "$SINGBOX_VERSION" ]; then
 fi
 
 export GOBIND=gobind-matsuri
-"$GOPATH"/bin/gomobile-matsuri bind -v -androidapi 21 -cache "$(realpath $BUILD)" -trimpath -ldflags="-s -w -X github.com/sagernet/sing-box/constant.Version=$SINGBOX_VERSION" -tags='with_conntrack,with_quic,with_wireguard,with_utls,with_clash_api' . || exit 1
+GO_BUILD_TAGS='with_conntrack,with_quic,with_wireguard,with_utls,with_clash_api'
+if [ "${MYBOX_STICKY_DIAGNOSTIC:-0}" = "1" ]; then
+  GO_BUILD_TAGS+=',mybox_sticky_diagnostic'
+fi
+echo ">> Native Go build tags: $GO_BUILD_TAGS"
+"$GOPATH"/bin/gomobile-matsuri bind -v -androidapi 21 -cache "$(realpath $BUILD)" -trimpath -ldflags="-s -w -X github.com/sagernet/sing-box/constant.Version=$SINGBOX_VERSION" -tags="$GO_BUILD_TAGS" . || exit 1
 rm -r libcore-sources.jar
 
 proj=../app/libs

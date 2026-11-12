@@ -59,6 +59,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         env:
           GOFLAGS: -tags=mybox_sticky_diagnostic
+          MYBOX_STICKY_DIAGNOSTIC: "1"
         run: ./run lib core
       - name: Verify LibCore AAR
         run: |
