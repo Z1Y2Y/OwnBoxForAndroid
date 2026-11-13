@@ -40,6 +40,8 @@ jobs:
       - name: Prepare sing-box test source
         run: bash buildScript/lib/core/get_source.sh
       - name: Run versioned sing-box patch regression tests
+        env:
+          GOFLAGS: -tags=mybox_sticky_diagnostic
         run: bash buildScript/lib/core/test_patches.sh
       - name: Run strategy-group Go regression tests
         working-directory: libcore
