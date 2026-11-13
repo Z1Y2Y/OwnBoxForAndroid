@@ -102,4 +102,33 @@ class BalancerMemberResolverTest {
         bean.stickyByApp = false
         assertFalse(shouldEnableStickyByApp(bean))
     }
+
+    @Test
+    fun failedProbeHintDoesNotEraseCandidatesAndUnknownRemainsUnclassified() {
+        val members = listOf(
+            ProxyEntity(id = 1L, status = 1, ping = 85) to "good",
+            ProxyEntity(id = 2L, status = 0, ping = 120) to "unknown",
+            ProxyEntity(id = 3L, status = 3, ping = 20) to "timed-out",
+            ProxyEntity(id = 4L, status = 2, ping = 0) to "plugin-missing",
+        )
+
+        val hints = BalancerMemberResolver.healthTags(members)
+
+        assertEquals(listOf("good"), hints.available)
+        assertEquals(listOf("timed-out", "plugin-missing"), hints.unavailable)
+        assertEquals(4, members.size) // Failed and unknown candidates remain available for fallback.
+    }
+
+    @Test
+    fun urlTestOrderingIgnoresStalePingAfterFailureAndKeepsUnknownEligible() {
+        val ordered = BalancerMemberResolver.orderForUrlTest(
+            listOf(
+                ProxyEntity(id = 1L, status = 3, ping = 12),
+                ProxyEntity(id = 2L, status = 0, ping = 5),
+                ProxyEntity(id = 3L, status = 1, ping = 90),
+            )
+        )
+
+        assertEquals(listOf(3L, 2L, 1L), ordered.map { it.id })
+    }
 }

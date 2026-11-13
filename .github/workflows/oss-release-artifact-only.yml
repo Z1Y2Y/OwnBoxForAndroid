@@ -1,12 +1,6 @@
 name: MyBox Sticky Diagnostic APK Artifact Only
 
 on:
-  push:
-    branches:
-      - mybox
-    paths:
-      - nb4a.properties
-      - .github/workflows/oss-release-artifact-only.yml
   workflow_dispatch:
 
 permissions:

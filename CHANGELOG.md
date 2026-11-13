@@ -1,4 +1,12 @@
 # OwnBox for Android 更新日志 (Changelog)
+# MyBox for Android v26.11.3.83 正式版（产物构建）
+
+### 策略组健康选路修复
+* 自定义负载均衡与内建 proxy 组优先选择最近测速成功的成员；未知状态仍可参与，超时/失败成员保留为回退候选，不会被永久屏蔽。
+* 覆盖 leastPing、leastLoad、random、roundRobin、consistentHash；拨号失败继续尝试后续成员，成功测速或拨号后恢复健康优先级，sticky binding 遵循健康筛选。
+
+### 安装提示
+* 正式包名 `com.ownbox.fork`，沿用原签名证书；versionCode 提升至 2415，仅提供一个 `arm64-v8a` APK。本次仅上传 CI artifact，不创建 tag 或公开 Release。
 
 # MyBox for Android v26.11.3.82 临时诊断测试版
 

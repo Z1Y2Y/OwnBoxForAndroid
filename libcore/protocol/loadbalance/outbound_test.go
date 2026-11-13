@@ -595,3 +595,75 @@ func TestLeastPingToleranceHysteresis(t *testing.T) {
 	}
 }
 
+func TestHealthHintsPrioritizeAvailableMembersAcrossStrategies(t *testing.T) {
+	strategies := []string{"leastPing", "leastLoad", "random", "roundRobin", "consistentHash"}
+	for _, strategy := range strategies {
+		t.Run(strategy, func(t *testing.T) {
+			lb := &LoadBalance{
+				tags:      []string{"failed-a", "available", "unknown", "failed-b"},
+				strategy:  strategy,
+				stats:     []*nodeStats{new(nodeStats), new(nodeStats), new(nodeStats), new(nodeStats)},
+				outbounds: make([]adapter.Outbound, 4),
+			}
+			lb.stats[0].setHealthHint(healthHintUnavailable)
+			lb.stats[1].setHealthHint(healthHintAvailable)
+			lb.stats[3].setHealthHint(healthHintUnavailable)
+			lb.ring = newConsistentHashRing(lb.tags)
+			if strategy == "leastLoad" {
+				lb.activeConns = []*atomic.Int64{new(atomic.Int64), new(atomic.Int64), new(atomic.Int64), new(atomic.Int64)}
+			}
+
+			indices := lb.candidateIndices(nil, M.Socksaddr{Fqdn: "health.example"})
+			rank := make(map[int]int, len(indices))
+			for pos, idx := range indices {
+				rank[idx] = pos
+			}
+			if len(indices) != 4 || rank[1] >= rank[2] || rank[2] >= rank[0] || rank[2] >= rank[3] {
+				t.Fatalf("expected available then unknown then failed candidates, got %v", indices)
+			}
+
+			// A successful dial/probe immediately clears the failure hint and allows recovery.
+			lb.stats[0].recordSuccess(40)
+			if lb.isNodeDegraded(0, time.Now().UnixMilli()) || lb.healthPriority(0, time.Now().UnixMilli()) != 0 {
+				t.Fatal("successful recovery must clear the temporary failure hint")
+			}
+
+			// Expired hints become unknown rather than remaining unavailable forever.
+			lb.stats[3].healthHintUntil.Store(time.Now().Add(-time.Second).UnixMilli())
+			if got := lb.healthPriority(3, time.Now().UnixMilli()); got != 1 {
+				t.Fatalf("expired failure hint must return to unknown priority, got %d", got)
+			}
+		})
+	}
+}
+
+func TestHealthHintsKeepUnknownAndAllUnavailableFallbackCandidates(t *testing.T) {
+	strategies := []string{"leastPing", "leastLoad", "random", "roundRobin", "consistentHash"}
+	for _, strategy := range strategies {
+		t.Run(strategy, func(t *testing.T) {
+			lb := &LoadBalance{
+				tags:      []string{"n0", "n1", "n2"},
+				strategy:  strategy,
+				stats:     []*nodeStats{new(nodeStats), new(nodeStats), new(nodeStats)},
+				outbounds: make([]adapter.Outbound, 3),
+			}
+			lb.ring = newConsistentHashRing(lb.tags)
+			unknown := lb.candidateIndices(nil, M.Socksaddr{})
+			if len(unknown) != 3 {
+				t.Fatalf("unknown members must all remain eligible, got %v", unknown)
+			}
+
+			for _, stats := range lb.stats {
+				stats.setHealthHint(healthHintUnavailable)
+			}
+			allFailed := lb.candidateIndices(nil, M.Socksaddr{Fqdn: "all-failed.example"})
+			seen := make(map[int]bool, len(allFailed))
+			for _, idx := range allFailed {
+				seen[idx] = true
+			}
+			if len(allFailed) != 3 || len(seen) != 3 {
+				t.Fatalf("all-failed fallback must keep every candidate, got %v", allFailed)
+			}
+		})
+	}
+}

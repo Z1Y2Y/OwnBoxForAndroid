@@ -90,3 +90,42 @@ func TestConsistentHashDialRetriesAfterUnreachablePrimary(t *testing.T) {
 		t.Fatalf("expected fallback success to be recorded, got %d", got)
 	}
 }
+
+func TestAllStrategiesRetryNextMemberAfterDialFailure(t *testing.T) {
+	strategies := []string{"leastPing", "leastLoad", "random", "roundRobin", "consistentHash"}
+	for _, strategy := range strategies {
+		t.Run(strategy, func(t *testing.T) {
+			tags := []string{"n0", "n1", "n2"}
+			lb := &LoadBalance{
+				tags:           tags,
+				strategy:       strategy,
+				outbounds:      make([]adapter.Outbound, len(tags)),
+				stats:          []*nodeStats{new(nodeStats), new(nodeStats), new(nodeStats)},
+				interruptGroup: interrupt.NewGroup(),
+			}
+			if strategy == "random" {
+				lb.randomIntn = func(int) int { return 0 }
+			}
+			lb.ring = newConsistentHashRing(tags)
+			destination := M.Socksaddr{Fqdn: "retry.example"}
+			candidates := lb.candidateIndices(nil, destination)
+			lb.counter = 0 // Reuse the same first candidate for sequential strategies.
+			failedIdx, fallbackIdx := candidates[0], candidates[1]
+			failed := &dialRetryTestOutbound{tag: tags[failedIdx], err: syscall.ENETUNREACH}
+			clientConn, serverConn := net.Pipe()
+			defer serverConn.Close()
+			fallback := &dialRetryTestOutbound{tag: tags[fallbackIdx], conn: clientConn}
+			lb.outbounds[failedIdx] = failed
+			lb.outbounds[fallbackIdx] = fallback
+
+			conn, err := lb.DialContext(context.Background(), "tcp", destination)
+			if err != nil {
+				t.Fatalf("expected next candidate to succeed after %s failure: %v", strategy, err)
+			}
+			defer conn.Close()
+			if failed.attempt != 1 || fallback.attempt != 1 {
+				t.Fatalf("expected failed and fallback candidates once each, got %d and %d", failed.attempt, fallback.attempt)
+			}
+		})
+	}
+}

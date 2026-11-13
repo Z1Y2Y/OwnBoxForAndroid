@@ -19,6 +19,35 @@ internal object BalancerMemberResolver {
         val error: String? = null,
     )
 
+    data class HealthTags(
+        val available: List<String>,
+        val unavailable: List<String>,
+    )
+
+    /** Only a successful, measured result is known-good; status 0 stays unknown. */
+    fun healthTags(members: List<Pair<ProxyEntity, String>>): HealthTags = HealthTags(
+        available = members.filter { (proxy, _) -> proxy.status == 1 && proxy.ping > 0 }
+            .map { it.second },
+        unavailable = members.filter { (proxy, _) -> proxy.status in 2..3 }
+            .map { it.second },
+    )
+
+    /** Old ping values survive failed tests, so only use ping when the latest status succeeded. */
+    fun orderForUrlTest(members: List<ProxyEntity>): List<ProxyEntity> = members
+        .withIndex()
+        .sortedWith(
+            compareBy<IndexedValue<ProxyEntity>> { (_, proxy) ->
+                when {
+                    proxy.status == 1 && proxy.ping > 0 -> 0
+                    proxy.status in 2..3 -> 2
+                    else -> 1
+                }
+            }.thenBy { (_, proxy) ->
+                if (proxy.status == 1 && proxy.ping > 0) proxy.ping else Int.MAX_VALUE
+            }.thenBy { it.index }
+        )
+        .map { it.value }
+
     fun load(owner: ProxyEntity, bean: BalancerBean): List<ProxyEntity> {
         val candidates = if (bean.balancerType == BalancerBean.TYPE_GROUP) {
             val groupIds = when {

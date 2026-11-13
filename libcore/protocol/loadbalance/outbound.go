@@ -40,10 +40,12 @@ const TypeLoadBalance = "loadbalance"
 
 type LoadBalanceOptions struct {
 	option.URLTestOutboundOptions
-	Strategy         string `json:"strategy,omitempty"`
-	Default          string `json:"default,omitempty"`
-	StickyByApp      bool   `json:"sticky_by_app,omitempty"`
-	StickyDiagnostic bool   `json:"sticky_diagnostic,omitempty"`
+	Strategy             string   `json:"strategy,omitempty"`
+	Default              string   `json:"default,omitempty"`
+	StickyByApp          bool     `json:"sticky_by_app,omitempty"`
+	StickyDiagnostic     bool     `json:"sticky_diagnostic,omitempty"`
+	HealthyOutbounds     []string `json:"healthy_outbounds,omitempty"`
+	UnavailableOutbounds []string `json:"unavailable_outbounds,omitempty"`
 }
 
 func RegisterLoadBalance(registry *outbound.Registry) {
@@ -64,12 +66,31 @@ type nodeStats struct {
 	totalDials       atomic.Int64
 	successDials     atomic.Int64
 	latencyEmaMs     atomic.Int64
+	healthHint       atomic.Int32
+	healthHintUntil  atomic.Int64 // UnixMilli
+}
+
+const (
+	healthHintUnavailable int32 = -1
+	healthHintAvailable   int32 = 1
+	healthHintLifetime          = 2 * time.Minute
+)
+
+func (s *nodeStats) setHealthHint(hint int32) {
+	s.healthHint.Store(hint)
+	s.healthHintUntil.Store(time.Now().Add(healthHintLifetime).UnixMilli())
+}
+
+func (s *nodeStats) clearHealthHint() {
+	s.healthHint.Store(0)
+	s.healthHintUntil.Store(0)
 }
 
 func (s *nodeStats) recordDialSuccess() {
 	s.consecutiveFails.Store(0)
 	s.totalDials.Add(1)
 	s.successDials.Add(1)
+	s.setHealthHint(healthHintAvailable)
 }
 
 func (s *nodeStats) recordSuccess(latencyMs int64) {
@@ -89,6 +110,7 @@ func (s *nodeStats) recordFailure() {
 	s.consecutiveFails.Add(1)
 	s.totalDials.Add(1)
 	s.lastFailTime.Store(time.Now().UnixMilli())
+	s.setHealthHint(healthHintUnavailable)
 }
 
 const virtualNodesPerPhysicalNode = 160
@@ -203,8 +225,12 @@ type LoadBalance struct {
 	interruptExternalConnections bool
 	outbounds                    []adapter.Outbound
 	counter                      uint64
+	randomIntn                   func(int) int
 	activeConns                  []*atomic.Int64
 	stats                        []*nodeStats
+	healthyOutbounds             []string
+	unavailableOutbounds         []string
+	warnedAllUnavailable         atomic.Bool
 	interruptGroup               *interrupt.Group
 	ring                         *consistentHashRing
 	ticker                       *time.Ticker
@@ -248,6 +274,8 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		tags:                         options.Outbounds,
 		strategy:                     options.Strategy,
 		stickyByApp:                  options.StickyByApp,
+		healthyOutbounds:             options.HealthyOutbounds,
+		unavailableOutbounds:         options.UnavailableOutbounds,
 		stickyDiagnostic:             stickyDiagnosticEnabled(options.StickyDiagnostic),
 		diagnosticGroupTag:           tag,
 		link:                         link,
@@ -333,6 +361,8 @@ func (s *LoadBalance) URLTest(ctx context.Context) (map[string]uint16, error) {
 			if i < len(s.stats) && s.stats[i] != nil {
 				s.stats[i].recordSuccess(int64(delay))
 			}
+		} else if i < len(s.stats) && s.stats[i] != nil {
+			s.stats[i].setHealthHint(healthHintUnavailable)
 		}
 	}
 	return result, nil
@@ -413,6 +443,11 @@ func (s *LoadBalance) Start(stage adapter.StartStage, scope *adapter.Scope) erro
 			s.outbounds = append(s.outbounds, detour)
 			s.activeConns[i] = new(atomic.Int64)
 			s.stats[i] = new(nodeStats)
+			if slices.Contains(s.unavailableOutbounds, tag) {
+				s.stats[i].setHealthHint(healthHintUnavailable)
+			} else if slices.Contains(s.healthyOutbounds, tag) {
+				s.stats[i].setHealthHint(healthHintAvailable)
+			}
 		}
 		s.ring = newConsistentHashRing(s.tags)
 	case adapter.StartStateStarted:
@@ -1043,9 +1078,58 @@ func (s *LoadBalance) isNodeDegraded(idx int, now int64) bool {
 	if idx < 0 || idx >= len(s.stats) || s.stats[idx] == nil {
 		return false
 	}
-	fails := s.stats[idx].consecutiveFails.Load()
-	lastFail := s.stats[idx].lastFailTime.Load()
+	stats := s.stats[idx]
+	if stats.healthHint.Load() == healthHintUnavailable && stats.healthHintUntil.Load() > now {
+		return true
+	}
+	fails := stats.consecutiveFails.Load()
+	lastFail := stats.lastFailTime.Load()
 	return fails >= 2 && now-lastFail < 10_000
+}
+
+func (s *LoadBalance) healthPriority(idx int, now int64) int {
+	if idx >= 0 && idx < len(s.stats) && s.stats[idx] != nil {
+		stats := s.stats[idx]
+		if stats.healthHintUntil.Load() > now {
+			switch stats.healthHint.Load() {
+			case healthHintAvailable:
+				return 0
+			case healthHintUnavailable:
+				return 2
+			}
+		}
+	}
+	if s.isNodeDegraded(idx, now) {
+		return 2
+	}
+	return 1
+}
+
+func (s *LoadBalance) prioritizeByHealth(indices []int, now int64) []int {
+	available := make([]int, 0, len(indices))
+	unknown := make([]int, 0, len(indices))
+	unavailable := make([]int, 0, len(indices))
+	for _, idx := range indices {
+		switch s.healthPriority(idx, now) {
+		case 0:
+			available = append(available, idx)
+		case 2:
+			unavailable = append(unavailable, idx)
+		default:
+			unknown = append(unknown, idx)
+		}
+	}
+	if len(available)+len(unknown) == 0 && len(unavailable) > 0 {
+		if s.warnedAllUnavailable.CompareAndSwap(false, true) && s.logger != nil {
+			s.logger.Warn("all load-balance members are temporarily marked unavailable; trying them in strategy order")
+		}
+		return indices
+	}
+	result := make([]int, 0, len(indices))
+	result = append(result, available...)
+	result = append(result, unknown...)
+	result = append(result, unavailable...)
+	return result
 }
 
 func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []int {
@@ -1281,6 +1365,9 @@ func (s *LoadBalance) candidateIndicesForFlow(ctx context.Context, dest M.Socksa
 		}
 		hn := len(healthy)
 		start := rand.Intn(hn)
+		if s.randomIntn != nil {
+			start = s.randomIntn(hn)
+		}
 		rotated := make([]int, hn)
 		for i := 0; i < hn; i++ {
 			rotated[i] = healthy[(start+i)%hn]
@@ -1311,6 +1398,7 @@ func (s *LoadBalance) candidateIndicesForFlow(ctx context.Context, dest M.Socksa
 		}
 		result = append(rotated, degraded...)
 	}
+	result = s.prioritizeByHealth(result, now)
 
 	if s.isStickyEnabled() {
 		stickyKey := s.stickySessionKey(ctx, dest)
@@ -1349,7 +1437,7 @@ func (s *LoadBalance) candidateIndicesForFlow(ctx context.Context, dest M.Socksa
 						stickyDiagnosticInt("last_fail_age_ms", int(lastFailAgeMs)),
 					)
 				}
-				if stickyPos > 0 && !degraded {
+				if stickyPos > 0 && !degraded && s.healthPriority(stickyIdx, now) <= s.healthPriority(result[0], now) {
 					copy(result[1:stickyPos+1], result[0:stickyPos])
 					result[0] = stickyIdx
 				}

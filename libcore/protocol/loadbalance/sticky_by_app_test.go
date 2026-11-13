@@ -73,6 +73,40 @@ func TestStickyByAppDisabledDoesNotOverrideStrategy(t *testing.T) {
 	}
 }
 
+func TestStickyBindingYieldsToFailedHealthHintAndReturnsAfterRecovery(t *testing.T) {
+	strategies := []string{"leastPing", "leastLoad", "random", "roundRobin", "consistentHash"}
+	for _, strategy := range strategies {
+		t.Run(strategy, func(t *testing.T) {
+			tags := []string{"unknown", "available", "sticky"}
+			lb := &LoadBalance{
+				tags:           tags,
+				strategy:       strategy,
+				stickyByApp:    true,
+				outbounds:      make([]adapter.Outbound, len(tags)),
+				stats:          []*nodeStats{new(nodeStats), new(nodeStats), new(nodeStats)},
+				stickySessions: make(map[string]stickyEntry),
+			}
+			lb.ring = newConsistentHashRing(tags)
+			ctx := contextForApp("com.example.youtube")
+			stickyIdx := 2
+			lb.setStickySession(appStickyKey(ctx), stickyIdx)
+			lb.stats[1].setHealthHint(healthHintAvailable)
+			lb.stats[stickyIdx].setHealthHint(healthHintUnavailable)
+
+			candidates := lb.candidateIndices(ctx, M.Socksaddr{Fqdn: "youtube.example"})
+			if candidates[0] != 1 || candidates[len(candidates)-1] != stickyIdx {
+				t.Fatalf("failed sticky member must yield to known-good member while staying as fallback, got %v", candidates)
+			}
+
+			lb.stats[stickyIdx].recordSuccess(25)
+			recovered := lb.candidateIndices(ctx, M.Socksaddr{Fqdn: "youtube.example"})
+			if recovered[0] != stickyIdx {
+				t.Fatalf("recovered sticky member should be reusable, got %v", recovered)
+			}
+		})
+	}
+}
+
 func TestStickyByAppDialFailureRetriesThenPinsSuccessfulMember(t *testing.T) {
 	tags := []string{"node-0", "node-1", "node-2"}
 	lb := &LoadBalance{

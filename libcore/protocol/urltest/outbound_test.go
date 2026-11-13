@@ -43,10 +43,11 @@ func createTestURLTestGroup(tags []string, tolerance uint16) (*URLTestGroup, *si
 		mockList[i] = ob
 	}
 	grp := &URLTestGroup{
-		ctx:       context.Background(),
-		outbounds: outbounds,
-		history:   history,
-		tolerance: tolerance,
+		ctx:         context.Background(),
+		outbounds:   outbounds,
+		history:     history,
+		tolerance:   tolerance,
+		healthHints: make(map[string]urlTestHealthHint),
 	}
 	return grp, history, mockList
 }
@@ -67,6 +68,44 @@ func TestLeastPingSelectionMultiNode(t *testing.T) {
 	}
 	if selected == nil || selected.Tag() != "node-D" {
 		t.Fatalf("expected node-D (80ms) to be selected, got %v", selected)
+	}
+}
+
+func TestHealthHintsOverrideStaleHistoryAndRecover(t *testing.T) {
+	grp, history, _ := createTestURLTestGroup([]string{"timed-out", "good", "unknown"}, 50)
+	history.StoreURLTestHistory("timed-out", &adapter.URLTestHistory{Time: time.Now(), Delay: 10})
+	history.StoreURLTestHistory("good", &adapter.URLTestHistory{Time: time.Now(), Delay: 90})
+	grp.setHealthHint("timed-out", 2)
+	grp.setHealthHint("good", 0)
+
+	selected, exists := grp.Select(N.NetworkTCP)
+	if !exists || selected == nil || selected.Tag() != "good" {
+		t.Fatalf("recent failure must beat stale low-latency history, got %v (exists=%v)", selected, exists)
+	}
+
+	// Unknown is eligible ahead of known failures even when it has no history.
+	grp.setHealthHint("good", 2)
+	selected, exists = grp.Select(N.NetworkTCP)
+	if exists || selected == nil || selected.Tag() != "unknown" {
+		t.Fatalf("unknown member must remain a fallback ahead of failed members, got %v (exists=%v)", selected, exists)
+	}
+
+	// A fresh successful test clears the temporary hint; the low measured delay can win again.
+	grp.setHealthHint("timed-out", 0)
+	selected, exists = grp.Select(N.NetworkTCP)
+	if !exists || selected == nil || selected.Tag() != "timed-out" {
+		t.Fatalf("recovered member should rejoin URLTest ranking, got %v (exists=%v)", selected, exists)
+	}
+}
+
+func TestAllURLTestMembersUnavailableKeepFallbackCandidate(t *testing.T) {
+	grp, _, _ := createTestURLTestGroup([]string{"failed-a", "failed-b"}, 50)
+	grp.setHealthHint("failed-a", 2)
+	grp.setHealthHint("failed-b", 2)
+
+	selected, exists := grp.Select(N.NetworkTCP)
+	if exists || selected == nil || selected.Tag() != "failed-a" {
+		t.Fatalf("all-failed state must retain a provisional fallback, got %v (exists=%v)", selected, exists)
 	}
 }
 

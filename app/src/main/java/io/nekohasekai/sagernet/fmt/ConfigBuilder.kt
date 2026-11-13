@@ -148,7 +148,9 @@ internal fun buildLoadBalanceOutbound(
     interruptExist: Boolean? = null,
     customTag: String? = null,
     stickyByApp: Boolean = false,
-    stickyDiagnostic: Boolean = false
+    stickyDiagnostic: Boolean = false,
+    healthyTags: List<String> = emptyList(),
+    unavailableTags: List<String> = emptyList()
 ) =
     Outbound_SelectorOptions().apply {
         type = "loadbalance"
@@ -166,6 +168,8 @@ internal fun buildLoadBalanceOutbound(
         interrupt_exist_connections = interruptExist ?: false
         if (stickyByApp) _hack_config_map["sticky_by_app"] = true
         if (stickyDiagnostic) _hack_config_map["sticky_diagnostic"] = true
+        if (healthyTags.isNotEmpty()) _hack_config_map["healthy_outbounds"] = healthyTags
+        if (unavailableTags.isNotEmpty()) _hack_config_map["unavailable_outbounds"] = unavailableTags
     }
 
 internal fun buildUrlTestOutbound(
@@ -175,7 +179,9 @@ internal fun buildUrlTestOutbound(
     toleranceMs: Int? = null,
     idleTimeoutStr: String? = null,
     interruptExist: Boolean? = null,
-    customTag: String? = null
+    customTag: String? = null,
+    healthyTags: List<String> = emptyList(),
+    unavailableTags: List<String> = emptyList()
 ) =
     Outbound_URLTestOptions().apply {
         type = "urltest"
@@ -209,6 +215,8 @@ internal fun buildUrlTestOutbound(
         // interrupt_exist_connections=true would instantly kill Telegram upload streams on any
         // 5ms latency fluctuation. This must always be false — it is NOT overridden by memory mode.
         interrupt_exist_connections = false
+        if (healthyTags.isNotEmpty()) _hack_config_map["healthy_outbounds"] = healthyTags
+        if (unavailableTags.isNotEmpty()) _hack_config_map["unavailable_outbounds"] = unavailableTags
     }
 
 internal fun buildLeastPingBalancerOutbound(
@@ -218,7 +226,9 @@ internal fun buildLeastPingBalancerOutbound(
     toleranceMs: Int,
     customTag: String,
     stickyByApp: Boolean,
-    stickyDiagnostic: Boolean = false
+    stickyDiagnostic: Boolean = false,
+    healthyTags: List<String> = emptyList(),
+    unavailableTags: List<String> = emptyList()
 ): SingBoxOption {
     val interval = intervalSec.coerceAtLeast(10L)
     return if (stickyByApp) {
@@ -232,7 +242,9 @@ internal fun buildLeastPingBalancerOutbound(
             interruptExist = false,
             customTag = customTag,
             stickyByApp = true,
-            stickyDiagnostic = stickyDiagnostic
+            stickyDiagnostic = stickyDiagnostic,
+            healthyTags = healthyTags,
+            unavailableTags = unavailableTags
         )
     } else {
         buildUrlTestOutbound(
@@ -242,7 +254,9 @@ internal fun buildLeastPingBalancerOutbound(
             toleranceMs = toleranceMs,
             idleTimeoutStr = "${interval}s",
             interruptExist = false,
-            customTag = customTag
+            customTag = customTag,
+            healthyTags = healthyTags,
+            unavailableTags = unavailableTags
         )
     }
 }
@@ -942,6 +956,7 @@ fun buildConfig(
                 }.ifEmpty { listOf(TAG_DIRECT) }
 
                 val balancerTag = readableTag(entity.displayName())
+                val memberHealth = BalancerMemberResolver.healthTags(memberEntities.zip(memberTags))
 
                 val stickyByApp = shouldEnableStickyByApp(balancerBean)
                 val balancerOutbound: SingBoxOption = if (balancerBean.strategy == "leastPing") {
@@ -954,7 +969,9 @@ fun buildConfig(
                         toleranceMs = toleranceMs,
                         customTag = balancerTag,
                         stickyByApp = stickyByApp,
-                        stickyDiagnostic = isStickyDiagnosticBuild()
+                        stickyDiagnostic = isStickyDiagnosticBuild(),
+                        healthyTags = memberHealth.available,
+                        unavailableTags = memberHealth.unavailable
                     )
                 } else {
                     val iv = balancerBean.interval.toLong().coerceAtLeast(10L)
@@ -978,7 +995,9 @@ fun buildConfig(
                         interruptExist = false,
                         customTag = balancerTag,
                         stickyByApp = stickyByApp,
-                        stickyDiagnostic = isStickyDiagnosticBuild()
+                        stickyDiagnostic = isStickyDiagnosticBuild(),
+                        healthyTags = memberHealth.available,
+                        unavailableTags = memberHealth.unavailable
                     )
                 }
 
@@ -1328,13 +1347,10 @@ fun buildConfig(
 
             val list = if (useAutoSelect) {
                 // 解决策略组初始建立连接慢：在内核首次并发测速出结果前，
-                // sing-box 默认将 outbounds[0] 作为首发出站。
-                // 优先将此前已知有效且延迟最低的健康节点置于首位，未测试/离线节点排在后面，
+                // sing-box 默认将首个出站作为无历史时的临时回退。
+                // 仅把最近一次成功测速的延迟用于排序；失败后残留的 ping 不应让超时节点置顶。
                 // 确保首包绝不阻塞死等，建立连接瞬时秒开。
-                rawList.sortedWith(
-                    compareBy<ProxyEntity> { if (it.ping > 0) 0 else 1 }
-                        .thenBy { if (it.ping > 0) it.ping else Int.MAX_VALUE }
-                )
+                BalancerMemberResolver.orderForUrlTest(rawList)
             } else {
                 rawList
             }
@@ -1342,6 +1358,9 @@ fun buildConfig(
             list.forEach {
                 tagMap[it.id] = buildChain(it.id, it)
             }
+            val memberPairs = list.mapNotNull { entity -> tagMap[entity.id]?.let { entity to it } }
+            val memberTags = memberPairs.map { it.second }
+            val memberHealth = BalancerMemberResolver.healthTags(memberPairs)
             if (useAutoSelect && tagMap.isNotEmpty()) {
                 val testUrl = group?.let { DataStore.groupUrlTestUrl(it.id) }
                 val intervalVal = group?.let { DataStore.groupUrlTestInterval(it.id) }
@@ -1350,22 +1369,26 @@ fun buildConfig(
                 val interruptVal = group?.let { DataStore.groupUrlTestInterrupt(it.id) }
                 outbounds.add(
                     0, buildUrlTestOutbound(
-                        tagMap.values.toList(),
+                        memberTags,
                         testUrl = testUrl,
                         intervalSec = intervalVal,
                         toleranceMs = toleranceVal,
                         idleTimeoutStr = idleTimeoutVal,
                         interruptExist = interruptVal,
-                        customTag = TAG_PROXY
+                        customTag = TAG_PROXY,
+                        healthyTags = memberHealth.available,
+                        unavailableTags = memberHealth.unavailable
                     )
                 )
             } else if (useLoadBalance && tagMap.isNotEmpty()) {
                 outbounds.add(
                     0,
                     buildLoadBalanceOutbound(
-                        tagMap.values.toList(),
+                        memberTags,
                         customTag = TAG_PROXY,
-                        stickyDiagnostic = isStickyDiagnosticBuild()
+                        stickyDiagnostic = isStickyDiagnosticBuild(),
+                        healthyTags = memberHealth.available,
+                        unavailableTags = memberHealth.unavailable
                     )
                 )
                 balancerMemberMap[proxy.id] = list.mapNotNull { it.id.takeIf { id -> id != proxy.id } }

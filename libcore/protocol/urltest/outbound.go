@@ -29,6 +29,8 @@ import (
 
 type URLTestOptions struct {
 	Outbounds                 []string           `json:"outbounds" reference:"outbound"`
+	HealthyOutbounds          []string           `json:"healthy_outbounds,omitempty"`
+	UnavailableOutbounds      []string           `json:"unavailable_outbounds,omitempty"`
 	URL                       string             `json:"url,omitempty"`
 	Interval                  badoption.Duration `json:"interval,omitempty"`
 	Tolerance                 *uint16            `json:"tolerance,omitempty"`
@@ -53,6 +55,8 @@ type URLTest struct {
 	connection                   adapter.ConnectionManager
 	logger                       log.ContextLogger
 	tags                         []string
+	healthyOutbounds             []string
+	unavailableOutbounds         []string
 	link                         string
 	interval                     time.Duration
 	tolerance                    uint16
@@ -83,6 +87,8 @@ func NewURLTest(ctx context.Context, router adapter.Router, logger log.ContextLo
 		connection:                   service.FromContext[adapter.ConnectionManager](ctx),
 		logger:                       logger,
 		tags:                         options.Outbounds,
+		healthyOutbounds:             options.HealthyOutbounds,
+		unavailableOutbounds:         options.UnavailableOutbounds,
 		link:                         options.URL,
 		interval:                     interval,
 		tolerance:                    tolerance,
@@ -106,7 +112,7 @@ func (s *URLTest) Start(stage adapter.StartStage, scope *adapter.Scope) error {
 			}
 			outbounds = append(outbounds, detour)
 		}
-		grp, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections)
+		grp, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections, s.healthyOutbounds, s.unavailableOutbounds)
 		if err != nil {
 			return err
 		}
@@ -297,9 +303,19 @@ type URLTestGroup struct {
 	close                        chan struct{}
 	started                      bool
 	lastActive                   common.TypedValue[time.Time]
+	healthMu                     sync.RWMutex
+	healthHints                  map[string]urlTestHealthHint
+	warnedAllUnavailable         atomic.Bool
 }
 
-func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManager, logger log.Logger, outbounds []adapter.Outbound, link string, interval time.Duration, tolerance uint16, idleTimeout time.Duration, interruptExternalConnections bool) (*URLTestGroup, error) {
+type urlTestHealthHint struct {
+	priority int
+	expires  time.Time
+}
+
+const urlTestHealthHintLifetime = 2 * time.Minute
+
+func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManager, logger log.Logger, outbounds []adapter.Outbound, link string, interval time.Duration, tolerance uint16, idleTimeout time.Duration, interruptExternalConnections bool, healthyOutbounds []string, unavailableOutbounds []string) (*URLTestGroup, error) {
 	if interval == 0 {
 		interval = C.DefaultURLTestInterval
 	}
@@ -313,7 +329,7 @@ func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManage
 	if history == nil {
 		return nil, E.New("missing URL test history storage")
 	}
-	return &URLTestGroup{
+	group := &URLTestGroup{
 		ctx:                          ctx,
 		outbound:                     outboundManager,
 		logger:                       logger,
@@ -327,7 +343,37 @@ func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManage
 		pause:                        service.FromContext[pause.Manager](ctx),
 		interruptGroup:               interrupt.NewGroup(),
 		interruptExternalConnections: interruptExternalConnections,
-	}, nil
+		healthHints:                  make(map[string]urlTestHealthHint),
+	}
+	for _, tag := range healthyOutbounds {
+		group.setHealthHint(tag, 0)
+	}
+	for _, tag := range unavailableOutbounds {
+		group.setHealthHint(tag, 2)
+	}
+	return group, nil
+}
+
+func (g *URLTestGroup) setHealthHint(tag string, priority int) {
+	if tag == "" {
+		return
+	}
+	g.healthMu.Lock()
+	if g.healthHints == nil {
+		g.healthHints = make(map[string]urlTestHealthHint)
+	}
+	g.healthHints[tag] = urlTestHealthHint{priority: priority, expires: time.Now().Add(urlTestHealthHintLifetime)}
+	g.healthMu.Unlock()
+}
+
+func (g *URLTestGroup) healthPriority(tag string) int {
+	g.healthMu.RLock()
+	hint, ok := g.healthHints[tag]
+	g.healthMu.RUnlock()
+	if !ok || time.Now().After(hint.expires) {
+		return 1
+	}
+	return hint.priority
 }
 
 func (g *URLTestGroup) PostStart() {
@@ -386,10 +432,23 @@ func (g *URLTestGroup) Select(network string) (adapter.Outbound, bool) {
 	// 阶段一：在所有候选节点中找出客观测量绝对最低延迟节点（无先手偏见）
 	var bestOutbound adapter.Outbound
 	var bestDelay uint16
+	bestPriority := 3
+	memberCount := 0
 	for _, detour := range g.outbounds {
 		if !common.Contains(detour.Network(), network) {
 			continue
 		}
+		priority := g.healthPriority(detour.Tag())
+		if priority < bestPriority {
+			bestPriority = priority
+			bestOutbound = nil
+			bestDelay = 0
+			memberCount = 0
+		}
+		if priority != bestPriority {
+			continue
+		}
+		memberCount++
 		history := g.history.LoadURLTestHistory(group.RealTag(detour, network))
 		if history == nil || history.Delay == 0 {
 			continue
@@ -398,6 +457,12 @@ func (g *URLTestGroup) Select(network string) (adapter.Outbound, bool) {
 			bestDelay = history.Delay
 			bestOutbound = detour
 		}
+	}
+	if memberCount > 0 && bestPriority == 2 && g.warnedAllUnavailable.CompareAndSwap(false, true) && g.logger != nil {
+		g.logger.Warn("all URL-test members are temporarily marked unavailable; keeping fallback enabled")
+	}
+	if currentSelected != nil && g.healthPriority(currentSelected.Tag()) != bestPriority {
+		currentDelay = 0
 	}
 
 	// 阶段二：平滑防抖决策
@@ -419,11 +484,11 @@ func (g *URLTestGroup) Select(network string) (adapter.Outbound, bool) {
 	}
 
 	// 阶段三：Fallback（若所有节点均无测速，返回首个支持该网络的节点作为临时占位）
-	if currentSelected != nil && common.Contains(currentSelected.Network(), network) {
+	if currentSelected != nil && common.Contains(currentSelected.Network(), network) && g.healthPriority(currentSelected.Tag()) == bestPriority {
 		return currentSelected, false
 	}
 	for _, detour := range g.outbounds {
-		if common.Contains(detour.Network(), network) {
+		if common.Contains(detour.Network(), network) && g.healthPriority(detour.Tag()) == bestPriority {
 			return detour, false
 		}
 	}
@@ -470,6 +535,15 @@ func (g *URLTestGroup) urlTest(ctx context.Context, force bool) (map[string]uint
 	}
 	defer g.checking.Store(false)
 	result := URLTestOutbounds(ctx, g.outbound, g.history, g.logger, g.outbounds, g.link, g.interval, force)
+	if ctx.Err() == nil {
+		for _, detour := range g.outbounds {
+			if delay, ok := result[detour.Tag()]; ok && delay > 0 {
+				g.setHealthHint(detour.Tag(), 0)
+			} else if force {
+				g.setHealthHint(detour.Tag(), 2)
+			}
+		}
+	}
 	g.performUpdateCheck()
 	return result, nil
 }

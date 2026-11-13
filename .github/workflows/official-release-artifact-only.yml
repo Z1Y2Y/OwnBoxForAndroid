@@ -1,0 +1,224 @@
+name: MyBox Official arm64 Release Artifact Only
+
+on:
+  push:
+    branches:
+      - mybox
+    paths:
+      - nb4a.properties
+      - app/src/main/java/io/nekohasekai/sagernet/fmt/BalancerMemberResolver.kt
+      - app/src/main/java/io/nekohasekai/sagernet/fmt/ConfigBuilder.kt
+      - libcore/protocol/loadbalance/**
+      - libcore/protocol/urltest/**
+      - .github/workflows/official-release-artifact-only.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  libcore:
+    name: Test and build LibCore
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Golang Status
+        run: find buildScript libcore/*.sh nb4a.properties | xargs cat | sha1sum > golang_status
+      - name: Libcore Status
+        run: git ls-files libcore | xargs cat | sha1sum > libcore_status
+      - name: LibCore Cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: app/libs/libcore.aar
+          key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
+      - name: Install Golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.25
+      - name: Prepare sing-box test source
+        run: bash buildScript/lib/core/get_source.sh
+      - name: Run versioned sing-box patch regression tests
+        run: bash buildScript/lib/core/test_patches.sh
+      - name: Run strategy-group Go regression tests
+        working-directory: libcore
+        run: go test -race -count=1 ./protocol/loadbalance ./protocol/urltest
+      - name: Native Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./run lib core
+      - name: Verify LibCore AAR
+        run: |
+          test -s app/libs/libcore.aar
+          unzip -p app/libs/libcore.aar classes.jar > /tmp/libcore-classes.jar
+          unzip -l /tmp/libcore-classes.jar | grep -q 'libcore/Libcore.class'
+          unzip -l /tmp/libcore-classes.jar | grep -q 'go/Seq.class'
+      - name: Upload LibCore AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-libcore-aar
+          path: app/libs/libcore.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build and verify official OSS Release APK
+    runs-on: ubuntu-latest
+    needs: libcore
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download LibCore AAR
+        uses: actions/download-artifact@v4
+        with:
+          name: official-libcore-aar
+          path: app/libs
+      - name: Verify LibCore AAR
+        run: |
+          test -s app/libs/libcore.aar
+          unzip -p app/libs/libcore.aar classes.jar > /tmp/libcore-classes.jar
+          unzip -l /tmp/libcore-classes.jar | grep -q 'libcore/Libcore.class'
+          unzip -l /tmp/libcore-classes.jar | grep -q 'go/Seq.class'
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle
+          key: gradle-official-${{ hashFiles('**/*.gradle.kts') }}
+      - name: Run OSS Release unit tests
+        run: ./gradlew app:testOssReleaseUnitTest
+      - name: Build and verify signed official arm64 APK
+        env:
+          BUILD_PLUGIN: none
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          fi
+          if [ ! -s release.keystore ] || [ -z "$KEYSTORE_PASS" ] || [ -z "$ALIAS_NAME" ]; then
+            echo "::error::Release signing credentials missing; refusing to build an unsigned APK."
+            exit 1
+          fi
+          printf 'KEYSTORE_PASS=%s\n' "$KEYSTORE_PASS" >> local.properties
+          printf 'ALIAS_NAME=%s\n' "$ALIAS_NAME" >> local.properties
+          printf 'ALIAS_PASS=%s\n' "${ALIAS_PASS:-$KEYSTORE_PASS}" >> local.properties
+
+          init_complete=false
+          for attempt in 1 2 3; do
+            echo "Initializing build assets (attempt $attempt/3)."
+            if ./run init action gradle; then
+              init_complete=true
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 15))
+              echo "Asset initialization failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          if [ "$init_complete" != true ]; then
+            echo "::error::Asset initialization failed after 3 attempts."
+            exit 1
+          fi
+
+          ./gradlew app:assembleOssRelease -PmyboxApkAbis=arm64-v8a
+          APK_DIR="app/build/outputs/apk/oss/release"
+          APKSIGNER=$(find "${ANDROID_HOME}/build-tools" -name apksigner | sort -V | tail -n 1)
+          AAPT=$(find "${ANDROID_HOME}/build-tools" -name aapt | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ] || [ -z "$AAPT" ]; then
+            echo "::error::Android build tools are incomplete; refusing to upload unverified APKs."
+            exit 1
+          fi
+
+          shopt -s nullglob
+          for apk in "$APK_DIR"/*-unsigned.apk; do
+            signed_apk="${apk%-unsigned.apk}-signed.apk"
+            echo "Signing official APK: $apk"
+            "$APKSIGNER" sign --ks release.keystore --ks-pass "pass:$KEYSTORE_PASS" --key-pass "pass:${ALIAS_PASS:-$KEYSTORE_PASS}" --ks-key-alias "$ALIAS_NAME" --out "$signed_apk" "$apk"
+            rm "$apk"
+          done
+
+          EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
+          EXPECTED_VERSION_NAME="26.11.3.83"
+          EXPECTED_VERSION_CODE=2415
+          APK_COUNT=0
+          for apk in "$APK_DIR"/*.apk; do
+            APK_COUNT=$((APK_COUNT + 1))
+            if [[ "$apk" == *preview* || "$apk" == *debug* || "$apk" == *diagnostic* || "$apk" == *diag* ]]; then
+              echo "::error::Preview, Debug, or diagnostic APK is not allowed: $apk"
+              exit 1
+            fi
+            "$APKSIGNER" verify --verbose "$apk"
+            cert_output=$("$APKSIGNER" verify --print-certs "$apk" 2>&1)
+            cert=$(printf '%s\n' "$cert_output" | awk 'tolower($0) ~ /certificate sha-256 digest/ { sub(/^.*digest:[[:space:]]*/, ""); gsub(/[^[:xdigit:]]/, ""); print tolower($0); exit }')
+            if [ "$cert" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::APK signing certificate mismatch; refusing to upload."
+              exit 1
+            fi
+            badging=$("$AAPT" dump badging "$apk")
+            package=$(printf '%s\n' "$badging" | sed -n "s/.*package: name='\\([^']*\\)'.*/\\1/p")
+            version_name=$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
+            if [ "$package" != "com.ownbox.fork" ]; then
+              echo "::error::Unexpected package ($package); expected com.ownbox.fork."
+              exit 1
+            fi
+            if [ "$version_name" != "$EXPECTED_VERSION_NAME" ]; then
+              echo "::error::Unexpected versionName ($version_name); expected $EXPECTED_VERSION_NAME."
+              exit 1
+            fi
+            if [ "$version_code" != "$EXPECTED_VERSION_CODE" ]; then
+              echo "::error::Unexpected versionCode ($version_code); expected $EXPECTED_VERSION_CODE."
+              exit 1
+            fi
+            if [[ "$(basename "$apk")" != *-arm64-v8a*.apk ]] || ! printf '%s\n' "$badging" | grep -Fq "native-code: 'arm64-v8a'"; then
+              echo "::error::APK ABI is not arm64-v8a."
+              exit 1
+            fi
+            echo "Verified official APK: $apk (package=$package versionName=$version_name versionCode=$version_code signerSHA256=$cert ABI=arm64-v8a)"
+          done
+          if [ "$APK_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly one official arm64-v8a APK (found=$APK_COUNT)."
+            exit 1
+          fi
+
+          FINAL_APK="$APK_DIR/MyBox-26.11.3.83-arm64-v8a.apk"
+          for apk in "$APK_DIR"/*.apk; do
+            if [ "$apk" != "$FINAL_APK" ]; then
+              mv "$apk" "$FINAL_APK"
+              break
+            fi
+          done
+          test -s "$FINAL_APK"
+          sha256sum "$FINAL_APK" > "$APK_DIR/sha256sums.txt"
+          rm -f release.keystore
+          echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
+          {
+            echo '### MyBox 26.11.3.83 — Official release artifact'
+            echo '- Build: signed OSS Release; package com.ownbox.fork; existing signing certificate verified'
+            echo '- Version code: 2415; ABI: exactly one arm64-v8a APK'
+            echo "- Commit: ${GITHUB_SHA}"
+            echo '- Changelog: strategy groups prefer recently successful members across leastPing, leastLoad, random, roundRobin, and consistentHash; unknown states remain eligible, timed-out members remain fallback candidates, and successful probes/dials restore them'
+            echo '- Tests: Go race regression tests for load-balance and URLTest, versioned sing-box patch tests, and OSS Release unit tests passed'
+            echo '- Distribution: workflow artifact only; no tag or public GitHub Release created'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload verified official APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyBox-Official-26.11.3.83-arm64-v8a
+          path: |
+            ${{ env.APK_DIR }}/MyBox-26.11.3.83-arm64-v8a.apk
+            ${{ env.APK_DIR }}/sha256sums.txt
+          if-no-files-found: error
+          retention-days: 14

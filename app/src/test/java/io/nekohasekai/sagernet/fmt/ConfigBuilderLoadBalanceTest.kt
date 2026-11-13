@@ -103,7 +103,9 @@ class ConfigBuilderLoadBalanceTest {
             intervalSec = 120,
             toleranceMs = 75,
             customTag = "least-ping",
-            stickyByApp = false
+            stickyByApp = false,
+            healthyTags = listOf("node1"),
+            unavailableTags = listOf("node2")
         ).asMap()
         assertEquals("urltest", legacy["type"])
         assertEquals("least-ping", legacy["tag"])
@@ -112,6 +114,8 @@ class ConfigBuilderLoadBalanceTest {
         assertEquals("120s", legacy["interval"])
         assertEquals(75L, legacy["tolerance"])
         assertEquals("30m", legacy["idle_timeout"])
+        assertEquals(listOf("node1"), legacy["healthy_outbounds"])
+        assertEquals(listOf("node2"), legacy["unavailable_outbounds"])
         assertFalse(legacy.containsKey("sticky_by_app"))
 
         val sticky = buildLeastPingBalancerOutbound(
@@ -120,7 +124,9 @@ class ConfigBuilderLoadBalanceTest {
             intervalSec = 120,
             toleranceMs = 75,
             customTag = "least-ping",
-            stickyByApp = true
+            stickyByApp = true,
+            healthyTags = listOf("node1"),
+            unavailableTags = listOf("node2")
         ).asMap()
         assertEquals("loadbalance", sticky["type"])
         assertEquals("leastPing", sticky["strategy"])
@@ -131,6 +137,8 @@ class ConfigBuilderLoadBalanceTest {
         assertEquals(75L, sticky["tolerance"])
         assertEquals("30m", sticky["idle_timeout"])
         assertEquals(true, sticky["sticky_by_app"])
+        assertEquals(listOf("node1"), sticky["healthy_outbounds"])
+        assertEquals(listOf("node2"), sticky["unavailable_outbounds"])
     }
 
     @Test
