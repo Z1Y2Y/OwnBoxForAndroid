@@ -37,12 +37,26 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ^1.25
+          cache-dependency-path: libcore/go.mod
       - name: Prepare sing-box test source
         run: bash buildScript/lib/core/get_source.sh
       - name: Run versioned sing-box patch regression tests
         env:
           GOFLAGS: -tags=mybox_sticky_diagnostic
         run: bash buildScript/lib/core/test_patches.sh
+      - name: Resolve LibCore Go dependencies
+        working-directory: libcore
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if go mod tidy; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
       - name: Run strategy-group Go regression tests
         working-directory: libcore
         run: go test -race -count=1 ./protocol/loadbalance ./protocol/urltest
