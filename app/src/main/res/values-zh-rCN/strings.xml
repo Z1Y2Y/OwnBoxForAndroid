@@ -275,6 +275,8 @@
     <string name="route_proxy">代理</string>
     <string name="route_bypass">绕过</string>
     <string name="route_block">屏蔽</string>
+    <string name="route_outbound_missing">节点或策略组不存在（已失效）</string>
+    <string name="route_invalid_outbound_warning">路由规则引用了已不存在的节点或策略组：%1$s。相关规则已安全跳过或回退。</string>
     <string name="route_opt_bypass_lan">绕过局域网地址</string>
     <string name="route_opt_block_ads">屏蔽广告</string>
     <string name="route_opt_block_quic">屏蔽 QUIC</string>

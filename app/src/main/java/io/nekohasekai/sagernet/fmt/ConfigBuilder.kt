@@ -416,6 +416,7 @@ fun buildConfig(
     val tagMap = HashMap<Long, String>()
     val balancerMemberMap = HashMap<Long, List<Long>>()
     val globalOutbounds = HashMap<Long, String>()
+    val invalidOutboundRules = linkedSetOf<String>()
     val readableNames = mutableSetOf(TAG_DIRECT, TAG_BYPASS, TAG_BLOCK, TAG_FRAGMENT, TAG_MIXED, TAG_PROXY)
     val group = SagerDatabase.groupDao.getById(proxy.groupId)
     val groupTag = group?.name?.trim()?.takeIf { it.isNotBlank() } ?: TAG_PROXY
@@ -1499,6 +1500,12 @@ fun buildConfig(
                         rule.source.isBlank() &&
                         rule.protocol.isBlank()
                 val routingAction = RouteRuleEditor.action(rule.config, rule.outbound)
+                val outboundForValidation = resolveRouteRuleOutbound(rule.outbound, proxy.id, mainProxyTag, tagMap)
+                if (RouteRuleEditor.needsOutbound(rule.config, rule.outbound) && outboundForValidation.isBlank()) {
+                    invalidOutboundRules += rule.displayName()
+                    Logs.w("ConfigBuilder: skipped route '${rule.displayName()}' with missing outbound id=${rule.outbound}")
+                    continue
+                }
                 val extendedMatch = RouteRuleEditor.json(rule.config)
                 val scopedMatch = setOf("domain", "domain_suffix", "domain_keyword", "domain_regex", "inbound",
                     "ip_version", "ip_is_private", "source_ip_is_private", "invert", "port", "port_range",
@@ -2162,6 +2169,7 @@ fun buildConfig(
                 } else if (group?.name?.isNotBlank() == true && out == group.name && availableOutboundTags.contains(groupTag)) {
                     r.outbound = groupTag
                 } else {
+                    invalidOutboundRules += out
                     Logs.w("ConfigBuilder: rule outbound tag '$out' not found in outbounds, fallback to '$mainProxyTag'")
                     r.outbound = mainProxyTag
                 }
@@ -2230,6 +2238,15 @@ fun buildConfig(
                 "endpoints=$endpointTags outbounds=$outboundTags " +
                 "references=$references unresolved=$unresolvedTargets"
         )
+        if (invalidOutboundRules.isNotEmpty() && !forTest && !forExport) {
+            val warning = SagerNet.application.getString(
+                R.string.route_invalid_outbound_warning,
+                invalidOutboundRules.joinToString(", "),
+            )
+            runOnMainDispatcher {
+                Toast.makeText(SagerNet.application, warning, Toast.LENGTH_LONG).show()
+            }
+        }
         ConfigBuildResult(
             gson.toJson(configMap),
             externalIndexMap,

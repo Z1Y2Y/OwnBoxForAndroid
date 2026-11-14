@@ -278,6 +278,8 @@
     <string name="route_proxy">Proxy</string>
     <string name="route_bypass">Bypass</string>
     <string name="route_block">Block</string>
+    <string name="route_outbound_missing">Missing node/group (invalid)</string>
+    <string name="route_invalid_outbound_warning">Routing references unavailable outbound(s): %1$s. Affected rules were skipped or safely redirected.</string>
     <string name="route_profile">Select Profile…</string>
     <string name="empty_route">Empty Route</string>
     <string name="empty_route_notice">Set some rules before saving</string>

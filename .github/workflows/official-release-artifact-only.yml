@@ -8,6 +8,13 @@ on:
       - nb4a.properties
       - app/src/main/java/io/nekohasekai/sagernet/fmt/BalancerMemberResolver.kt
       - app/src/main/java/io/nekohasekai/sagernet/fmt/ConfigBuilder.kt
+      - app/src/main/java/io/nekohasekai/sagernet/database/RuleEntity.kt
+      - app/src/main/java/io/nekohasekai/sagernet/ui/RouteFragment.kt
+      - app/src/main/java/io/nekohasekai/sagernet/bg/VpnService.kt
+      - app/src/main/java/io/nekohasekai/sagernet/bg/proto/TrafficLooper.kt
+      - app/src/main/java/io/nekohasekai/sagernet/bg/VpnWifiLockPolicy.kt
+      - app/src/main/res/values*/test_settings_defaults.xml
+      - app/src/test/java/**
       - libcore/protocol/loadbalance/**
       - libcore/protocol/urltest/**
       - .github/workflows/official-release-artifact-only.yml
@@ -166,8 +173,8 @@ jobs:
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_VERSION_NAME="26.11.3.83"
-          EXPECTED_VERSION_CODE=2415
+          EXPECTED_VERSION_NAME="26.11.3.84"
+          EXPECTED_VERSION_CODE=2420
           APK_COUNT=0
           for apk in "$APK_DIR"/*.apk; do
             APK_COUNT=$((APK_COUNT + 1))
@@ -209,7 +216,7 @@ jobs:
             exit 1
           fi
 
-          FINAL_APK="$APK_DIR/MyBox-26.11.3.83-arm64-v8a.apk"
+          FINAL_APK="$APK_DIR/MyBox-26.11.3.84-arm64-v8a.apk"
           for apk in "$APK_DIR"/*.apk; do
             if [ "$apk" != "$FINAL_APK" ]; then
               mv "$apk" "$FINAL_APK"
@@ -221,20 +228,20 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBox 26.11.3.83 — Official release artifact'
+            echo '### MyBox 26.11.3.84 — Official signed artifact'
             echo '- Build: signed OSS Release; package com.ownbox.fork; existing signing certificate verified'
-            echo '- Version code: 2415; ABI: exactly one arm64-v8a APK'
+            echo '- Version code: 2420; ABI: exactly one arm64-v8a APK'
             echo "- Commit: ${GITHUB_SHA}"
-            echo '- Changelog: strategy groups prefer recently successful members across leastPing, leastLoad, random, roundRobin, and consistentHash; unknown states remain eligible, timed-out members remain fallback candidates, and successful probes/dials restore them'
+            echo '- Changelog: invalid route node/group references are marked, safely skipped or redirected, and reported at startup; speed-test timeout is 15s with a 10 MB sample; retain screen-off polling backoff and widget throttling, prevent TrafficLooper busy-wait, and use foreground-limited Wi-Fi latency locking on API 29+'
             echo '- Tests: Go race regression tests for load-balance and URLTest, versioned sing-box patch tests, and OSS Release unit tests passed'
             echo '- Distribution: workflow artifact only; no tag or public GitHub Release created'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload verified official APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-Official-26.11.3.83-arm64-v8a
+          name: MyBox-Official-26.11.3.84-arm64-v8a
           path: |
-            ${{ env.APK_DIR }}/MyBox-26.11.3.83-arm64-v8a.apk
+            ${{ env.APK_DIR }}/MyBox-26.11.3.84-arm64-v8a.apk
             ${{ env.APK_DIR }}/sha256sums.txt
           if-no-files-found: error
           retention-days: 14

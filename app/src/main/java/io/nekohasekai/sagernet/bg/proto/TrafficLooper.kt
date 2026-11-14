@@ -24,6 +24,7 @@ class TrafficLooper
 
     companion object {
         private const val TRAFFIC_BATCH_SIZE = 500
+        private const val INITIALIZATION_RETRY_INTERVAL_MS = 1_000L
     }
 
     private var job: Job? = null
@@ -218,7 +219,11 @@ class TrafficLooper
                 delay(if (isForegroundUI) baseDelayMs else 3000L)
                 continue
             }
-            if (!proxy.isInitialized()) continue
+            if (!proxy.isInitialized()) {
+                // A lifecycle race should never turn this polling loop into a CPU busy-spin.
+                delay(INITIALIZATION_RETRY_INTERVAL_MS)
+                continue
+            }
 
             val snapshot = withStateLock {
                 val currentConfig = proxy.safeConfig ?: return@withStateLock null

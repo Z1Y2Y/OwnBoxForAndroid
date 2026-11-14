@@ -17,7 +17,7 @@ class TestSettingsContractTest {
         assertEquals("https://cp.cloudflare.com/generate_204", defaults["default_connection_test_url"])
         assertEquals("10", defaults["default_connection_test_concurrent"])
         assertEquals("simple_download", defaults["default_speed_test_mode"])
-        assertEquals("8000", defaults["default_speed_test_timeout_ms"])
+        assertEquals("15000", defaults["default_speed_test_timeout_ms"])
         assertEquals(
             "https://www.speedtest.net/api/js/servers",
             defaults["default_speed_test_server_list_url"],
@@ -27,7 +27,7 @@ class TestSettingsContractTest {
             defaults["default_speed_test_fallback_server_list_url"],
         )
         assertEquals(
-            "https://speed.cloudflare.com/__down?bytes=25000000",
+            "https://speed.cloudflare.com/__down?bytes=10000000",
             defaults["default_simple_download_url"],
         )
     }

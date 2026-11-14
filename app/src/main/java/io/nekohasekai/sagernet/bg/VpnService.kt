@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ProxyInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
@@ -54,10 +55,14 @@ class VpnService : BaseVpnService(),
         }
         if (wifiLock == null) {
             try {
-                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
                 @Suppress("DEPRECATION")
+                val wifiLockMode = when (vpnWifiLockModeForSdk(Build.VERSION.SDK_INT)) {
+                    VpnWifiLockMode.LOW_LATENCY -> WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    VpnWifiLockMode.HIGH_PERFORMANCE -> WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                }
                 wifiLock = wifiManager?.createWifiLock(
-                    android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                    wifiLockMode,
                     "sagernet:vpn_wifi"
                 )?.apply {
                     setReferenceCounted(false)

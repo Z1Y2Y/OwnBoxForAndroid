@@ -33,6 +33,9 @@ data class RuleEntity(
         return name.takeIf { it.isNotBlank() } ?: "Rule $id"
     }
 
+    fun hasMissingOutbound(): Boolean =
+        outbound > 0 && ProfileManager.getProfile(outbound) == null
+
     fun mkSummary(): String {
         var summary = ""
         if (config.isNotBlank()) {
