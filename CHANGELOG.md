@@ -1,4 +1,13 @@
 # OwnBox for Android 更新日志 (Changelog)
+
+# MyBox for Android v26.11.3.85 正式版（产物构建）
+
+### URL 测试行为对齐
+* 主测试 URL 失败时尝试备用 URL；若备用地址可用，则返回该地址的延迟结果。
+* 对齐上游 v26.11.8.12-preview 的两阶段 Keep-Alive 探测及 HTTP 状态处理；测速会计入响应体读取时间。
+
+### 安装提示
+* 正式包名 `com.ownbox.fork`，沿用原签名证书；versionCode 提升至 2425，仅提供一个 `arm64-v8a` APK。本次仅上传 CI artifact，不创建 tag 或公开 Release。
 # MyBox for Android v26.11.3.83 正式版（产物构建）
 
 ### 策略组健康选路修复

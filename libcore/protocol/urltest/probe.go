@@ -24,19 +24,14 @@ const (
 )
 
 func GetFallbackLink(primaryLink string) string {
-	parsed, err := url.Parse(primaryLink)
-	if err == nil {
-		host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
-		if host == "cloudflare.com" || strings.HasSuffix(host, ".cloudflare.com") {
-			return DefaultFallbackURL
-		}
+	if strings.Contains(primaryLink, "cloudflare.com") {
+		return DefaultFallbackURL
 	}
 	return DefaultCFURL
 }
 
-// ProbeOutbound warms the destination connection, then measures response-header
-// TTFB over the existing detour. The fallback URL only diagnoses reachability;
-// its latency is never reported as the configured URL's result.
+// ProbeOutbound uses a two-stage keep-alive probe and retries the configured
+// URL with the alternate endpoint when the primary endpoint is unavailable.
 func ProbeOutbound(ctx context.Context, detour adapter.Outbound, link string, timeout time.Duration) (uint16, error) {
 	if detour == nil {
 		return 0, E.New("nil detour")
@@ -52,51 +47,25 @@ func ProbeOutbound(ctx context.Context, detour adapter.Outbound, link string, ti
 }
 
 func probeOutboundWithFallback(parentCtx context.Context, detour adapter.Outbound, link, fallbackLink string, timeout time.Duration) (uint16, error) {
-	// Treat timeout as a budget for the complete primary + fallback attempt, not
-	// as a fresh allowance for each URL.
-	ctx, cancel := context.WithTimeout(parentCtx, timeout)
-	defer cancel()
-
 	primaryTimeout := timeout
+	fallbackTimeout := 3000 * time.Millisecond
 	if timeout > 3500*time.Millisecond {
 		primaryTimeout = timeout - 1500*time.Millisecond
 	}
 
-	delay, err := probeSingleURL(ctx, detour, link, primaryTimeout)
+	delay, err := probeSingleURL(parentCtx, detour, link, primaryTimeout)
 	if err == nil && delay > 0 {
 		return delay, nil
 	}
-	if err == nil {
-		err = fmt.Errorf("primary probe returned no latency")
-	}
-	if ctx.Err() != nil {
-		return 0, ctx.Err()
-	}
 
-	// Keep fallback as a connectivity diagnostic only. Its RTT is for a
-	// different host and must not be reported as the configured URL's latency.
-	fallbackTimeout := 3000 * time.Millisecond
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining < fallbackTimeout {
-			fallbackTimeout = remaining
-		}
+	fbDelay, fbErr := probeSingleURL(parentCtx, detour, fallbackLink, fallbackTimeout)
+	if fbErr == nil && fbDelay > 0 {
+		return fbDelay, nil
 	}
-	if fallbackTimeout <= 0 {
+	if err != nil {
 		return 0, err
 	}
-	fbDelay, fbErr := probeSingleURL(ctx, detour, fallbackLink, fallbackTimeout)
-	if ctx.Err() != nil {
-		return 0, ctx.Err()
-	}
-	if fbErr == nil && fbDelay > 0 {
-		return 0, fmt.Errorf("primary test URL failed: %w; fallback URL is reachable (%dms), but its latency is not used", err, fbDelay)
-	}
-
-	if fbErr != nil {
-		return 0, fmt.Errorf("primary test URL failed: %w; fallback test URL failed: %v", err, fbErr)
-	}
-	return 0, err
+	return 0, fbErr
 }
 
 func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link string, timeout time.Duration) (uint16, error) {
@@ -145,48 +114,35 @@ func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link str
 	if err == nil {
 		_, _ = io.CopyN(io.Discard, resp1.Body, 8192)
 		_ = resp1.Body.Close()
-		if resp1.StatusCode < http.StatusOK || resp1.StatusCode >= http.StatusMultipleChoices {
+		if resp1.StatusCode >= 500 {
 			err = fmt.Errorf("HTTP error %d", resp1.StatusCode)
 		}
 	}
 	if err != nil {
 		return 0, err
 	}
-	if ctx.Err() != nil {
-		return 0, ctx.Err()
-	}
 	pass1 := time.Since(start1)
 
-	// Stage two records the response-header TTFB; body transfer is excluded.
+	// Stage two reuses the keep-alive connection and records the probe latency.
 	req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err2 == nil {
 		req2.Header.Set("User-Agent", BrowserUserAgent)
 		start2 := time.Now()
 		resp2, err2Do := client.Do(req2)
 		if err2Do == nil {
-			elapsed := time.Since(start2)
-			statusCode := resp2.StatusCode
+			_, _ = io.CopyN(io.Discard, resp2.Body, 8192)
 			_ = resp2.Body.Close()
-			if ctx.Err() != nil {
-				return 0, ctx.Err()
+			if resp2.StatusCode < 500 {
+				lat := uint16(time.Since(start2).Milliseconds())
+				if lat == 0 {
+					lat = 1
+				}
+				return lat, nil
 			}
-			if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
-				return 0, fmt.Errorf("HTTP error %d", statusCode)
-			}
-			lat := uint16(elapsed.Milliseconds())
-			if lat == 0 {
-				lat = 1
-			}
-			return lat, nil
 		}
 	}
 
-	if ctx.Err() != nil {
-		return 0, ctx.Err()
-	}
-
-	// Preserve the warm-up result only for a non-cancellation second-request
-	// failure (for example, a peer that closes keep-alive connections).
+	// If the remote endpoint does not support keep-alive, use the warm-up time.
 	lat := uint16(pass1.Milliseconds())
 	if lat == 0 {
 		lat = 1
