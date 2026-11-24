@@ -263,7 +263,9 @@ internal fun buildLoadBalanceOutbound(
     stickyByApp: Boolean = false,
     stickyDiagnostic: Boolean = false,
     healthyTags: List<String> = emptyList(),
-    unavailableTags: List<String> = emptyList()
+    unavailableTags: List<String> = emptyList(),
+    stickyStorePath: String? = null,
+    persistStickyByApp: Boolean = false,
 ) =
     Outbound_SelectorOptions().apply {
         type = "loadbalance"
@@ -280,6 +282,10 @@ internal fun buildLoadBalanceOutbound(
         idle_timeout = idleTimeoutStr?.takeIf { it.isNotBlank() } ?: "${iv}s"
         interrupt_exist_connections = interruptExist ?: false
         if (stickyByApp) _hack_config_map["sticky_by_app"] = true
+        stickyStorePath?.takeIf { it.isNotBlank() }?.let { path ->
+            _hack_config_map["sticky_store_path"] = path
+            if (stickyByApp && persistStickyByApp) _hack_config_map["persist_sticky_by_app"] = true
+        }
         if (stickyDiagnostic) _hack_config_map["sticky_diagnostic"] = true
         if (healthyTags.isNotEmpty()) _hack_config_map["healthy_outbounds"] = healthyTags
         if (unavailableTags.isNotEmpty()) _hack_config_map["unavailable_outbounds"] = unavailableTags
@@ -291,6 +297,7 @@ internal fun buildAutoSelectOutbound(
     memberTags: List<String>,
     customTag: String? = null,
     defaultTestUrl: String? = null,
+    stickyStorePath: String? = null,
 ): Outbound_AutoSelectOptions = Outbound_AutoSelectOptions().apply {
     type = "autoselect"
     tag = customTag?.takeIf { it.isNotBlank() } ?: TAG_PROXY
@@ -340,7 +347,14 @@ internal fun buildAutoSelectOutbound(
         val rawTimeoutMs = balancer.calculateToleranceMs()
         probe_timeout_ms = if (rawTimeoutMs >= 500L) rawTimeoutMs.coerceAtMost(30000L).toInt() else 3000
     }
-    if (shouldEnableStickyByApp(balancer)) _hack_config_map["sticky_by_app"] = true
+    val stickyEnabled = shouldEnableStickyByApp(balancer)
+    if (stickyEnabled) _hack_config_map["sticky_by_app"] = true
+    stickyStorePath?.takeIf { it.isNotBlank() }?.let { path ->
+        _hack_config_map["sticky_store_path"] = path
+        if (stickyEnabled && balancer.persistStickyByApp) {
+            _hack_config_map["persist_sticky_by_app"] = true
+        }
+    }
 
     if (balancer.isPriorityMode() && !balancer.tiers.isNullOrEmpty() && memberEntities.size == memberTags.size) {
         val (tierMap, _) = BalancerMemberResolver.assignTierIndices(memberEntities, balancer.tiers)
@@ -415,6 +429,7 @@ internal fun assembleChainGraphForTest(
 ): ChainGraphTestResult {
     val ctx = ChainGraphContext(
         forTest = false,
+        forExport = true,
         ipv6Mode = IPv6Mode.ENABLE,
         defaultServerDomainStrategy = "",
         outbounds = mutableListOf(),
@@ -461,6 +476,7 @@ internal fun assembleChainGraphForTest(
 
 internal class ChainGraphContext(
     private val forTest: Boolean,
+    private val forExport: Boolean,
     private val ipv6Mode: Int,
     private val defaultServerDomainStrategy: String,
     val outbounds: MutableList<SingBoxOption>,
@@ -632,6 +648,17 @@ internal class ChainGraphContext(
             val balancerTag = readableTag(entity.displayName())
             val memberHealth = configBuilderHealthTags(memberEntities.zip(memberTags))
             val stickyByApp = shouldEnableStickyByApp(balancerBean)
+            // Keep persisted affinity private to this stable balancer ID; never emit it in
+            // test/export configs, and skip one-member/direct groups where affinity is moot.
+            val stickyStorePath = if (
+                !forTest && !forExport && SagerNet.isInitialized() && entity.id > 0L &&
+                memberTags.distinct().size > 1
+            ) {
+                java.io.File(
+                    SagerNet.application.noBackupFilesDir,
+                    "strategy-sticky-${entity.id}.json",
+                ).absolutePath
+            } else null
             // MyBox's explicit app-affinity mode uses the custom load-balance outbound so
             // successful members can be pinned per app. Keep priority/fallback on the upstream
             // autoselect implementation, which owns tier and failure-state semantics.
@@ -653,6 +680,8 @@ internal class ChainGraphContext(
                     stickyDiagnostic = isStickyDiagnosticBuild(),
                     healthyTags = memberHealth.available,
                     unavailableTags = memberHealth.unavailable,
+                    stickyStorePath = stickyStorePath,
+                    persistStickyByApp = balancerBean.persistStickyByApp,
                 )
             } else {
                 buildAutoSelectOutbound(
@@ -660,6 +689,7 @@ internal class ChainGraphContext(
                     memberEntities = memberEntities,
                     memberTags = memberTags,
                     customTag = balancerTag,
+                    stickyStorePath = stickyStorePath,
                 )
             }
             outbounds.add(balancerOutbound)
@@ -1737,6 +1767,7 @@ fun buildConfig(
         }
         val chainCtx = ChainGraphContext(
             forTest = forTest,
+            forExport = forExport,
             ipv6Mode = ipv6Mode,
             defaultServerDomainStrategy = defaultServerDomainStrategy,
             outbounds = outbounds,

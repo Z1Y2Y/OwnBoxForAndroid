@@ -41,6 +41,8 @@ type AutoSelectOptions struct {
 	FallbackMaxFails          int                `json:"fallback_max_fails,omitempty"`
 	ProbeTimeoutMs            int                `json:"probe_timeout_ms,omitempty"`
 	StickyByApp               bool               `json:"sticky_by_app,omitempty"`
+	StickyStorePath           string             `json:"sticky_store_path,omitempty"`
+	PersistStickyByApp        bool               `json:"persist_sticky_by_app,omitempty"`
 }
 
 type normalizedConfig struct {

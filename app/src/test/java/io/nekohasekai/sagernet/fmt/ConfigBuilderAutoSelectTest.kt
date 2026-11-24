@@ -89,6 +89,8 @@ class ConfigBuilderAutoSelectTest {
             "site_sticky_ttl",
             "connectivity_url",
             "initial_delays_ms",
+            "sticky_store_path",
+            "persist_sticky_by_app",
         ).forEach { removed ->
             assertFalse("Removed field $removed must not be emitted", map.containsKey(removed))
         }
@@ -191,6 +193,38 @@ class ConfigBuilderAutoSelectTest {
     }
 
     @Test
+    fun `app sticky persistence path is group specific and persistence defaults off`() {
+        val members = listOf(socksEntity(1L, "SG 01"), socksEntity(2L, "SG 02"))
+        val tags = listOf("tag-sg-1", "tag-sg-2")
+        val groupAPath = "/private/no_backup/strategy-sticky-21.json"
+        val groupBPath = "/private/no_backup/strategy-sticky-22.json"
+
+        val enabled = buildAutoSelectOutbound(
+            balancer = BalancerBean().apply {
+                stickyByApp = true
+                persistStickyByApp = true
+            },
+            memberEntities = members,
+            memberTags = tags,
+            stickyStorePath = groupAPath,
+        ).asMap()
+        assertEquals(groupAPath, enabled["sticky_store_path"])
+        assertEquals(true, enabled["sticky_by_app"])
+        assertEquals(true, enabled["persist_sticky_by_app"])
+
+        val disabled = buildAutoSelectOutbound(
+            balancer = BalancerBean(),
+            memberEntities = members,
+            memberTags = tags,
+            stickyStorePath = groupBPath,
+        ).asMap()
+        assertEquals(groupBPath, disabled["sticky_store_path"])
+        assertFalse(disabled.containsKey("sticky_by_app"))
+        assertFalse(disabled.containsKey("persist_sticky_by_app"))
+        assertTrue(groupAPath != groupBPath)
+    }
+
+    @Test
     fun chainWithMiddleBalancerBuildsValidDetourTopologyAndPreservesPriorityOrder() {
         val front = socksEntity(1L, "Front-Relay")
         val b1 = socksEntity(10L, "Mid-Slow", status = 1, ping = 200)
@@ -204,6 +238,8 @@ class ConfigBuilderAutoSelectTest {
                 balancerType = BalancerBean.TYPE_LIST
                 proxies = mutableListOf(10L, 11L)
                 selectionMode = BalancerBean.SELECTION_PRIORITY
+                stickyByApp = true
+                persistStickyByApp = true
                 testUrl = "https://cp.cloudflare.com/generate_204"
             },
         )
@@ -240,6 +276,8 @@ class ConfigBuilderAutoSelectTest {
         assertEquals("Mid-Balancer", landingMap["detour"])
         assertEquals("autoselect", balancerMap["type"])
         assertEquals("priority", balancerMap["selection_mode"])
+        assertFalse(balancerMap.containsKey("sticky_store_path"))
+        assertFalse(balancerMap.containsKey("persist_sticky_by_app"))
 
         @Suppress("UNCHECKED_CAST")
         val memberTags = balancerMap["outbounds"] as List<String>

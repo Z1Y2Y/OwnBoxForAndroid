@@ -21,6 +21,8 @@ class ConfigBuilderLoadBalanceTest {
         assertEquals("loadbalance", lb.type)
         assertEquals(TAG_PROXY, lb.tag)
         assertEquals(members, lb.outbounds)
+        assertFalse(lb.asMap().containsKey("sticky_store_path"))
+        assertFalse(lb.asMap().containsKey("persist_sticky_by_app"))
     }
 
     @Test
@@ -156,5 +158,28 @@ class ConfigBuilderLoadBalanceTest {
         assertEquals(150, lb.tolerance)
         assertEquals("120s", lb.idle_timeout)
         assertEquals(true, lb.interrupt_exist_connections)
+    }
+
+    @Test
+    fun testLoadBalanceOutboundPersistsAppStickyStateOnlyWhenEnabled() {
+        val path = "/private/no_backup/strategy-sticky-31.json"
+        val enabled = buildLoadBalanceOutbound(
+            memberTags = listOf("n1", "n2"),
+            stickyByApp = true,
+            stickyStorePath = path,
+            persistStickyByApp = true,
+        ).asMap()
+        assertEquals(path, enabled["sticky_store_path"])
+        assertEquals(true, enabled["sticky_by_app"])
+        assertEquals(true, enabled["persist_sticky_by_app"])
+
+        val disabled = buildLoadBalanceOutbound(
+            memberTags = listOf("n1", "n2"),
+            stickyByApp = true,
+            stickyStorePath = path,
+        ).asMap()
+        assertEquals(path, disabled["sticky_store_path"])
+        assertEquals(true, disabled["sticky_by_app"])
+        assertFalse(disabled.containsKey("persist_sticky_by_app"))
     }
 }

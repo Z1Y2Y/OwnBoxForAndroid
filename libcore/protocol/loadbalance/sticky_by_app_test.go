@@ -3,12 +3,15 @@ package loadbalance
 import (
 	"context"
 	"net"
+	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/interrupt"
 	M "github.com/sagernet/sing/common/metadata"
+	"libcore/protocol/appsticky"
 )
 
 func contextForApp(packageNames ...string) context.Context {
@@ -201,5 +204,67 @@ func TestStickyByAppListenPacketFailureRetriesThenPinsSuccessfulMember(t *testin
 	secondCandidates := lb.candidateIndices(ctx, M.Socksaddr{Fqdn: "youtubei.googleapis.com"})
 	if secondCandidates[0] != fallbackIdx {
 		t.Fatalf("expected the successful UDP fallback %d to remain pinned across domains, got %v", fallbackIdx, secondCandidates)
+	}
+}
+
+func TestStickyPersistenceCommitsSuccessfulFallbackAndRestoresByTag(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lb", "sticky.json")
+	store, err := appsticky.Open(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags := []string{"node-0", "node-1", "node-2"}
+	lb := &LoadBalance{
+		tags: tags, strategy: "roundRobin", stickyByApp: true, persistStickyByApp: true,
+		stickyStore: store, outbounds: make([]adapter.Outbound, len(tags)),
+		stats:          []*nodeStats{new(nodeStats), new(nodeStats), new(nodeStats)},
+		interruptGroup: interrupt.NewGroup(), stickySessions: make(map[string]stickyEntry),
+	}
+	ctx := contextForApp("com.example.persist")
+	destination := M.Socksaddr{Fqdn: "sticky.example"}
+	candidates := lb.candidateIndices(ctx, destination)
+	primaryIdx, fallbackIdx := candidates[0], candidates[1]
+	lb.counter = 0
+	primary := &dialRetryTestOutbound{tag: tags[primaryIdx], err: syscall.ECONNREFUSED}
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	fallback := &dialRetryTestOutbound{tag: tags[fallbackIdx], conn: clientConn}
+	lb.outbounds[primaryIdx], lb.outbounds[fallbackIdx] = primary, fallback
+	conn, err := lb.DialContext(ctx, "tcp", destination)
+	if err != nil {
+		t.Fatalf("fallback dial: %v", err)
+	}
+	_ = conn.Close()
+	key := appStickyKey(ctx)
+	saved := store.Snapshot(time.Now(), 5*time.Minute)[key]
+	if saved.Tag != fallback.Tag() {
+		t.Fatalf("expected successful fallback tag persisted, saved=%#v fallback=%q", saved, fallback.Tag())
+	}
+
+	reopened, err := appsticky.Open(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reordered := []string{tags[2], tags[0], tags[1]}
+	restarted := &LoadBalance{
+		tags: reordered, strategy: "roundRobin", stickyByApp: true, persistStickyByApp: true,
+		stickyStore: reopened, outbounds: make([]adapter.Outbound, len(reordered)),
+		stats:          []*nodeStats{new(nodeStats), new(nodeStats), new(nodeStats)},
+		stickySessions: make(map[string]stickyEntry),
+	}
+	for idx, tag := range reordered {
+		restarted.outbounds[idx] = &dialRetryTestOutbound{tag: tag}
+	}
+	restarted.restorePersistedAppSticky()
+	gotIdx, ok := restarted.getStickySession(key, time.Now().UnixMilli())
+	wantIdx := -1
+	for idx, tag := range reordered {
+		if tag == fallback.Tag() {
+			wantIdx = idx
+			break
+		}
+	}
+	if !ok || gotIdx != wantIdx {
+		t.Fatalf("restore must resolve persisted tag, got idx=%d ok=%v want idx=%d", gotIdx, ok, wantIdx)
 	}
 }

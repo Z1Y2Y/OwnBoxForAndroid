@@ -107,6 +107,46 @@ class BalancerBeanMigrationTest {
         return baos.toByteArray()
     }
 
+    private fun buildMyBoxV10Blob(stickyByApp: Boolean): ByteArray {
+        val baos = ByteArrayOutputStream()
+        val out = baos.byteBuffer()
+        out.writeInt(10)
+        out.writeInt(BalancerBean.TYPE_MIXED)
+        out.writeLong(12L)
+        out.writeString(BalancerBean.SELECTION_LATENCY)
+        out.writeString("https://example.com/204")
+        out.writeInt(300)
+        out.writeInt(2)
+        out.writeLong(101L)
+        out.writeLong(102L)
+        out.writeInt(1)
+        out.writeLong(12L)
+        out.writeInt(30)
+        out.writeString("ms")
+        out.writeString("")
+        out.writeString("")
+        out.writeLong(-1L)
+        out.writeLong(-1L)
+        out.writeString(BalancerBean.SELECTION_LATENCY)
+        out.writeBoolean(false)
+        out.writeString(BalancerBean.BALANCE_TIMED_ROTATION)
+        out.writeInt(30)
+        out.writeString("")
+        out.writeBoolean(false)
+        out.writeBoolean(true)
+        out.writeInt(0)
+        out.writeBoolean(true)
+        out.writeInt(2)
+        out.writeBoolean(stickyByApp)
+        out.writeInt(1) // AbstractBean extra section
+        out.writeString("MyBox v10")
+        out.writeString("")
+        out.writeString("")
+        out.flush()
+        out.close()
+        return baos.toByteArray()
+    }
+
     @Test
     fun `fresh BalancerBean uses unified mobile-safe defaults`() {
         val bean = BalancerBean().apply { initializeDefaultValues() }
@@ -119,6 +159,7 @@ class BalancerBeanMigrationTest {
         assertEquals(300, bean.interval)
         assertEquals(30, bean.tolerance)
         assertEquals("ms", bean.toleranceUnit)
+        assertFalse(bean.persistStickyByApp)
         assertFalse(bean.interruptOnSwitch)
         assertTrue(bean.learnFromConnections)
         assertEquals(-1L, bean.frontProxy)
@@ -300,5 +341,20 @@ class BalancerBeanMigrationTest {
         assertEquals(2, reSerialized.tiers.size)
         assertEquals("IEPL", reSerialized.tiers[0].nameFilter)
         assertEquals(15, fromV6.clone().tolerance)
+    }
+
+    @Test
+    fun `v10 sticky setting remains compatible and v11 persistence round trips`() {
+        val fromV10 = KryoConverters.deserialize(BalancerBean(), buildMyBoxV10Blob(stickyByApp = true))
+        assertTrue(fromV10.stickyByApp)
+        assertFalse(fromV10.persistStickyByApp)
+
+        val original = BalancerBean().apply {
+            stickyByApp = true
+            persistStickyByApp = true
+        }
+        val cloned = original.clone()
+        assertTrue(cloned.stickyByApp)
+        assertTrue(cloned.persistStickyByApp)
     }
 }

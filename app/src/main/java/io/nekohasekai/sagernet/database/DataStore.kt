@@ -492,6 +492,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var balancerTargetGroup by profileCacheStore.stringToLong("balancerTargetGroup") { 0L }
     var balancerTargetGroups by profileCacheStore.string("balancerTargetGroups") { "" }
     var balancerStickyByApp by profileCacheStore.boolean("balancerStickyByApp")
+    var balancerPersistStickyByApp by profileCacheStore.boolean("balancerPersistStickyByApp") { false }
     var balancerStrategy by profileCacheStore.string("balancerStrategy") { "latency" }
     var balancerSelectionMode by profileCacheStore.string("balancerSelectionMode") { "latency" }
     var balancerTiers by profileCacheStore.string("balancerTiers") { "" }

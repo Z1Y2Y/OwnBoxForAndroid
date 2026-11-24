@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/sagernet/sing-box/log"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"libcore/protocol/appsticky"
 )
 
 type stickyTestOutbound struct {
@@ -257,5 +260,58 @@ func TestAutoSelectStickyByAppListenPacketAndNoAppInfoFallback(t *testing.T) {
 	_ = plainConn.Close()
 	if b.dialCalls.Load() != 1 {
 		t.Fatalf("no-app request should follow global scorer b, b dials=%d", b.dialCalls.Load())
+	}
+}
+
+func TestAutoSelectStickyPersistenceRestoresUpdatesAndDisabledClears(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auto", "sticky.json")
+	a, b := newStickyTestOutbound("a"), newStickyTestOutbound("b")
+	opts := AutoSelectOptions{Outbounds: []string{"a", "b"}, StickyByApp: true, StickyStorePath: path, PersistStickyByApp: true}
+	g := newStickyAutoSelect(t, opts, a, b)
+	setStickyTestHealthy(g, "a", "b")
+	app := contextWithStickyTestApp("com.example.persist")
+	conn, err := g.DialContext(app, N.NetworkTCP, M.ParseSocksaddrHostPort("seed.example", 443))
+	if err != nil {
+		t.Fatalf("initial successful dial: %v", err)
+	}
+	_ = conn.Close()
+	if got := g.appSticky[autoSelectAppStickyKey(app)]; got != "a" {
+		t.Fatalf("expected initial binding to a, got %q", got)
+	}
+	dialErr := errors.New("pinned member unavailable")
+	a.dialErr.Store(&dialErr)
+	conn, err = g.DialContext(app, N.NetworkTCP, M.ParseSocksaddrHostPort("fallback.example", 443))
+	if err != nil {
+		t.Fatalf("fallback dial: %v", err)
+	}
+	_ = conn.Close()
+	key := autoSelectAppStickyKey(app)
+	if g.appSticky[key] != "b" {
+		t.Fatalf("expected fallback member b, got %v", g.appSticky)
+	}
+	g.Close()
+
+	store, err := appsticky.Open(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry := store.Snapshot(time.Now(), 0)[key]; entry.Tag != "b" {
+		t.Fatalf("successful fallback not persisted: %#v", entry)
+	}
+	newGroup := newStickyAutoSelect(t, opts, newStickyTestOutbound("a"), newStickyTestOutbound("b"))
+	if got := newGroup.appSticky[key]; got != "b" {
+		t.Fatalf("restarted group did not restore app tag b: %v", newGroup.appSticky)
+	}
+	newGroup.Close()
+
+	off := opts
+	off.PersistStickyByApp = false
+	disabledGroup := newStickyAutoSelect(t, off, newStickyTestOutbound("a"), newStickyTestOutbound("b"))
+	defer disabledGroup.Close()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("disabled persistence did not remove stale file: %v", err)
+	}
+	if len(disabledGroup.appSticky) != 0 {
+		t.Fatalf("disabled persistence restored old bindings: %v", disabledGroup.appSticky)
 	}
 }

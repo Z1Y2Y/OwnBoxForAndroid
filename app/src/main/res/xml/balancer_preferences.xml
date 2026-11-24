@@ -27,6 +27,14 @@
         app:summary="@string/balancer_sticky_by_app_sum"
         app:title="@string/balancer_sticky_by_app" />
 
+    <SwitchPreferenceCompat
+        android:order="1501"
+        app:defaultValue="false"
+        app:dependency="balancerStickyByApp"
+        app:key="balancerPersistStickyByApp"
+        app:summary="@string/balancer_persist_sticky_by_app_sum"
+        app:title="@string/balancer_persist_sticky_by_app" />
+
     <Preference
         android:order="2000"
         app:icon="@drawable/ic_baseline_layers_24"

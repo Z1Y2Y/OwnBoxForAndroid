@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"libcore/protocol/appsticky"
 	customUrltest "libcore/protocol/urltest"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -62,6 +63,7 @@ type AutoSelect struct {
 	dialFails      map[string]int
 	appStickyMu    sync.RWMutex
 	appSticky      map[string]string
+	appStickyStore *appsticky.Store
 	nowFn          func() time.Time
 	started        atomic.Bool
 }
@@ -80,6 +82,10 @@ func NewAutoSelect(ctx context.Context, router adapter.Router, logger log.Contex
 	}
 
 	cfg := options.normalized()
+	stickyStore, err := appsticky.Open(options.StickyStorePath, options.PersistStickyByApp && cfg.stickyByApp)
+	if err != nil {
+		return nil, E.Cause(err, "open app sticky store")
+	}
 	var passive *passiveTracker
 	if cfg.learnFromConnections {
 		passive = newPassiveTracker(defaultSiteStickyTTL)
@@ -100,7 +106,15 @@ func NewAutoSelect(ctx context.Context, router adapter.Router, logger log.Contex
 		interruptGroup: interrupt.NewGroup(),
 		dialFails:      make(map[string]int),
 		appSticky:      make(map[string]string),
+		appStickyStore: stickyStore,
 		nowFn:          time.Now,
+	}
+	if cfg.stickyByApp {
+		for key, entry := range stickyStore.Snapshot(g.now(), 0) {
+			if containsTag(g.tags, entry.Tag) {
+				g.appSticky[key] = entry.Tag
+			}
+		}
 	}
 
 	g.resolveOutboundsLocked()
@@ -355,6 +369,18 @@ func (g *AutoSelect) bindAppStickyMember(key, tag string) {
 	g.appStickyMu.Lock()
 	g.appSticky[key] = tag
 	g.appStickyMu.Unlock()
+	if g.appStickyStore != nil {
+		_ = g.appStickyStore.Set(key, tag, g.now())
+	}
+}
+
+func containsTag(tags []string, tag string) bool {
+	for _, candidate := range tags {
+		if candidate == tag {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *AutoSelect) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {

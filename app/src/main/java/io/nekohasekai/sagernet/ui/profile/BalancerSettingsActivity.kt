@@ -124,6 +124,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             else -> BalancerBean.SELECTION_LATENCY
         }
         DataStore.balancerStickyByApp = stickyByApp
+        DataStore.balancerPersistStickyByApp = stickyByApp && persistStickyByApp
         DataStore.balancerTestUrl = testUrl
         DataStore.balancerSelectionMode = normalizedSelectionMode
         DataStore.balancerStrategy = normalizedSelectionMode
@@ -187,6 +188,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         countryFilter = DataStore.balancerCountryFilter.trim()
         strategy = DataStore.balancerStrategy
         stickyByApp = DataStore.balancerStickyByApp
+        persistStickyByApp = stickyByApp && DataStore.balancerPersistStickyByApp
         testUrl = DataStore.balancerTestUrl
         interval = DataStore.balancerInterval
         tolerance = DataStore.balancerTolerance
@@ -714,10 +716,23 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         val balanceIntervalPref = bindIntPref("balancerBalanceIntervalSec", 30, 1, R.string.balancer_unit_seconds)
         val selectionModePref = findPreference<SimpleMenuPreference>("balancerSelectionMode")
         val fallbackAutoRevertPref = findPreference<SwitchPreferenceCompat>("balancerFallbackAutoRevert")
+        val persistStickyByAppPref = findPreference<SwitchPreferenceCompat>("balancerPersistStickyByApp")
+        persistStickyByAppPref?.isChecked = DataStore.balancerPersistStickyByApp
+        persistStickyByAppPref?.isEnabled = DataStore.balancerStickyByApp
+        persistStickyByAppPref?.setOnPreferenceChangeListener { _, newValue ->
+            DataStore.balancerPersistStickyByApp = newValue as? Boolean ?: false
+            true
+        }
         val stickyByAppPref = findPreference<SwitchPreferenceCompat>("balancerStickyByApp")
         stickyByAppPref?.isChecked = DataStore.balancerStickyByApp
         stickyByAppPref?.setOnPreferenceChangeListener { _, newValue ->
-            DataStore.balancerStickyByApp = newValue as? Boolean ?: false
+            val enabled = newValue as? Boolean ?: false
+            DataStore.balancerStickyByApp = enabled
+            persistStickyByAppPref?.isEnabled = enabled
+            if (!enabled) {
+                DataStore.balancerPersistStickyByApp = false
+                persistStickyByAppPref?.isChecked = false
+            }
             true
         }
         val fallbackMaxFailsPref = bindIntPref("balancerFallbackMaxFails", 2, 1, null)

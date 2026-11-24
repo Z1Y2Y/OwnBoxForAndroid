@@ -56,6 +56,8 @@ public class BalancerBean extends InternalBean {
     public long landingProxy = -1L;
     // v6 fields
     public boolean stickyByApp = false;
+    // v11 per-balancer persistence setting; disabled for existing profiles by default.
+    public boolean persistStickyByApp = false;
     // v6 unified auto-select fields
     public String selectionMode = SELECTION_LATENCY;
     public boolean balanceEnabled = false;
@@ -310,7 +312,7 @@ public class BalancerBean extends InternalBean {
                 : (SELECTION_PRIORITY.equals(selectionMode) ? SELECTION_PRIORITY : SELECTION_LATENCY);
         strategy = effectiveSelection;
 
-        output.writeInt(10); // version
+        output.writeInt(11); // version
         output.writeInt(balancerType);
         output.writeLong(targetGroupId);
         output.writeString(strategy);
@@ -358,6 +360,8 @@ public class BalancerBean extends InternalBean {
         output.writeInt(fallbackMaxFails > 0 ? fallbackMaxFails : 2);
         // v10 MyBox extension; previous upstream v1-v9 layouts remain readable.
         output.writeBoolean(stickyByApp);
+        // v11 MyBox extension: persist app affinity across proxy service restarts.
+        output.writeBoolean(persistStickyByApp);
     }
 
     @Override
@@ -424,6 +428,7 @@ public class BalancerBean extends InternalBean {
                         fallbackMaxFails = 2;
                     }
                     stickyByApp = version >= 10 && input.readBoolean();
+                    persistStickyByApp = version >= 11 && input.readBoolean();
                 } else {
                     fallbackAutoRevert = true;
                     fallbackMaxFails = 2;
@@ -453,7 +458,9 @@ public class BalancerBean extends InternalBean {
                 // Both schemas share the v4/v5 prefix. MyBox v6 ends after the
                 // front/landing IDs with stickyByApp; upstream v6 continues with a
                 // Kryo selection-mode string, whose encoded first byte is not 0 or 1.
-                int nextByte = input.getBuffer()[input.position()] & 0xff;
+                int position = input.position();
+                int nextByte = input.readByteUnsigned();
+                input.setPosition(position);
                 if (nextByte <= 1) {
                     stickyByApp = input.readBoolean();
                     migrateLegacyStrategy(strategy);

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"libcore/protocol/appsticky"
 	urltestPkg "libcore/protocol/urltest"
 
 	"golang.org/x/net/publicsuffix"
@@ -43,6 +44,8 @@ type LoadBalanceOptions struct {
 	Strategy             string   `json:"strategy,omitempty"`
 	Default              string   `json:"default,omitempty"`
 	StickyByApp          bool     `json:"sticky_by_app,omitempty"`
+	StickyStorePath      string   `json:"sticky_store_path,omitempty"`
+	PersistStickyByApp   bool     `json:"persist_sticky_by_app,omitempty"`
 	StickyDiagnostic     bool     `json:"sticky_diagnostic,omitempty"`
 	HealthyOutbounds     []string `json:"healthy_outbounds,omitempty"`
 	UnavailableOutbounds []string `json:"unavailable_outbounds,omitempty"`
@@ -219,6 +222,8 @@ type LoadBalance struct {
 	tags                         []string
 	strategy                     string
 	stickyByApp                  bool
+	persistStickyByApp           bool
+	stickyStore                  *appsticky.Store
 	link                         string
 	interval                     time.Duration
 	tolerance                    uint16
@@ -282,6 +287,7 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		tags:                         options.Outbounds,
 		strategy:                     options.Strategy,
 		stickyByApp:                  options.StickyByApp,
+		persistStickyByApp:           options.PersistStickyByApp,
 		healthyOutbounds:             options.HealthyOutbounds,
 		unavailableOutbounds:         options.UnavailableOutbounds,
 		stickyDiagnostic:             stickyDiagnosticEnabled(options.StickyDiagnostic),
@@ -296,6 +302,11 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		stickyFlights:                make(map[string]*stickyFlight),
 		close:                        make(chan struct{}),
 	}
+	stickyStore, err := appsticky.Open(options.StickyStorePath, options.PersistStickyByApp && options.StickyByApp)
+	if err != nil {
+		return nil, E.Cause(err, "open app sticky store")
+	}
+	lb.stickyStore = stickyStore
 	lb.lastSelectedIdx.Store(-1)
 	if lb.stickyDiagnostic {
 		lb.diagnosticInstanceID = nextStickyDiagnosticInstanceID()
@@ -317,6 +328,23 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		return nil, E.New("missing tags")
 	}
 	return lb, nil
+}
+
+func (s *LoadBalance) restorePersistedAppSticky() {
+	if !s.stickyByApp || !s.persistStickyByApp || s.stickyStore == nil {
+		return
+	}
+	now := time.Now()
+	for key, entry := range s.stickyStore.Snapshot(now, 5*time.Minute) {
+		for idx, tag := range s.tags {
+			if tag == entry.Tag && idx < len(s.outbounds) && s.outbounds[idx] != nil {
+				s.stickyMu.Lock()
+				s.setStickySessionLocked(key, idx, now.UnixMilli())
+				s.stickyMu.Unlock()
+				break
+			}
+		}
+	}
 }
 
 func (s *LoadBalance) References() []string {
@@ -581,6 +609,7 @@ func (s *LoadBalance) Start(stage adapter.StartStage, scope *adapter.Scope) erro
 			}
 		}
 		s.ring = newConsistentHashRing(s.tags)
+		s.restorePersistedAppSticky()
 	case adapter.StartStateStarted:
 		s.access.Lock()
 		s.started = true
@@ -790,6 +819,13 @@ func (s *LoadBalance) setStickySession(key string, nodeIdx int) {
 	s.stickyMu.Lock()
 	defer s.stickyMu.Unlock()
 	s.setStickySessionLocked(key, nodeIdx, now)
+}
+
+func (s *LoadBalance) persistAppStickyBinding(key string, nodeIdx int) {
+	if !s.persistStickyByApp || !s.stickyByApp || s.stickyStore == nil || !strings.HasPrefix(key, "app:") || nodeIdx < 0 || nodeIdx >= len(s.tags) {
+		return
+	}
+	_ = s.stickyStore.Set(key, s.tags[nodeIdx], time.Now())
 }
 
 func (s *LoadBalance) setStickySessionIfRevision(key string, nodeIdx int, expectedRevision uint64) bool {
@@ -1118,6 +1154,9 @@ func (s *LoadBalance) recordStickyDialSuccess(ctx context.Context, destination M
 		}
 		reason := stickyDiagnosticBindingReason(true, expired, false, false, false, false, "")
 		committed := s.finishStickyDialForFlow(ctx, coordinationKey, flight, nodeIdx, reason)
+		if committed {
+			s.persistAppStickyBinding(sessionKey, nodeIdx)
+		}
 		if !committed {
 			reason = "stale_flight"
 		}
@@ -1146,6 +1185,9 @@ func (s *LoadBalance) recordStickyDialSuccess(ctx context.Context, destination M
 		}
 	} else if coordinationKey != "" && sessionKey == coordinationKey {
 		update := s.setStickySessionIfRevisionDetailed(sessionKey, nodeIdx, expectedRevision)
+		if update.committed {
+			s.persistAppStickyBinding(sessionKey, nodeIdx)
+		}
 		reason := stickyDiagnosticBindingReason(false, false, update.committed && update.previousIdx == nodeIdx, trace != nil && trace.degradedSkipped, trace != nil && trace.boundMemberFailed, !update.committed, update.reason)
 		if s.stickyDiagnostic {
 			s.stickyDiagnosticLog(ctx, "sticky_bind",
@@ -1191,6 +1233,7 @@ func (s *LoadBalance) recordStickyDialSuccess(ctx context.Context, destination M
 		}
 	} else {
 		s.setStickySession(sessionKey, nodeIdx)
+		s.persistAppStickyBinding(sessionKey, nodeIdx)
 		if s.stickyDiagnostic {
 			s.stickyDiagnosticLog(ctx, "sticky_bind",
 				stickyDiagnosticQuotedField("source", "session_key"),
