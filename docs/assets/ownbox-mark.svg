@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="346" height="420" viewBox="0 0 346 420" role="img" aria-labelledby="title desc">
+  <title id="title">OwnBox app logo</title>
+  <desc id="desc">Four rounded vertical bars: navy, blue, navy and light cyan.</desc>
+  <rect x="0" y="0" width="68" height="420" rx="34" fill="#293256"/>
+  <rect x="93" y="108" width="68" height="312" rx="34" fill="#4B8CC2"/>
+  <rect x="186" y="0" width="68" height="420" rx="34" fill="#293256"/>
+  <rect x="278" y="213" width="68" height="207" rx="34" fill="#B8E7F1"/>
+</svg>

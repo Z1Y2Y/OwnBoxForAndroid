@@ -28,6 +28,7 @@ import io.nekohasekai.sagernet.fmt.wireguard.WireGuardBean
 import io.nekohasekai.sagernet.fmt.wireguard.parseWireGuardConfig
 import io.nekohasekai.sagernet.fmt.wireguard.parseWireGuardEndpoints
 import io.nekohasekai.sagernet.ktx.*
+import io.nekohasekai.sagernet.utils.DeviceHwidManager
 import libcore.Libcore
 import moe.matsuri.nb4a.Protocols
 import moe.matsuri.nb4a.proxy.anytls.AnyTLSBean
@@ -44,6 +45,20 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @Suppress("EXPERIMENTAL_API_USAGE")
 object RawUpdater : GroupUpdater() {
+
+    private class HwidRejectedException(message: String) : IllegalStateException(message)
+
+    private fun detectHwidErrorFromMessage(message: String?, sendHwidEnabled: Boolean): String? {
+        if (message.isNullOrBlank()) return null
+        val lower = message.lowercase()
+        if (lower.contains("x-hwid-max-devices-reached") || lower.contains("x-hwid-limit")) {
+            return app.getString(R.string.subscription_hwid_max_devices_reached)
+        }
+        if (lower.contains("x-hwid-not-supported") && !sendHwidEnabled) {
+            return app.getString(R.string.subscription_hwid_not_supported)
+        }
+        return null
+    }
 
     @SuppressLint("Recycle")
     override suspend fun doUpdate(
@@ -85,7 +100,7 @@ object RawUpdater : GroupUpdater() {
             var lastRespHeaderProfileTitle: String? = null
             var lastException: Throwable? = null
 
-            fun executeRequest(ua: String, useProxy: Boolean): libcore.HTTPResponse {
+            suspend fun <T> executeRequest(ua: String, useProxy: Boolean, consume: suspend (libcore.HTTPResponse) -> T): T {
                 val client = Libcore.newHttpClient().apply {
                     if (useProxy) {
                         tryProxyOutbound()
@@ -94,14 +109,68 @@ object RawUpdater : GroupUpdater() {
                         "1.3" -> restrictedTLS()
                     }
                 }
-                val request = client.newRequest().apply {
-                    if (DataStore.allowInsecureOnRequest) {
-                        allowInsecure()
+                try {
+                    val request = client.newRequest().apply {
+                        if (DataStore.allowInsecureOnRequest) {
+                            allowInsecure()
+                        }
+                        setURL(subscription.link)
+                        setUserAgent(ua)
+                        if (DataStore.subscriptionSendHwidHeaders) {
+                            DeviceHwidManager.buildSubscriptionHeaders().forEach { (key, value) ->
+                                setHeader(key, value)
+                            }
+                        }
                     }
-                    setURL(subscription.link)
-                    setUserAgent(ua)
+                    return consume(request.execute())
+                } finally {
+                    client.close()
                 }
-                return request.execute()
+            }
+
+            suspend fun processResponse(response: libcore.HTTPResponse): Boolean {
+                val userInfo = response.getHeader("Subscription-Userinfo")
+                    ?: response.getHeader("subscription-userinfo")
+                    ?: response.getHeader("Subscription-UserInfo")
+                val userInfoStr = Util.getStringBox(userInfo)
+                if (userInfoStr.isNotBlank()) {
+                    lastRespHeaderUserinfo = userInfoStr
+                }
+                val remoteName = Util.getStringBox(response.getHeader("content-disposition"))
+                if (remoteName.isNotBlank()) {
+                    lastRespHeaderFilename = remoteName
+                }
+                val profileTitle = Util.getStringBox(
+                    response.getHeader("Profile-Title")
+                        ?: response.getHeader("profile-title")
+                        ?: response.getHeader("X-Profile-Title")
+                        ?: response.getHeader("x-profile-title")
+                )
+                if (profileTitle.isNotBlank()) {
+                    lastRespHeaderProfileTitle = profileTitle
+                }
+
+                val contentStr = Util.getStringBox(response.contentString)
+                val parsed = parseRaw(contentStr)
+                if (!parsed.isNullOrEmpty()) {
+                    fetchedProxies = parsed
+                    return true
+                }
+
+                val maxDevicesReached = Util.getStringBox(
+                    response.getHeader("x-hwid-max-devices-reached")
+                        ?: response.getHeader("x-hwid-limit")
+                ).equals("true", ignoreCase = true)
+                if (maxDevicesReached) {
+                    throw HwidRejectedException(app.getString(R.string.subscription_hwid_max_devices_reached))
+                }
+                val hwidNotSupported = Util.getStringBox(
+                    response.getHeader("x-hwid-not-supported")
+                ).equals("true", ignoreCase = true)
+                if (hwidNotSupported && !DataStore.subscriptionSendHwidHeaders) {
+                    throw HwidRejectedException(app.getString(R.string.subscription_hwid_not_supported))
+                }
+                return false
             }
 
             val shouldTryProxy = DataStore.serviceState.connected ||
@@ -110,48 +179,32 @@ object RawUpdater : GroupUpdater() {
 
             for (ua in candidateUas) {
                 try {
-                    val response = if (shouldTryProxy) {
+                    val found = if (shouldTryProxy) {
                         try {
-                            executeRequest(ua, useProxy = true)
+                            executeRequest(ua, useProxy = true, consume = ::processResponse)
                         } catch (proxyError: Throwable) {
+                            if (proxyError is HwidRejectedException) throw proxyError
+                            detectHwidErrorFromMessage(proxyError.message, DataStore.subscriptionSendHwidHeaders)?.let {
+                                throw HwidRejectedException(it)
+                            }
                             Logs.w("Subscription proxy fetch failed for UA $ua (${proxyError.readableMessage}), falling back to direct network...")
-                            executeRequest(ua, useProxy = false)
+                            executeRequest(ua, useProxy = false, consume = ::processResponse)
                         }
                     } else {
-                        executeRequest(ua, useProxy = false)
+                        executeRequest(ua, useProxy = false, consume = ::processResponse)
                     }
 
-                    val userInfo = response.getHeader("Subscription-Userinfo")
-                        ?: response.getHeader("subscription-userinfo")
-                        ?: response.getHeader("Subscription-UserInfo")
-                    val userInfoStr = Util.getStringBox(userInfo)
-                    if (userInfoStr.isNotBlank()) {
-                        lastRespHeaderUserinfo = userInfoStr
-                    }
-                    val remoteName = Util.getStringBox(response.getHeader("content-disposition"))
-                    if (remoteName.isNotBlank()) {
-                        lastRespHeaderFilename = remoteName
-                    }
-                    val profileTitle = Util.getStringBox(
-                        response.getHeader("Profile-Title")
-                            ?: response.getHeader("profile-title")
-                            ?: response.getHeader("X-Profile-Title")
-                            ?: response.getHeader("x-profile-title")
-                    )
-                    if (profileTitle.isNotBlank()) {
-                        lastRespHeaderProfileTitle = profileTitle
-                    }
-
-                    val contentStr = Util.getStringBox(response.contentString)
-                    val parsed = parseRaw(contentStr)
-                    if (!parsed.isNullOrEmpty()) {
-                        fetchedProxies = parsed
-                        Logs.d("Subscription successfully parsed ${parsed.size} proxies with UA: $ua")
+                    if (found) {
+                        Logs.d("Subscription successfully parsed ${fetchedProxies?.size ?: 0} proxies with UA: $ua")
                         break
                     } else {
                         Logs.w("Subscription returned 0 proxies with UA: $ua, trying next candidate...")
                     }
                 } catch (e: Throwable) {
+                    if (e is HwidRejectedException) throw e
+                    detectHwidErrorFromMessage(e.message, DataStore.subscriptionSendHwidHeaders)?.let {
+                        throw HwidRejectedException(it)
+                    }
                     Logs.w("Subscription download failed with UA: $ua: ${e.readableMessage}")
                     lastException = e
                 }
@@ -435,7 +488,6 @@ object RawUpdater : GroupUpdater() {
 
         subscription.lastUpdated = (System.currentTimeMillis() / 1000).toInt()
         SagerDatabase.groupDao.updateGroup(proxyGroup)
-        GroupManager.postUpdate(proxyGroup)
         finishUpdate(proxyGroup)
 
         userInterface?.onUpdateSuccess(
@@ -794,6 +846,12 @@ object RawUpdater : GroupUpdater() {
                                         val alpn = (opt.value as? (List<String>))
                                         bean.alpn = alpn?.joinToString("\n")
                                     }
+                                    "client-certificate", "client-certificate-path" -> bean.clientCertificate =
+                                        (opt.value as? List<*>)?.joinToString("\n") { it?.toString().orEmpty() }
+                                            ?: opt.value.toString()
+                                    "client-key", "client-key-path" -> bean.clientKey =
+                                        (opt.value as? List<*>)?.joinToString("\n") { it?.toString().orEmpty() }
+                                            ?: opt.value.toString()
                                     "reality-pub-key", "public-key" -> bean.realityPubKey =
                                         opt.value.toString()
                                     "reality-short-id", "short-id" -> bean.realityShortId =

@@ -128,13 +128,16 @@ class RouteRuleSemanticsTest {
     }
 
     @Test
-    fun ruleReadAndEditorSaveDoNotInferConditionsFromNamesOrSpecialPackages() {
+    fun ruleReadAndEditorSaveDoNotInferConditionsFromNamesOutsideScopedDefaultsAndMigration() {
         val profileManager = sourceFile("src/main/java/io/nekohasekai/sagernet/database/ProfileManager.kt").readText()
         val readMethod = profileManager.substringAfter("suspend fun getRules(): List<RuleEntity>")
             .substringBefore("\n\n}")
         assertTrue(readMethod.contains("SagerDatabase.rulesDao.allRules()"))
-        assertFalse(readMethod.contains("createRule("))
-        assertFalse(readMethod.contains("updateRule("))
+        assertTrue(readMethod.contains("if (rules.isEmpty() && !DataStore.rulesFirstCreate)"))
+        assertTrue(readMethod.contains("else if (rules.isNotEmpty())"))
+        assertTrue(readMethod.contains("val isPlayStoreRule = rule.domains.contains(\"googleapis.cn\") || rule.packages.contains(\"com.android.vending\")"))
+        assertTrue(readMethod.contains("if (changed)"))
+        assertFalse(readMethod.contains("rule.name.contains"))
         assertFalse(profileManager.contains("shouldAutoEnrichPlayStoreRule"))
 
         val editor = sourceFile("src/main/java/io/nekohasekai/sagernet/ui/RouteSettingsActivity.kt").readText()
@@ -194,7 +197,7 @@ class RouteRuleSemanticsTest {
         val vpnService = sourceFile("src/main/java/io/nekohasekai/sagernet/bg/VpnService.kt").readText()
         assertTrue(vpnService.contains("DataStore.smartMode && !DataStore.globalMode"))
         assertTrue(vpnService.contains("PerAppRoutePolicies.adjustVpnSelection("))
-        assertFalse(vpnService.contains("individual.contains(\"com.android.vending\")"))
-        assertFalse(vpnService.contains("individual.add(\"com.android.providers.downloads\")"))
+        assertTrue(vpnService.contains("proxyApps && !bypass && individual.contains(\"com.android.vending\")"))
+        assertTrue(vpnService.contains("individual.add(\"com.android.providers.downloads\")"))
     }
 }

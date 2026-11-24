@@ -18,6 +18,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.bg.SubscriptionUpdater
 import io.nekohasekai.sagernet.database.*
 import io.nekohasekai.sagernet.databinding.LayoutGroupItemBinding
 import io.nekohasekai.sagernet.fmt.toUniversalLink
@@ -117,6 +118,19 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
         groupListView.updatePadding(bottom = dp2px(if (DataStore.showBottomBar) 80 else 4))
     }
 
+    private var lastCompactGroupCards: Boolean? = null
+
+    override fun onResume() {
+        super.onResume()
+        if (::groupAdapter.isInitialized) {
+            if (lastCompactGroupCards != null && lastCompactGroupCards != DataStore.compactGroupCards) {
+                groupAdapter.notifyDataSetChanged()
+            }
+            lastCompactGroupCards = DataStore.compactGroupCards
+        }
+        SubscriptionUpdater.checkPendingUpdates(onlyIfConnected = false)
+    }
+
     override fun onMenuItemClick(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.action_new_group -> {
@@ -130,28 +144,8 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
                         val subGroups = SagerDatabase.groupDao.allGroups().filter { it.type == GroupType.SUBSCRIPTION }
                         if (subGroups.isEmpty()) return@setPositiveButton
                         runOnDefaultDispatcher {
-                            supervisorScope {
-                                val tasks = subGroups.map { group ->
-                                    async {
-                                        runCatching {
-                                            GroupUpdater.executeUpdate(group, false)
-                                        }.getOrElse { e ->
-                                            Logs.w("Batch update failed for ${group.displayName()}: ${e.readableMessage}")
-                                            false
-                                        }
-                                    }
-                                }
-                                val results = tasks.awaitAll()
-                                val successCount = results.count { it }
-                                val failCount = results.count { !it }
-                                onMainDispatcher {
-                                    val msg = if (failCount == 0) {
-                                        "全部订阅更新完成（共 ${successCount} 个）"
-                                    } else {
-                                        "订阅更新完成：${successCount} 个成功，${failCount} 个失败"
-                                    }
-                                    safeSnackbar(msg)
-                                }
+                            subGroups.forEach { group ->
+                                GroupUpdater.startUpdate(group, true)
                             }
                         }
                     }

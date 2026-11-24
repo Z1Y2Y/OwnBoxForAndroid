@@ -214,6 +214,7 @@ object Key {
     const val SUBSCRIPTION_LOCK_USER_AGENT = "subscriptionLockUserAgent"
     const val SUBSCRIPTION_RETAIN_VALID_NODES = "subscriptionRetainValidNodes"
     const val DEFAULT_SUBSCRIPTION_USER_AGENT = "defaultSubscriptionUserAgent"
+    const val SUBSCRIPTION_SEND_HWID_HEADERS = "subscriptionSendHwidHeaders"
     const val SUBSCRIPTION_AUTO_UPDATE = "subscriptionAutoUpdate"
     const val SUBSCRIPTION_AUTO_UPDATE_DELAY = "subscriptionAutoUpdateDelay"
     const val SUBSCRIPTION_FILTER_MODE = "subscriptionFilterMode"
@@ -225,6 +226,7 @@ object Key {
 
     const val APP_TLS_VERSION = "appTLSVersion"
     const val ENABLE_CLASH_API = "enableClashAPI"
+    const val ENABLE_CONNECTIONS_MONITOR = "enableConnectionsMonitor"
 
     const val ENABLE_TLS_FRAGMENT = "enableTLSFragment"
 
@@ -239,6 +241,9 @@ object Key {
     const val GLOBAL_MODE = "globalMode"
     const val SMART_MODE = "smartMode"
     const val SMART_ROUTE_COUNTRY = "smartRouteCountry"
+    const val BLOCK_QUIC = "blockQuic"
+    const val SMART_AUTO_STOP = "smartAutoStop"
+    const val SMART_AUTO_STOP_NETWORKS = "smartAutoStopNetworks"
 }
 
 object TunImplementation {
@@ -285,5 +290,7 @@ object Action {
     const val SWITCH_PREVIOUS = "io.nekohasekai.sagernet.SWITCH_PREVIOUS"
     const val SWITCH_PROFILE = "io.nekohasekai.sagernet.SWITCH_PROFILE"
     const val REFRESH_NOTIFICATION = "io.nekohasekai.sagernet.REFRESH_NOTIFICATION"
+    const val REFRESH_SMART_AUTO_STOP = "com.ownbox.app.REFRESH_SMART_AUTO_STOP"
+    const val SMART_RESUME = "com.ownbox.app.SMART_RESUME"
     const val EXTRA_PROFILE_ID = "profile_id"
 }

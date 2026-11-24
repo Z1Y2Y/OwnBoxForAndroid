@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import go.Seq
 import io.nekohasekai.sagernet.bg.SagerConnection
+import io.nekohasekai.sagernet.bg.SubscriptionUpdater
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.isOss
@@ -130,6 +131,10 @@ class SagerNet : Application(),
                 }
 
                 updateNotificationChannels()
+                runCatching {
+                    SubscriptionUpdater.reconfigureUpdater()
+                    SubscriptionUpdater.checkPendingUpdates(onlyIfConnected = false)
+                }
             }
         }
 
@@ -149,14 +154,11 @@ class SagerNet : Application(),
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         updateNotificationChannels()
-        if (DataStore.appIconMode == AppIconManager.MODE_FOLLOW_SYSTEM) {
-            AppIconManager.applyIconMode(this)
-        }
     }
 
     override fun getWorkManagerConfiguration(): WorkConfiguration {
         return WorkConfiguration.Builder()
-            .setDefaultProcessName("${BuildConfig.APPLICATION_ID}:bg")
+            .setDefaultProcessName(BuildConfig.APPLICATION_ID)
             .build()
     }
 
@@ -178,6 +180,8 @@ class SagerNet : Application(),
     companion object {
 
         lateinit var application: SagerNet
+
+        fun isInitialized(): Boolean = ::application.isInitialized
 
         val isTv by lazy {
             uiMode.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
@@ -256,11 +260,24 @@ class SagerNet : Application(),
         fun reloadService() =
             application.sendBroadcast(Intent(Action.RELOAD).setPackage(application.packageName))
 
+        fun switchProfileService(profileId: Long) =
+            application.sendBroadcast(
+                Intent(Action.SWITCH_PROFILE)
+                    .setPackage(application.packageName)
+                    .putExtra(Action.EXTRA_PROFILE_ID, profileId)
+            )
+
         fun restartService() =
             application.sendBroadcast(Intent(Action.RESTART).setPackage(application.packageName))
 
         fun stopService() =
             application.sendBroadcast(Intent(Action.CLOSE).setPackage(application.packageName))
+
+        fun smartResume() =
+            application.sendBroadcast(Intent(Action.SMART_RESUME).setPackage(application.packageName))
+
+        fun refreshSmartAutoStop() =
+            application.sendBroadcast(Intent(Action.REFRESH_SMART_AUTO_STOP).setPackage(application.packageName))
 
         fun updatePerformancePriorityMode(enabled: Boolean) {
             DataStore.performancePriorityMode = enabled

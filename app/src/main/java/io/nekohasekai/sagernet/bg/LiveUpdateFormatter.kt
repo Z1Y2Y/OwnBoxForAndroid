@@ -118,6 +118,93 @@ object LiveUpdateFormatter {
         }
     }
 
+    private val PLACEHOLDER_REGEX = Regex("""\{\s*([a-zA-Z0-9_]+)\s*\}""")
+
+    private val EGRESS_PLACEHOLDER_KEYS = setOf(
+        "country",
+        "location",
+        "ip_location",
+        "country_name",
+        "country_code",
+        "region",
+        "city",
+        "ip",
+        "egress_ip",
+        "outbound_ip",
+    )
+
+    fun requiresEgressProbe(templates: Templates): Boolean {
+        val slots = listOf(templates.collapsed, templates.title, templates.content, templates.subText)
+        return slots.any { template ->
+            if (template.isEmpty()) return@any false
+            val normalized = normalizeTemplate(template)
+            PLACEHOLDER_REGEX.findAll(normalized).any { match ->
+                match.groupValues[1].lowercase(Locale.ROOT) in EGRESS_PLACEHOLDER_KEYS
+            }
+        }
+    }
+
+    private const val ENTITY_CACHE_TTL_MS = 3_000L
+
+    private data class CachedEntity<T>(val id: Long, val value: T?, val timestampMs: Long)
+
+    @Volatile
+    private var cachedGroup: CachedEntity<io.nekohasekai.sagernet.database.ProxyGroup>? = null
+
+    @Volatile
+    private var cachedLeafProfile: CachedEntity<ProxyEntity>? = null
+
+    internal fun clearLookupCache() {
+        cachedGroup = null
+        cachedLeafProfile = null
+    }
+
+    private fun resolveGroup(groupId: Long): io.nekohasekai.sagernet.database.ProxyGroup? {
+        if (groupId <= 0L) return null
+        val now = System.currentTimeMillis()
+        val cached = cachedGroup
+        if (cached != null && cached.id == groupId && now - cached.timestampMs < ENTITY_CACHE_TTL_MS) {
+            return cached.value
+        }
+        val loaded = runCatching { SagerDatabase.groupDao.getById(groupId) }.getOrNull()
+        cachedGroup = CachedEntity(groupId, loaded, now)
+        return loaded
+    }
+
+    private fun resolveLeafProfile(leafId: Long): ProxyEntity? {
+        if (leafId <= 0L) return null
+        val now = System.currentTimeMillis()
+        val cached = cachedLeafProfile
+        if (cached != null && cached.id == leafId && now - cached.timestampMs < ENTITY_CACHE_TTL_MS) {
+            return cached.value
+        }
+        val loaded = runCatching { SagerDatabase.proxyDao.getById(leafId) }.getOrNull()
+        cachedLeafProfile = CachedEntity(leafId, loaded, now)
+        return loaded
+    }
+
+    fun isStrategyProfile(profile: ProxyEntity?): Boolean {
+        return profile?.type == ProxyEntity.TYPE_BALANCER
+    }
+
+    fun resolveEffectiveProfileId(profile: ProxyEntity?, fallbackProfileId: Long = 0L): Long {
+        if (profile == null) return fallbackProfileId
+        return resolveEffectiveProfileId(profile, isStrategy = isStrategyProfile(profile), fallbackProfileId = fallbackProfileId)
+    }
+
+    private fun resolveEffectiveProfileId(
+        profile: ProxyEntity?,
+        isStrategy: Boolean,
+        fallbackProfileId: Long = 0L,
+    ): Long {
+        if (profile == null) return fallbackProfileId
+        if (isStrategy) {
+            val leafId = ActiveOutboundTracker.activeLeafProfileId
+            if (leafId > 0L) return leafId
+        }
+        return profile.id.takeIf { it > 0L } ?: fallbackProfileId
+    }
+
     fun buildInfo(
         context: Context,
         profile: ProxyEntity?,
@@ -138,32 +225,38 @@ object LiveUpdateFormatter {
         val showGroup = runCatching { DataStore.showGroupInNotification }.getOrDefault(true)
         val showDirect = runCatching { DataStore.showDirectSpeed }.getOrDefault(true)
 
-        if (country.isEmpty()) {
-            val cachedLanding = LandingIpManager.getCachedInfo()
+        val resolvedGroup = if (profile != null && profile.type != ProxyEntity.TYPE_BALANCER) {
+            resolveGroup(profile.groupId)
+        } else {
+            null
+        }
+        val isStrategy = profile?.type == ProxyEntity.TYPE_BALANCER
+        val effectiveProfileId = resolveEffectiveProfileId(profile, isStrategy = isStrategy)
+
+        if (country.isEmpty() || ip.isEmpty()) {
+            val cachedLanding = if (effectiveProfileId > 0L) {
+                LandingIpManager.getCachedInfo(expectedProfileId = effectiveProfileId)
+            } else {
+                null
+            }
             if (cachedLanding != null) {
                 if (ip.isEmpty() && cachedLanding.ip.isNotEmpty()) ip = cachedLanding.ip
-                if (cachedLanding.country.isNotEmpty()) {
-                    country = cleanCountryName(cachedLanding.country)
-                } else if (cachedLanding.countryCode.isNotEmpty()) {
-                    rawCountryCode = cachedLanding.countryCode
+                if (country.isEmpty()) {
+                    if (cachedLanding.country.isNotEmpty()) {
+                        country = cleanCountryName(cachedLanding.country)
+                    } else if (cachedLanding.countryCode.isNotEmpty()) {
+                        rawCountryCode = cachedLanding.countryCode
+                    }
                 }
             }
         }
-
-        val isBalancer = profile?.type == ProxyEntity.TYPE_BALANCER
-        val group = if (profile != null) runCatching { SagerDatabase.groupDao.getById(profile.groupId) }.getOrNull() else null
-        val isGroupStrategy = group != null && (
-            runCatching { DataStore.isGroupUrlTest(group.id) }.getOrDefault(false) ||
-            runCatching { DataStore.isGroupLoadBalance(group.id) }.getOrDefault(false)
-        )
-        val isStrategy = isBalancer || isGroupStrategy
 
         if (isStrategy && profile != null) {
             val actualGroupName = profile.displayName()
             groupName = if (showGroup) actualGroupName else ""
             val leafNode = ActiveOutboundTracker.getActiveLeafNodeDisplay(profile)
             val leafId = ActiveOutboundTracker.activeLeafProfileId
-            val leafEntity = if (leafId > 0L) runCatching { SagerDatabase.proxyDao.getById(leafId) }.getOrNull() else null
+            val leafEntity = resolveLeafProfile(leafId)
 
             profileName = leafNode ?: leafEntity?.displayName() ?: ActiveOutboundTracker.activeLeafProfileName.takeIf { it.isNotBlank() } ?: actualGroupName
 
@@ -175,7 +268,9 @@ object LiveUpdateFormatter {
             protocol = refProfile.displayType().uppercase(Locale.getDefault())
             if (refProfile.ping > 0) latency = "${refProfile.ping}ms"
         } else if (profile != null) {
-            groupName = if (showGroup) group?.displayName().orEmpty() else ""
+            groupName = if (showGroup) {
+                resolvedGroup?.displayName().orEmpty()
+            } else ""
             profileName = profile.displayName()
             if (ip.isEmpty()) {
                 ip = profile.displayAddress()

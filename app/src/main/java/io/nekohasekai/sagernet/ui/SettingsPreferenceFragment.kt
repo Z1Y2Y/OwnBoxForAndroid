@@ -1,41 +1,45 @@
 package io.nekohasekai.sagernet.ui
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
+import io.nekohasekai.sagernet.ui.settings.enableMultiLineTitles
+
 import android.os.Bundle
-import android.text.InputType
 import android.view.View
-import android.view.inputmethod.EditorInfo
-import android.widget.EditText
-import androidx.core.app.ActivityCompat
 import androidx.core.graphics.drawable.DrawableCompat
-import androidx.preference.*
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import io.nekohasekai.sagernet.AppIconManager
-import io.nekohasekai.sagernet.Key
+import androidx.preference.EditTextPreference
+import androidx.preference.Preference
+import androidx.preference.PreferenceFragmentCompat
+import androidx.preference.PreferenceGroup
 import io.nekohasekai.sagernet.R
-import io.nekohasekai.sagernet.SagerNet
-import io.nekohasekai.sagernet.SpeedTestSettings
 import io.nekohasekai.sagernet.database.DataStore
-import io.nekohasekai.sagernet.database.preference.EditTextPreferenceModifiers
-import io.nekohasekai.sagernet.database.preference.OnPreferenceDataStoreChangeListener
-import io.nekohasekai.sagernet.ktx.*
-import io.nekohasekai.sagernet.utils.AppLocale
+import io.nekohasekai.sagernet.ktx.FixedLinearLayoutManager
+import io.nekohasekai.sagernet.ktx.dp2px
+import io.nekohasekai.sagernet.ui.settings.PreferenceDividerDecoration
 import io.nekohasekai.sagernet.utils.Theme
-import io.nekohasekai.sagernet.utils.UiScaleManager
-import moe.matsuri.nb4a.ui.*
-import android.os.Handler
-import android.os.Looper
-import android.widget.Toast
-import java.io.File
-import libcore.Libcore
 
-class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataStoreChangeListener {
+class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
-    private lateinit var isProxyApps: SwitchPreference
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        listView.layoutManager = FixedLinearLayoutManager(listView)
+        setDivider(null)
+        setDividerHeight(0)
+        listView.clipToPadding = false
+        listView.setPadding(0, dp2px(8), 0, dp2px(120))
+        listView.addItemDecoration(PreferenceDividerDecoration(requireContext()))
+    }
 
-    private lateinit var globalCustomConfig: EditConfigPreference
+    override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+        preferenceManager.preferenceDataStore = DataStore.configurationStore
+        DataStore.initGlobal()
+        setPreferencesFromResource(R.xml.global_preferences, rootKey)
+        preferenceScreen.enableMultiLineTitles()
+        tintPreferenceIcons(preferenceScreen, Theme.getPrimaryColor(requireContext()))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        tintPreferenceIcons(preferenceScreen, Theme.getPrimaryColor(requireContext()))
+    }
 
     private fun tintPreferenceIcons(group: PreferenceGroup, color: Int) {
         for (i in 0 until group.preferenceCount) {
@@ -50,486 +54,6 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
                 }
             }
         }
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        DataStore.configurationStore.registerChangeListener(this)
-        listView.layoutManager = FixedLinearLayoutManager(listView)
-        setDivider(null)
-        setDividerHeight(0)
-        listView.clipToPadding = false
-        listView.setPadding(0, dp2px(8), 0, dp2px(88))
-    }
-
-    override fun onDestroyView() {
-        DataStore.configurationStore.unregisterChangeListener(this)
-        super.onDestroyView()
-    }
-
-    override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
-        if (key == Key.PROFILE_CARD_STYLE) {
-            runOnMainDispatcher {
-                listView?.adapter?.notifyDataSetChanged()
-            }
-        }
-    }
-
-    private val reloadListener = Preference.OnPreferenceChangeListener { _, _ ->
-        needReload()
-        true
-    }
-
-    override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-        preferenceManager.preferenceDataStore = DataStore.configurationStore
-        DataStore.initGlobal()
-        addPreferencesFromResource(R.xml.global_preferences)
-        findPreference<SimpleMenuPreference>(Key.SMART_ROUTE_COUNTRY)?.setOnPreferenceChangeListener(reloadListener)
-
-        val iconColor = Theme.getPrimaryColor(requireContext())
-        tintPreferenceIcons(preferenceScreen, iconColor)
-        val categoryUI = findPreference<ExpandablePreferenceCategory>("categoryUI")
-        findPreference<Preference>("uiScaleSettings")?.apply {
-            summary = UiScaleManager.formatSummary()
-            setOnPreferenceClickListener {
-                startActivity(Intent(requireContext(), UiScaleSettingsActivity::class.java))
-                true
-            }
-        }
-        val appTheme = findPreference<ColorPickerPreference>(Key.APP_THEME)!!
-        appTheme.isEnabled = true
-
-        appTheme.setOnPreferenceChangeListener { _, newValue ->
-            DataStore.appTheme = (newValue as Number).toInt()
-            Theme.applyNightTheme()
-            activity?.recreate()
-            true
-        }
-
-        val nightTheme = findPreference<SimpleMenuPreference>(Key.NIGHT_THEME)!!
-        nightTheme.setOnPreferenceChangeListener { _, newTheme ->
-            val mode = (newTheme as String).toInt()
-            DataStore.nightTheme = mode
-            Theme.currentNightMode = mode
-            Theme.applyNightTheme()
-            if (DataStore.appIconMode == AppIconManager.MODE_FOLLOW_SYSTEM) {
-                AppIconManager.applyIconMode(requireContext(), force = true)
-            }
-            activity?.recreate()
-            true
-        }
-
-        findPreference<SimpleMenuPreference>(Key.APP_ICON_MODE)?.setOnPreferenceChangeListener { _, newMode ->
-            val mode = (newMode as String).toInt()
-            DataStore.appIconMode = mode
-            AppIconManager.applyIconMode(requireContext(), mode = mode, force = true)
-            true
-        }
-        val appLanguage = findPreference<SimpleMenuPreference>(Key.APP_LANGUAGE)!!
-        appLanguage.setOnPreferenceChangeListener { _, newValue ->
-            AppLocale.apply(newValue as String)
-            true
-        }
-        val mixedPort = findPreference<EditTextPreference>(Key.MIXED_PORT)!!
-        val disableMixedInbound = findPreference<SwitchPreference>(Key.DISABLE_MIXED_INBOUND)!!
-        val serviceMode = findPreference<Preference>(Key.SERVICE_MODE)!!
-        val mixedAuthConfig = findPreference<Preference>(Key.MIXED_AUTH_CONFIG)!!
-        val httpProxyBypass = findPreference<EditTextPreference>(Key.HTTP_PROXY_BYPASS)!!
-        val dnsHosts = findPreference<EditTextPreference>(Key.DNS_HOSTS)!!
-        val strictRoute = findPreference<SwitchPreference>(Key.STRICT_ROUTE)!!
-        val speedTestMode = findPreference<SimpleMenuPreference>(Key.SPEED_TEST_MODE)!!
-        val speedTestTimeout = findPreference<EditTextPreference>(Key.SPEED_TEST_TIMEOUT_MS)!!
-        val simpleDownloadURL = findPreference<EditTextPreference>(Key.SIMPLE_DOWNLOAD_URL)!!
-
-        val showDirectSpeed = findPreference<SwitchPreference>(Key.SHOW_DIRECT_SPEED)!!
-        val ipv6Mode = findPreference<Preference>(Key.IPV6_MODE)!!
-        val trafficSniffing = findPreference<Preference>(Key.TRAFFIC_SNIFFING)!!
-
-        val bypassLan = findPreference<SwitchPreference>(Key.BYPASS_LAN)!!
-        val bypassLanInCore = findPreference<SwitchPreference>(Key.BYPASS_LAN_IN_CORE)!!
-
-        val remoteDns = findPreference<EditTextPreference>(Key.REMOTE_DNS)!!
-        val directDns = findPreference<EditTextPreference>(Key.DIRECT_DNS)!!
-        val enableDnsRouting = findPreference<SwitchPreference>(Key.ENABLE_DNS_ROUTING)!!
-        val enableFakeDns = findPreference<SwitchPreference>(Key.ENABLE_FAKEDNS)!!
-
-        val enableTLSFragment = findPreference<SwitchPreference>(Key.ENABLE_TLS_FRAGMENT)!!
-
-        val logLevel = findPreference<LongClickListPreference>(Key.LOG_LEVEL)!!
-        val mtu = findPreference<MTUPreference>(Key.MTU)!!
-        globalCustomConfig = findPreference(Key.GLOBAL_CUSTOM_CONFIG)!!
-        globalCustomConfig.useConfigStore(Key.GLOBAL_CUSTOM_CONFIG)
-
-        logLevel.dialogLayoutResource = R.layout.layout_loglevel_help
-        logLevel.setOnPreferenceChangeListener { _, _ ->
-            needRestart()
-            true
-        }
-        logLevel.setOnLongClickListener {
-            if (context == null) return@setOnLongClickListener true
-
-            val view = EditText(context).apply {
-                inputType = EditorInfo.TYPE_CLASS_NUMBER
-                var size = DataStore.logBufSize
-                if (size == 0) size = 50
-                setText(size.toString())
-            }
-
-            MaterialAlertDialogBuilder(requireContext()).setTitle("Log buffer size (kb)")
-                .setView(view)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    DataStore.logBufSize = view.text.toString().toInt()
-                    if (DataStore.logBufSize <= 0) DataStore.logBufSize = 50
-                    needRestart()
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
-            true
-        }
-
-        mixedPort.setOnBindEditTextListener(EditTextPreferenceModifiers.Port)
-        httpProxyBypass.setOnBindEditTextListener(EditTextPreferenceModifiers.Hosts)
-        dnsHosts.setOnBindEditTextListener(EditTextPreferenceModifiers.Hosts)
-        httpProxyBypass.summaryProvider = ListSummaryProvider(maxLines = 1)
-        dnsHosts.summaryProvider = ListSummaryProvider(maxLines = 1)
-
-        speedTestMode.setOnPreferenceChangeListener { _, newValue ->
-            SpeedTestSettings.isValidMode(newValue.toString())
-        }
-        speedTestTimeout.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
-        speedTestTimeout.setOnPreferenceChangeListener { _, newValue ->
-            val valid = SpeedTestSettings.isValidTimeout(newValue.toString())
-            if (!valid) {
-                Toast.makeText(requireContext(), R.string.speed_test_timeout_invalid, Toast.LENGTH_SHORT).show()
-            }
-            valid
-        }
-        simpleDownloadURL.setOnBindEditTextListener { editText ->
-            editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            editText.setSingleLine()
-        }
-        simpleDownloadURL.setOnPreferenceChangeListener { preference, newValue ->
-            val value = newValue.toString().trim()
-            val valid = SpeedTestSettings.isValidHttpUrl(value)
-            if (!valid) {
-                Toast.makeText(requireContext(), R.string.speed_test_url_invalid, Toast.LENGTH_SHORT).show()
-            } else if (value != newValue) {
-                (preference as EditTextPreference).text = value
-                return@setOnPreferenceChangeListener false
-            }
-            valid
-        }
-
-        val metedNetwork = findPreference<Preference>(Key.METERED_NETWORK)!!
-        if (Build.VERSION.SDK_INT < 28) {
-            metedNetwork.remove()
-        }
-        isProxyApps = findPreference(Key.PROXY_APPS)!!
-        isProxyApps.setOnPreferenceChangeListener { _, newValue ->
-            startActivity(Intent(activity, AppManagerActivity::class.java))
-            if (newValue as Boolean) DataStore.dirty = true
-            newValue
-        }
-
-        val profileTrafficStatistics =
-            findPreference<SwitchPreference>(Key.PROFILE_TRAFFIC_STATISTICS)!!
-        val speedInterval = findPreference<SimpleMenuPreference>(Key.SPEED_INTERVAL)!!
-        profileTrafficStatistics.isEnabled = speedInterval.value.toString() != "0"
-        speedInterval.setOnPreferenceChangeListener { _, newValue ->
-            profileTrafficStatistics.isEnabled = newValue.toString() != "0"
-            needReload()
-            true
-        }
-
-        serviceMode.setOnPreferenceChangeListener { _, _ ->
-            if (DataStore.serviceState.started) SagerNet.stopService()
-            true
-        }
-
-        val tunImplementation = findPreference<SimpleMenuPreference>(Key.TUN_IMPLEMENTATION)
-        tunImplementation?.apply {
-            summaryProvider = null
-            value = io.nekohasekai.sagernet.TunImplementation.SING_TUN.toString()
-            isEnabled = false
-            summary = "Sing-Tun (官方最新原生协议栈)"
-        }
-        val resolveDestination = findPreference<SwitchPreference>(Key.RESOLVE_DESTINATION)!!
-        val acquireWakeLock = findPreference<SwitchPreference>(Key.ACQUIRE_WAKE_LOCK)!!
-        val hideFromRecentApps = findPreference<SwitchPreference>(Key.HIDE_FROM_RECENT_APPS)!!
-        val enableClashAPI = findPreference<SwitchPreference>(Key.ENABLE_CLASH_API)!!
-        enableClashAPI.setOnPreferenceChangeListener { _, newValue ->
-            (activity as MainActivity?)?.refreshNavMenu(newValue as Boolean)
-            needReload()
-            true
-        }
-
-        val categoryCore = findPreference<ExpandablePreferenceCategory>("categoryCore")
-        val rulesProvider = findPreference<SimpleMenuPreference>(Key.RULES_PROVIDER)!!
-        categoryCore?.setChildVisibilityRule(Key.RULES_GEOSITE_URL) { DataStore.rulesProvider == 4 }
-        categoryCore?.setChildVisibilityRule(Key.RULES_GEOIP_URL) { DataStore.rulesProvider == 4 }
-        rulesProvider.setOnPreferenceChangeListener { _, newValue ->
-            val provider = (newValue as String).toInt()
-            categoryCore?.setChildVisibilityRule(Key.RULES_GEOSITE_URL) { provider == 4 }
-            categoryCore?.setChildVisibilityRule(Key.RULES_GEOIP_URL) { provider == 4 }
-            categoryCore?.updateChildVisibility(Key.RULES_GEOSITE_URL)
-            categoryCore?.updateChildVisibility(Key.RULES_GEOIP_URL)
-            true
-        }
-
-        findPreference<Preference>(Key.RULES_UPDATE_INTERVAL)?.apply {
-            summary = io.nekohasekai.sagernet.route.RuleSets.formatUpdateInterval(requireContext(), DataStore.rulesUpdateInterval)
-            setOnPreferenceClickListener {
-                io.nekohasekai.sagernet.ui.route.RuleSetAutoUpdateDialog.show(requireContext()) { newInterval ->
-                    summary = io.nekohasekai.sagernet.route.RuleSets.formatUpdateInterval(requireContext(), newInterval)
-                }
-                true
-            }
-        }
-
-        // 禁用混合入站：开启时代理端口/身份验证/绕过列表设置项变灰，端口摘要显示「已禁用」
-        fun updateMixedPortState(disabled: Boolean = DataStore.disableMixedInbound) {
-            mixedPort.isEnabled = !disabled
-            mixedAuthConfig.isEnabled = !disabled
-            httpProxyBypass.isEnabled = !disabled
-            if (disabled) {
-                mixedPort.summaryProvider = null
-                mixedPort.summary = getString(R.string.mixed_inbound_disabled)
-            } else {
-                mixedPort.summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
-            }
-        }
-        updateMixedPortState()
-        disableMixedInbound.setOnPreferenceChangeListener { _, newValue ->
-            val disabled = newValue as Boolean
-            if (disabled && DataStore.serviceMode == Key.MODE_PROXY) {
-                Toast.makeText(
-                    requireContext(),
-                    getString(R.string.disable_mixed_inbound_proxy_toast, DataStore.mixedPort),
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-            updateMixedPortState(disabled)
-            needReload()
-            true
-        }
-        // 配置身份验证：弹窗编辑混合入站用户名/密码，两项均留空则不启用认证
-        fun updateMixedAuthSummary() {
-            mixedAuthConfig.summary = DataStore.mixedUsername.takeIf { it.isNotBlank() }
-                ?.let { getString(R.string.mixed_auth_enabled_sum, it) }
-                ?: getString(R.string.mixed_auth_no_auth)
-        }
-        updateMixedAuthSummary()
-        mixedAuthConfig.setOnPreferenceClickListener {
-            val view = layoutInflater.inflate(R.layout.layout_mixed_auth_dialog, null)
-            val usernameEdit = view.findViewById<EditText>(R.id.mixed_username_edit)
-            val passwordEdit = view.findViewById<EditText>(R.id.mixed_password_edit)
-            usernameEdit.setText(DataStore.mixedUsername)
-            passwordEdit.setText(DataStore.mixedPassword)
-            MaterialAlertDialogBuilder(requireContext())
-                .setTitle(R.string.mixed_auth_config)
-                .setView(view)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    DataStore.mixedUsername = usernameEdit.text.toString().trim()
-                    DataStore.mixedPassword = passwordEdit.text.toString()
-                    updateMixedAuthSummary()
-                    needReload()
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
-            true
-        }
-
-        mixedPort.onPreferenceChangeListener = reloadListener
-        httpProxyBypass.onPreferenceChangeListener = reloadListener
-        dnsHosts.onPreferenceChangeListener = reloadListener
-        strictRoute.onPreferenceChangeListener = reloadListener
-        showDirectSpeed.onPreferenceChangeListener = reloadListener
-        trafficSniffing.onPreferenceChangeListener = reloadListener
-        bypassLan.onPreferenceChangeListener = reloadListener
-        bypassLanInCore.onPreferenceChangeListener = reloadListener
-        mtu.setOnPreferenceChangeListener { _, _ ->
-            needRestart()
-            true
-        }
-
-        val dualNetworkAcceleration = findPreference<SwitchPreference>(Key.DUAL_NETWORK_ACCELERATION)!!
-        dualNetworkAcceleration.onPreferenceChangeListener = reloadListener
-        findPreference<SwitchPreference>(Key.CONCURRENT_DIAL)?.onPreferenceChangeListener = reloadListener
-        findPreference<SwitchPreference>(Key.AUTO_SELECT_LOWEST_LATENCY)?.onPreferenceChangeListener = reloadListener
-
-        enableFakeDns.onPreferenceChangeListener = reloadListener
-        remoteDns.onPreferenceChangeListener = reloadListener
-        directDns.onPreferenceChangeListener = reloadListener
-        enableDnsRouting.onPreferenceChangeListener = reloadListener
-
-        ipv6Mode.onPreferenceChangeListener = reloadListener
-
-        resolveDestination.onPreferenceChangeListener = reloadListener
-        tunImplementation?.onPreferenceChangeListener = reloadListener
-        acquireWakeLock.onPreferenceChangeListener = reloadListener
-        val performancePriorityMode = findPreference<SwitchPreference>(Key.PERFORMANCE_PRIORITY_MODE)
-        performancePriorityMode?.setOnPreferenceChangeListener { _, newValue ->
-            val enabled = newValue as Boolean
-            SagerNet.updatePerformancePriorityMode(enabled)
-            true
-        }
-        hideFromRecentApps.setOnPreferenceChangeListener { _, newValue ->
-            (activity as? MainActivity)?.applyHideFromRecentApps(newValue as Boolean)
-            // needReload()
-            true
-        }
-
-        enableTLSFragment.onPreferenceChangeListener = reloadListener
-
-        // 恢复默认设置功能
-        val resetSettings = findPreference<Preference>("resetSettings")!!
-        resetSettings.setOnPreferenceClickListener {
-            MaterialAlertDialogBuilder(requireContext()).apply {
-                setTitle(R.string.confirm)
-                setMessage(R.string.reset_settings_message)
-                setNegativeButton(R.string.no, null)
-                setPositiveButton(R.string.yes) { _, _ ->
-                    DataStore.configurationStore.reset()
-                    triggerFullRestart(requireContext())
-                }
-            }.show()
-            true
-        }
-
-        // 清理缓存功能
-        val clearCache = findPreference<Preference>(Key.CLEAR_CACHE)!!
-        clearCache.setOnPreferenceClickListener {
-            MaterialAlertDialogBuilder(requireContext()).apply {
-                setTitle(R.string.clear_cache)
-                setMessage(R.string.clear_cache_confirm)
-                setPositiveButton(android.R.string.ok) { _, _ ->
-                    clearAppCache()
-                }
-                setNegativeButton(android.R.string.cancel, null)
-            }.show()
-            true
-        }
-
-        // 局域网共享
-        val lanSharingPref = findPreference<Preference>("lanSharing")
-
-        fun getLocalIps(): String {
-            val ips = runCatching {
-                java.net.NetworkInterface.getNetworkInterfaces()?.toList()
-                    ?.filter { !it.isLoopback && it.isUp }
-                    ?.flatMap { it.inetAddresses.toList() }
-                    ?.filter { !it.isLoopbackAddress && it is java.net.Inet4Address }
-                    ?.mapNotNull { it.hostAddress }
-                    ?.distinct()
-            }.getOrNull() ?: emptyList()
-            return when {
-                ips.isEmpty() -> "192.168.43.1"
-                ips.any { it.startsWith("192.168.43.") } -> ips.first { it.startsWith("192.168.43.") }
-                else -> ips.joinToString(" / ")
-            }
-        }
-
-        fun updateLanSharingSummary() {
-            val enabled = DataStore.allowAccess
-            if (enabled) {
-                val localIp = getLocalIps()
-                val port = DataStore.mixedPort
-                lanSharingPref?.summary = getString(R.string.lan_sharing_enabled_sum, localIp, port)
-            } else {
-                lanSharingPref?.summary = getString(R.string.lan_sharing_disabled_sum)
-            }
-        }
-        updateLanSharingSummary()
-
-        lanSharingPref?.setOnPreferenceClickListener {
-            startActivity(Intent(requireContext(), LanSharingActivity::class.java))
-            true
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-
-        if (::isProxyApps.isInitialized) {
-            isProxyApps.isChecked = DataStore.proxyApps
-        }
-        if (::globalCustomConfig.isInitialized) {
-            globalCustomConfig.notifyChanged()
-        }
-        findPreference<Preference>("uiScaleSettings")?.summary = UiScaleManager.formatSummary()
-        val lanSharingPref = findPreference<Preference>("lanSharing")
-        if (lanSharingPref != null) {
-            val enabled = DataStore.allowAccess
-            if (enabled) {
-                val ips = runCatching {
-                    java.net.NetworkInterface.getNetworkInterfaces()?.toList()
-                        ?.filter { !it.isLoopback && it.isUp }
-                        ?.flatMap { it.inetAddresses.toList() }
-                        ?.filter { !it.isLoopbackAddress && it is java.net.Inet4Address }
-                        ?.mapNotNull { it.hostAddress }
-                        ?.distinct()
-                }.getOrNull() ?: emptyList()
-                val localIp = when {
-                    ips.isEmpty() -> "192.168.43.1"
-                    ips.any { it.startsWith("192.168.43.") } -> ips.first { it.startsWith("192.168.43.") }
-                    else -> ips.joinToString(" / ")
-                }
-                lanSharingPref.summary = getString(R.string.lan_sharing_enabled_sum, localIp, DataStore.mixedPort)
-            } else {
-                lanSharingPref.summary = getString(R.string.lan_sharing_disabled_sum)
-            }
-        }
-    }
-
-    private fun clearAppCache() {
-        try {
-            val cacheDir = SagerNet.application.cacheDir
-            clearDirFiles(cacheDir, skipFiles = setOf("neko.log"))
-            
-            val parentDir = cacheDir.parentFile
-            val relativeCache = File(parentDir, "cache")
-            if (relativeCache.exists() && relativeCache.isDirectory) {
-                clearDirFiles(relativeCache)
-            }
-            
-            Toast.makeText(requireContext(), R.string.clear_cache_success, Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(requireContext(), getString(R.string.clear_cache_failed, e.message), Toast.LENGTH_SHORT).show()
-            e.printStackTrace()
-        }
-    }
-
-    private fun clearDirFiles(dir: File, skipFiles: Set<String> = emptySet()): Boolean {
-        if (dir.isDirectory) {
-            val children = dir.list() ?: return true
-            
-            for (child in children) {
-                val childFile = File(dir, child)
-                
-                if (child == "neko.log") {
-                    try {
-                        childFile.writeText("")
-                        continue
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-                
-                if (child in skipFiles) {
-                    continue
-                }
-                
-                if (childFile.isDirectory) {
-                    clearDirFiles(childFile, skipFiles)
-                } else {
-                    childFile.delete()
-                }
-            }
-            
-            return true
-        }
-        return false
     }
 
     class ListSummaryProvider(
@@ -550,7 +74,5 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
                 lines.joinToString("\n")
             }
         }
-
     }
-
 }

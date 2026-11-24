@@ -15,6 +15,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Filter
 import android.widget.Filterable
+import android.widget.Toast
 import androidx.annotation.UiThread
 import androidx.core.util.contains
 import androidx.core.util.set
@@ -44,8 +45,10 @@ import io.nekohasekai.sagernet.utils.PackageCache
 import io.nekohasekai.sagernet.widget.ListListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import moe.matsuri.nb4a.utils.NGUtil
 import kotlin.coroutines.coroutineContext
 
@@ -96,16 +99,52 @@ class AppManagerActivity : ThemedActivity() {
             binding.itemcheck.isChecked = isProxiedApp(app)
         }
 
-        fun handlePayload(payloads: List<String>) {
-            if (payloads.contains(SWITCH)) binding.itemcheck.isChecked = isProxiedApp(item)
+        fun handlePayload(payloads: List<Any>) {
+            if (payloads.any { it == SWITCH }) binding.itemcheck.isChecked = isProxiedApp(item)
         }
 
         override fun onClick(v: View?) {
-            if (isProxiedApp(item)) proxiedUids.delete(item.uid) else proxiedUids[item.uid] = true
-            DataStore.individual = apps.filter { isProxiedApp(it) }
-                .joinToString("\n") { it.packageName }
+            hasConfigChanged = true
+            DataStore.dirty = true
+            val targetUid = item.uid
+            if (isProxiedApp(item)) proxiedUids.delete(targetUid) else proxiedUids[targetUid] = true
+            val currentList = appsAdapter.filteredApps
+            var notifiedAny = false
+            for (idx in currentList.indices) {
+                if (currentList[idx].uid == targetUid) {
+                    appsAdapter.notifyItemChanged(idx, SWITCH)
+                    notifiedAny = true
+                }
+            }
+            if (!notifiedAny) {
+                val pos = bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) {
+                    appsAdapter.notifyItemChanged(pos, SWITCH)
+                }
+            }
+            scheduleSaveIndividual()
+        }
+    }
 
-            appsAdapter.notifyItemRangeChanged(0, appsAdapter.itemCount, SWITCH)
+    private fun buildIndividualSnapshot(): String {
+        return apps.filter { isProxiedApp(it) }.joinToString("\n") { it.packageName }
+    }
+
+    private var saveIndividualJob: Job? = null
+    private fun scheduleSaveIndividual(immediate: Boolean = false) {
+        saveIndividualJob?.cancel()
+        if (apps.isEmpty()) return
+        if (immediate) {
+            DataStore.individual = buildIndividualSnapshot()
+            return
+        }
+        saveIndividualJob = lifecycleScope.launch {
+            delay(300)
+            if (apps.isEmpty()) return@launch
+            val individualStr = buildIndividualSnapshot()
+            withContext(Dispatchers.IO) {
+                DataStore.individual = individualStr
+            }
         }
     }
 
@@ -114,13 +153,8 @@ class AppManagerActivity : ThemedActivity() {
         FastScrollRecyclerView.SectionedAdapter {
         var filteredApps = apps
 
-        suspend fun reload() {
-            try {
-                PackageCache.reload()
-            } catch (t: Throwable) {
-                Logs.e(t)
-            }
-            apps = cachedApps.mapNotNull { (packageName, packageInfo) ->
+        suspend fun reload(proxiedSnapshot: SparseBooleanArray): List<ProxiedApp> {
+            return cachedApps.mapNotNull { (packageName, packageInfo) ->
                 coroutineContext[Job]!!.ensureActive()
                 val appInfo = packageInfo.applicationInfo ?: return@mapNotNull null
                 try {
@@ -129,7 +163,7 @@ class AppManagerActivity : ThemedActivity() {
                     Logs.e(t)
                     null
                 }
-            }.sortedWith(compareBy({ !isProxiedApp(it) }, { it.name.toString() }))
+            }.sortedWith(compareBy({ !proxiedSnapshot[it.uid] }, { it.name.toString() }))
         }
 
         override fun onBindViewHolder(holder: AppViewHolder, position: Int) =
@@ -137,7 +171,7 @@ class AppManagerActivity : ThemedActivity() {
 
         override fun onBindViewHolder(holder: AppViewHolder, position: Int, payloads: List<Any>) {
             if (payloads.isNotEmpty()) {
-                @Suppress("UNCHECKED_CAST") holder.handlePayload(payloads as List<String>)
+                holder.handlePayload(payloads)
                 return
             }
 
@@ -182,6 +216,10 @@ class AppManagerActivity : ThemedActivity() {
     private val proxiedUids = SparseBooleanArray()
     private var smartPolicies = LinkedHashMap<String, PerAppRoutePolicy>()
     private var loader: Job? = null
+    private var hasConfigChanged = false
+    private var initialProxyApps = DataStore.proxyApps
+    private var initialBypass = DataStore.bypass
+    private var initialIndividual = DataStore.individual
     private var apps = emptyList<ProxiedApp>()
     private val appsAdapter = AppsAdapter()
 
@@ -245,15 +283,28 @@ class AppManagerActivity : ThemedActivity() {
     @UiThread
     private fun loadApps() {
         loader?.cancel()
-        loader = lifecycleScope.launchWhenCreated {
+        loader = lifecycleScope.launch {
+            binding.appPlaceholder.root.visibility = View.GONE
             loading.crossFadeFrom(binding.list)
             val adapter = binding.list.adapter as AppsAdapter
-            withContext(Dispatchers.IO) { adapter.reload() }
+            withContext(Dispatchers.IO) {
+                try {
+                    PackageCache.reload()
+                } catch (t: Throwable) {
+                    Logs.e(t)
+                }
+            }
+            if (!hasConfigChanged) {
+                initProxiedUids()
+            }
+            val proxiedSnapshot = proxiedUids.clone()
+            apps = withContext(Dispatchers.IO) { adapter.reload(proxiedSnapshot) }
             adapter.filter.filter(binding.search.text?.toString() ?: "")
             if (apps.isEmpty()) {
                 binding.list.visibility = View.GONE
                 binding.appPlaceholder.root.crossFadeFrom(loading)
             } else {
+                binding.appPlaceholder.root.visibility = View.GONE
                 binding.list.crossFadeFrom(loading)
             }
         }
@@ -436,6 +487,47 @@ class AppManagerActivity : ThemedActivity() {
             }
             .setNegativeButton(R.string.no, null)
             .show()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (apps.isEmpty() && loader?.isActive != true) {
+            loadApps()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (apps.isNotEmpty() && saveIndividualJob?.isActive == true) {
+            scheduleSaveIndividual(immediate = true)
+        }
+        checkAndApplyChanges()
+    }
+
+    private fun checkAndApplyChanges() {
+        if (hasConfigChanged || initialProxyApps != DataStore.proxyApps || initialBypass != DataStore.bypass || initialIndividual != DataStore.individual) {
+            hasConfigChanged = false
+            initialProxyApps = DataStore.proxyApps
+            initialBypass = DataStore.bypass
+            initialIndividual = DataStore.individual
+            DataStore.dirty = true
+            if (DataStore.serviceState.started) {
+                runOnDefaultDispatcher {
+                    try {
+                        SagerNet.restartService()
+                        onMainDispatcher {
+                            Toast.makeText(
+                                this@AppManagerActivity,
+                                R.string.app_proxy_updated_restart,
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    } catch (e: Exception) {
+                        Logs.w(e)
+                    }
+                }
+            }
+        }
     }
 
     private fun getAutoProxyApps(content: String): List<String> {

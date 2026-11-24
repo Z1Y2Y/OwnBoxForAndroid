@@ -53,11 +53,12 @@ func RegisterLoadBalance(registry *outbound.Registry) {
 }
 
 var (
-	_ adapter.Outbound                = (*LoadBalance)(nil)
-	_ adapter.OutboundGroup           = (*LoadBalance)(nil)
-	_ adapter.ConnectionHandler       = (*LoadBalance)(nil)
-	_ adapter.PacketConnectionHandler = (*LoadBalance)(nil)
-	_ adapter.Referrer                = (*LoadBalance)(nil)
+	_ adapter.Outbound                   = (*LoadBalance)(nil)
+	_ adapter.OutboundGroup              = (*LoadBalance)(nil)
+	_ adapter.ConnectionHandler          = (*LoadBalance)(nil)
+	_ adapter.PacketConnectionHandler    = (*LoadBalance)(nil)
+	_ adapter.Referrer                   = (*LoadBalance)(nil)
+	_ urltestPkg.StrategyGroupController = (*LoadBalance)(nil)
 )
 
 type nodeStats struct {
@@ -248,6 +249,13 @@ type LoadBalance struct {
 	diagnosticInstanceID         uint64
 	diagnosticFlowSequence       atomic.Uint64
 	diagnosticGroupTag           string
+	manualMu                     sync.RWMutex
+	manualTag                    string
+	metaMu                       sync.RWMutex
+	probeMeta                    map[string]urltestPkg.ProbeMeta
+	lastCheckTime                time.Time
+	checkDoneMu                  sync.Mutex
+	checkDoneCh                  chan struct{}
 }
 
 func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options LoadBalanceOptions) (adapter.Outbound, error) {
@@ -319,10 +327,74 @@ func (s *LoadBalance) All() []string {
 	return s.tags
 }
 
+func (s *LoadBalance) PinnedOutbound() string {
+	s.manualMu.RLock()
+	defer s.manualMu.RUnlock()
+	return s.manualTag
+}
+
+func (s *LoadBalance) pinnedIndex() int {
+	pinned := s.PinnedOutbound()
+	if pinned == "" {
+		return -1
+	}
+	for i, t := range s.tags {
+		if t == pinned && i < len(s.outbounds) {
+			return i
+		}
+	}
+	return -1
+}
+
+func (s *LoadBalance) PinOutbound(tag string) bool {
+	if tag == "" {
+		s.manualMu.Lock()
+		s.manualTag = ""
+		s.manualMu.Unlock()
+		if s.history != nil {
+			s.history.NotifyUpdated()
+		}
+		return true
+	}
+	foundIdx := -1
+	for i, t := range s.tags {
+		if t == tag && i < len(s.outbounds) {
+			foundIdx = i
+			break
+		}
+	}
+	if foundIdx < 0 {
+		return false
+	}
+	s.manualMu.Lock()
+	s.manualTag = tag
+	s.manualMu.Unlock()
+	s.lastSelectedIdx.Store(int32(foundIdx))
+	if s.history != nil {
+		s.history.NotifyUpdated()
+	}
+	return true
+}
+
+func (s *LoadBalance) inspectActiveTag() string {
+	if pinned := s.PinnedOutbound(); pinned != "" {
+		return pinned
+	}
+	if last := int(s.lastSelectedIdx.Load()); last >= 0 && last < len(s.tags) {
+		return s.tags[last]
+	}
+	if s.isLeastPing() {
+		candidates := s.candidateIndices(nil, M.Socksaddr{})
+		if len(candidates) > 0 && candidates[0] < len(s.tags) {
+			return s.tags[candidates[0]]
+		}
+	}
+	return ""
+}
+
 func (s *LoadBalance) Now() string {
-	candidates := s.candidateIndices(nil, M.Socksaddr{})
-	if len(candidates) > 0 && candidates[0] < len(s.tags) {
-		return s.tags[candidates[0]]
+	if active := s.inspectActiveTag(); active != "" {
+		return active
 	}
 	if len(s.tags) > 0 {
 		return s.tags[0]
@@ -352,9 +424,25 @@ func (s *LoadBalance) URLTest(ctx context.Context) (map[string]uint16, error) {
 	if s.checking.Swap(true) {
 		return make(map[string]uint16), nil
 	}
-	defer s.checking.Store(false)
+	doneCh := make(chan struct{})
+	s.checkDoneMu.Lock()
+	s.checkDoneCh = doneCh
+	s.checkDoneMu.Unlock()
+	defer func() {
+		close(doneCh)
+		s.checkDoneMu.Lock()
+		if s.checkDoneCh == doneCh {
+			s.checkDoneCh = nil
+		}
+		s.checkDoneMu.Unlock()
+		s.checking.Store(false)
+	}()
 
-	result := urltestPkg.URLTestOutbounds(ctx, s.outbound, s.history, s.logger, s.outbounds, s.link, s.interval, true)
+	result, meta := urltestPkg.URLTestOutboundsWithMeta(ctx, s.outbound, s.history, s.logger, s.outbounds, s.link, s.interval, true)
+	urltestPkg.MergeProbeMeta(&s.metaMu, &s.probeMeta, meta)
+	s.metaMu.Lock()
+	s.lastCheckTime = time.Now()
+	s.metaMu.Unlock()
 	for i, detour := range s.outbounds {
 		tag := detour.Tag()
 		if delay, ok := result[tag]; ok && delay > 0 {
@@ -366,6 +454,49 @@ func (s *LoadBalance) URLTest(ctx context.Context) (map[string]uint16, error) {
 		}
 	}
 	return result, nil
+}
+
+func (s *LoadBalance) LastCheckTime() time.Time {
+	s.metaMu.RLock()
+	defer s.metaMu.RUnlock()
+	return s.lastCheckTime
+}
+
+func (s *LoadBalance) GroupSnapshot() urltestPkg.GroupSnapshot {
+	snap := urltestPkg.GroupSnapshot{
+		GroupTag:     s.Tag(),
+		StrategyType: s.strategy,
+		ActiveTag:    s.inspectActiveTag(),
+		PinnedTag:    s.PinnedOutbound(),
+		Checking:     s.checking.Load(),
+	}
+	if last := s.LastCheckTime(); !last.IsZero() {
+		snap.LastCheckMs = last.UnixMilli()
+	}
+	meta := urltestPkg.CopyMetaLocked(&s.metaMu, s.probeMeta)
+	snap.Members = urltestPkg.BuildMemberSnapshots(s.ctx, s.outbound, s.history, s.tags, meta)
+	return snap
+}
+
+func (s *LoadBalance) CheckAndSnapshot(ctx context.Context) urltestPkg.GroupSnapshot {
+	if ctx == nil {
+		ctx = s.ctx
+	}
+	s.checkDoneMu.Lock()
+	ch := s.checkDoneCh
+	s.checkDoneMu.Unlock()
+	if ch != nil {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return s.GroupSnapshot()
+		}
+		if !s.LastCheckTime().IsZero() && time.Since(s.LastCheckTime()) < 2*time.Second {
+			return s.GroupSnapshot()
+		}
+	}
+	_, _ = s.URLTest(ctx)
+	return s.GroupSnapshot()
 }
 
 func (s *LoadBalance) isLeastPing() bool {
@@ -1512,6 +1643,9 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 		}
 	}
 	indices := s.candidateIndicesForFlow(ctx, destination, stickyTrace)
+	if pinnedIdx := s.pinnedIndex(); pinnedIdx >= 0 {
+		indices = []int{pinnedIdx}
+	}
 	n := len(indices)
 	if n == 0 {
 		if s.stickyDiagnostic {
@@ -1585,6 +1719,7 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 				)
 			}
 			adapter.RecordActiveOutbound(ctx, candidate.Tag())
+			s.lastSelectedIdx.Store(int32(idx))
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
@@ -1720,6 +1855,9 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 		}
 	}
 	indices := s.candidateIndicesForFlow(ctx, destination, stickyTrace)
+	if pinnedIdx := s.pinnedIndex(); pinnedIdx >= 0 {
+		indices = []int{pinnedIdx}
+	}
 	n := len(indices)
 	if n == 0 {
 		if s.stickyDiagnostic {
@@ -1793,6 +1931,7 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 				)
 			}
 			adapter.RecordActiveOutbound(ctx, candidate.Tag())
+			s.lastSelectedIdx.Store(int32(idx))
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}

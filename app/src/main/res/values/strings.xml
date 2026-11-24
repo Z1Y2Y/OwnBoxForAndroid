@@ -72,13 +72,13 @@
     <string name="card_view_mode_detailed">Detailed</string>
     <string name="card_view_mode_compact">Compact</string>
     <string name="show_balancer_summary">Show balancer summary</string>
-    <string name="show_balancer_summary_sum">Show node count and active landing node in balancer cards (e.g. 节点 8 · 日本 02)</string>
+    <string name="show_balancer_summary_sum">Show node count and active landing node in balancer cards (e.g. Nodes 8 · JP 02)</string>
     <string name="group_status_empty">Empty group</string>
     <string name="group_status_empty_subscription">Not updated yet</string>
     <string name="group_status_proxies">%d Proxies</string>
-    <string name="group_status_proxies_subscription">%d Proxies | Updated on %s</string>
+    <string name="group_status_proxies_subscription">%1$d Proxies | Updated on %2$s</string>
     <string name="group_no_difference">%s: No difference</string>
-    <string name="group_updated">%s: Updated %d proxies</string>
+    <string name="group_updated">%1$s: Updated %2$d proxies</string>
     <string name="group_show_diff">Diff</string>
     <string name="group_diff">Diff (%s)</string>
     <string name="group_delete_confirm_prompt">Are you sure you want to remove this group?</string>
@@ -151,13 +151,12 @@
     <string name="lan_sharing_copied_port">Copied Port: %1$d</string>
     <string name="lan_sharing_restarting_service">Applying LAN sharing settings and restarting core...</string>
     <string name="lan_sharing_tutorial_title">LAN Sharing Setup Guide</string>
-    <string name="lan_sharing_tutorial_content"><![CDATA[【LAN Sharing Setup Guide】\n\n📌 Why Method A vs Method B?\n• Method A (Phone Hotspot): This phone turns on personal hotspot, client devices connect to this hotspot. This is the most common and reliable method!\n• Method B (Same Wi-Fi): Neither device creates a hotspot; both are connected to the same Wi-Fi router.\n💡 Note: Phones supporting Wi-Fi sharing can have both Wi-Fi and Hotspot active simultaneously. If other devices connect to your hotspot, always use Method A\'s IP!\n\n────────────────\n\n📌 Method 1: Phone Hotspot Sharing (Recommended)\n1. Enable [LAN Sharing] switch in this page.\n2. Turn on personal hotspot on this phone, and connect to MyBox VPN.\n3. On the client device (Phone, PC, Switch, etc.), connect to this hotspot Wi-Fi.\n4. Open the Wi-Fi settings / Advanced options of that hotspot:\n   ⚠️ CRITICAL NOTE (Avoid Common Mistakes):\n   Keep [IP Settings] on [DHCP]! Do NOT change to Static IP, or connection will fail!\n   ✅ Correct Setting Location:\n   Find [Proxy], and change it from [None] to [Manual]:\n   • Proxy Hostname: enter the Hotspot IP (e.g. 192.168.43.1). Do NOT append :2080 or port number!\n   • Proxy Port: enter 2080 (or your customized port).\n   • Bypass / No proxy: leave blank or keep default.\n5. Save Wi-Fi settings. The client device can now enjoy VPN proxy without root!\n\n────────────────\n\n📌 Method 2: Same Wi-Fi Sharing (e.g. PC or Smart TV on same home Wi-Fi)\n1. Connect both devices to the same Wi-Fi router.\n2. In client device proxy settings:\n   • Hostname: enter the Local Wi-Fi IPv4 address shown in Method B.\n   • Port: enter 2080.\n   Save to use shared proxy.]]></string>
+    <string name="lan_sharing_tutorial_content">【LAN Sharing Setup Guide】\n\n📌 Why Method A vs Method B?\n• Method A (Phone Hotspot): This phone turns on personal hotspot, client devices connect to this hotspot. This is the most common and reliable method!\n• Method B (Same Wi-Fi): Neither device creates a hotspot; both are connected to the same Wi-Fi router.\n💡 Note: Phones supporting Wi-Fi sharing can have both Wi-Fi and Hotspot active simultaneously. If other devices connect to your hotspot, always use Method A\'s IP!\n\n────────────────\n\n📌 Method 1: Phone Hotspot Sharing (Recommended)\n1. Enable [LAN Sharing] switch in this page.\n2. Turn on personal hotspot on this phone, and connect to MyBox VPN.\n3. On the client device (Phone, PC, Switch, etc.), connect to this hotspot Wi-Fi.\n4. Open the Wi-Fi settings / Advanced options of that hotspot:\n   ⚠️ CRITICAL NOTE (Avoid Common Mistakes):\n   Keep [IP Settings] on [DHCP]! Do NOT change to Static IP, or connection will fail!\n   ✅ Correct Setting Location:\n   Find [Proxy], and change it from [None] to [Manual]:\n   • Proxy Hostname: enter the Hotspot IP (e.g. 192.168.43.1). Do NOT append :2080 or port number!\n   • Proxy Port: enter 2080 (or your customized port).\n   • Bypass / No proxy: leave blank or keep default.\n5. Save Wi-Fi settings. The client device can now enjoy VPN proxy without root!\n\n────────────────\n\n📌 Method 2: Same Wi-Fi Sharing (e.g. PC or Smart TV on same home Wi-Fi)\n1. Connect both devices to the same Wi-Fi router.\n2. In client device proxy settings:\n   • Hostname: enter the Local Wi-Fi IPv4 address shown in Method B.\n   • Port: enter 2080.\n   Save to use shared proxy.</string>
     <string name="lan_sharing_invalid_port">Please enter a valid port between 1024 and 65535</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_edit">Edit</string>
     <string name="saved">Saved</string>
     <string name="clear">Clear</string>
-
     <string name="inbound_settings">Inbound Settings</string>
     <string name="general_settings">App Settings</string>
     <string name="require_http">Enable HTTP inbound</string>
@@ -260,6 +259,9 @@
     <string name="sni">Server Name Indication</string>
     <string name="alpn">Application-Layer Protocol Negotiation</string>
     <string name="certificates">Certificates</string>
+    <string name="mtls_client_certificate">Client Certificate (mTLS)</string>
+    <string name="mtls_client_key">Client Private Key (mTLS)</string>
+    <string name="mtls_field_dialog_hint">Paste PEM content or enter an absolute file path (e.g. /path/to/client.pem)</string>
     <string name="early_data_header_name">Early Data Header Name</string>
     <string name="encryption">Encryption</string>
     <string name="extra_headers">Extra Headers</string>
@@ -267,6 +269,7 @@
     <string name="edit_config">Edit Config</string>
     <!-- feature category -->
     <string name="ipv6">IPv6 Route</string>
+    <string name="ipv6_only_no_public_ipv6_warning">Current network has no public IPv6. Direct websites will be unreachable in IPv6-Only mode; consider using Enable or Prefer instead.</string>
     <string name="prefer">Prefer</string>
     <string name="only">Only</string>
     <string name="metered">Metered Hint</string>
@@ -542,11 +545,28 @@
     <string name="raw">Raw</string>
     <string name="update_settings">Update Settings</string>
     <string name="auto_update">Auto Update</string>
-    <string name="auto_update_delay">Auto Update Delay (In minutes)</string>
+    <string name="auto_update_delay">Auto-Update Interval</string>
+    <string name="subscription_auto_update_disabled">Disabled</string>
+    <string name="subscription_auto_update_minutes">Every %1$d min (%1$dm)</string>
+    <string name="subscription_auto_update_1_hour">Every 1 hour (1h)</string>
+    <string name="subscription_auto_update_hours">Every %1$d hours (%1$dh)</string>
+    <string name="subscription_auto_update_1_day">Every 24 hours (1 day)</string>
+    <string name="subscription_auto_update_days">Every %1$d days (%1$dd)</string>
+    <string name="subscription_auto_update_custom">Custom interval (minutes / hours / days)…</string>
+    <string name="subscription_auto_update_custom_hint">Interval value</string>
+    <string name="subscription_auto_update_invalid">Please enter a valid number greater than 0</string>
+    <string name="subscription_auto_update_min_15m">Minimum auto-update interval is 15 minutes</string>
+    <string name="subscription_unit_minutes">Minutes (m)</string>
+    <string name="subscription_unit_hours">Hours (h)</string>
+    <string name="subscription_unit_days">Days (d)</string>
     <string name="update_when_connected_only">Update only when connected</string>
     <string name="update_when_connected_only_sum">Prevent IP address leakage</string>
     <string name="subscription_user_agent">UserAgent</string>
     <string name="default_subscription_user_agent">Default Subscription User-Agent</string>
+    <string name="subscription_send_hwid_headers">Send Device &amp; HWID Info</string>
+    <string name="subscription_send_hwid_headers_summary">Attach x-hwid, x-device-os, x-ver-os, and x-device-model headers on subscription updates for panels with device limits (e.g. Remnawave, Marzban, 3X-UI)</string>
+    <string name="subscription_hwid_not_supported">Subscription server requires a device identifier. Please enable \"Send Device &amp; HWID Info\" in Settings → Advanced Settings and try again.</string>
+    <string name="subscription_hwid_max_devices_reached">Maximum device limit reached for this subscription. Please unbind an unused device in your subscription panel and try again.</string>
     <string name="select_ua_preset">Preset User-Agent</string>
     <string name="custom_ua_hint">Enter custom User-Agent</string>
     <string name="update_existing_subscriptions_ua">Update all saved subscriptions</string>
@@ -598,6 +618,7 @@
     <string name="hysteria_stream_receive_window">QUIC Stream Receive Window</string>
     <string name="hysteria_connection_receive_window">QUIC Connection Receive Window</string>
     <string name="hysteria_disable_mtu_discovery">Disable Path MTU Discovery</string>
+    <string name="hysteria_disable_mtu_discovery_summary">Enable when Hysteria2 stalls or fails to connect on Wi-Fi or broadband networks with MTU blackholes</string>
     <string name="group_order">Order</string>
     <string name="group_order_origin">Origin</string>
     <string name="group_order_by_name">By Name</string>
@@ -605,34 +626,26 @@
     <string name="plugin_exists_but_on_shit_system">Profile %s requires the %s plugin, but your
         proprietary equipment vendor (usually surveillance capital giants and malware maker)
         tampered with your Android, making the plugin unusable.</string>
-
     <string name="shadowsocks_plugin_simple_obfs">Simple Obfs (Shadowsocks Android Plugin)</string>
     <string name="shadowsocks_plugin_v2ray">V2Ray (Shadowsocks Android Plugin)</string>
-
     <string name="traffic_uplink" translatable="false">%s | %s/s ↑</string>
     <string name="traffic_downlink" translatable="false">%s | %s/s ↓</string>
-
     <string name="traffic_uplink_total" translatable="false">%s ↑</string>
     <string name="traffic_downlink_total" translatable="false">%s ↓</string>
-
     <string name="tcp_connections">%d TCP connections</string>
     <string name="udp_connections">%d UDP connections</string>
-
     <string name="copy_label">Copy Name</string>
     <string name="copy_package_name">Copy Package Name</string>
     <string name="open_app">Open App</string>
     <string name="open_settings">Open Settings</string>
     <string name="open_market">Open Market</string>
     <string name="create_rule">Create Rule</string>
-
     <string name="copy_success">Copy success!</string>
     <string name="copy_failed">Copy failed.</string>
     <string name="app_no_launcher">The app has no interface.</string>
     <string name="route_for">Rule for %s</string>
-
     <string name="route_need_vpn">Routing rule %s relies on the VPN to be in effect, so it is
         ignored.</string>
-
     <string name="profile_traffic_statistics">Profile Traffic Statistics</string>
     <string name="profile_traffic_statistics_summary">When disabled, the used traffic will not be
         counted</string>
@@ -649,7 +662,6 @@
     <string name="wireguard_local_address">Local Address</string>
     <string name="wireguard_public_key">Peer Public Key</string>
     <string name="wireguard_psk">Peer Pre-Shared Key</string>
-
     <string name="cloudflare_wrap" translatable="false">Cloudflare Warp</string>
     <string name="warp_license">CloudFlare Warp is a free WireGuard VPN provider. By using it, you
         agree to the TOS.</string>
@@ -670,7 +682,6 @@
         and less secure. This project strives for the strongest security against traffic analysis.
         Using it in an insecure way defeats its purpose. \n\nIf you must use this, try N=2 first to
         see if it solves your issues. Strongly recommend against using more than 4 connections here.</string>
-
     <string name="stun_test">NAT behaviour discovery</string>
     <string name="stun_test_summary">Determine the client\'s NAT mapping behaviour and the NAT
         filtering behaviour defined in RFC 3478 using STUN.</string>
@@ -680,13 +691,11 @@
     <string name="nat_result_hint">NAT check result</string>
     <string name="tools_network">Network</string>
     <string name="mtu" translatable="false">MTU</string>
-
     <string name="backup">Backup</string>
     <string name="backup_groups_and_configurations">Groups and configurations</string>
     <string name="backup_rules">Routing rules</string>
     <string name="backup_settings">Settings</string>
-    <string name="backup_summary">If the routing settings are not backed up with configurations,
-        then custom outbounds will be lost.</string>
+    <string name="backup_summary">Includes node groups, routing rules, per-app proxy lists, and full preferences for seamless device migration.</string>
     <string name="backup_not_file">Not an backup file: excepted .json, but %s</string>
     <string name="backup_not_throne_desktop">Not a Throne desktop backup: expected .thrbackup, but %s</string>
     <string name="invalid_backup_file">Invalid backup file</string>
@@ -695,13 +704,12 @@
     <string name="backup_importing">Importing…</string>
     <string name="action_import_throne_desktop">Import from Throne desktop</string>
     <string name="backup_import_throne_desktop_summary">Import profiles, routes and settings from a Throne desktop .thrbackup file. Custom icons are ignored. Existing data in selected categories will be overwritten.</string>
-
     <string name="packet_encoding">Packet Encoding</string>
     <string name="acquire_wake_lock">Acquire WakeLock</string>
     <string name="release_wake_lock">Release WakeLock</string>
     <string name="acquire_wake_lock_summary">Keep the CPU on</string>
-    <string name="performance_priority_mode">性能优先模式</string>
-    <string name="performance_priority_mode_summary">开启后内核不限内存，速度更快但后台 RAM 占用增大；关闭时 Go 运行时积极回收内存（推荐默认关闭）</string>
+    <string name="performance_priority_mode">Performance Priority Mode</string>
+    <string name="performance_priority_mode_summary">Removes core memory limit for higher throughput at the cost of higher background RAM usage; when off, Go runtime aggressively reclaims memory (recommended off)</string>
     <string name="hide_from_recent_apps">Hide from recent tasks</string>
     <string name="hide_from_recent_apps_summary">Hide the app from recent tasks when running in background</string>
     <string name="action_switch">Switch</string>
@@ -709,17 +717,14 @@
     <string name="custom_rules_provider">Custom</string>
     <string name="rules_geosite_url">geosite URL</string>
     <string name="rules_geoip_url">geoip URL</string>
-
     <string name="tuic_udp_relay_mode">UDP Relay Mode</string>
     <string name="tuic_congestion_controller">Congestion Controller</string>
     <string name="tuic_disable_sni">Disable SNI</string>
     <string name="tuic_reduce_rtt">Enable 0-RTT QUIC handshake</string>
-
     <string name="pinned_certchain_sha256">Pinned Certificate SHA256</string>
-
-    <string name="please_update">Your APP is too old (%s). And will stop working at %s. Please
+    <string name="please_update">Your APP is too old (%1$s). And will stop working at %2$s. Please
         update!</string>
-    <string name="please_update_force">Your APP is too old (%s). And has been stopped working at %s.
+    <string name="please_update_force">Your APP is too old (%1$s). And has been stopped working at %2$s.
         Please update!</string>
     <string name="connection_test_delete_unavailable">Clear unavailable</string>
     <string name="hide_unavailable_profiles">Hide unavailable profiles</string>
@@ -817,7 +822,7 @@
     <string name="enable_tls_fragment">Enable TLS Client Hello Fragment</string>
     <string name="fragment_length">Fragment Length (min-max)</string>
     <string name="fragment_interval">Fragment Interval (min-max)</string>
-
+    <string name="fragment_interval_invalid">Fragment interval must be between 1 and 1000 ms (e.g. 10-20 or 20)</string>
     <string name="backup_local">Local Backup</string>
     <string name="backup_webdav">WebDAV Backup</string>
     <string name="webdav_settings">WebDAV Settings</string>
@@ -886,7 +891,6 @@
     <string name="vless_encryption_hint">mlkem768x25519plus.native.0rtt.KEY1.KEY2...</string>
     <string name="app_list_permission_denied">Unable to read installed apps.\nThis is usually because the system has restricted app read permissions.\nPlease grant permissions in the system settings.</string>
     <string name="open_app_settings">Open System Settings</string>
-
     <!-- Snell Protocol -->
     <string name="action_snell">Snell</string>
     <string name="snell_psk">Pre-shared Key</string>
@@ -898,10 +902,8 @@
     <string name="snell_mode">Mode</string>
     <string name="snell_reuse">Reuse</string>
     <string name="snell_reuse_summary">v4-v6 only</string>
-
     <string name="wireguard_listen_port">Listen port</string>
     <string name="wireguard_persistent_keepalive">Persistent keepalive interval</string>
-
     <!-- Custom Icon Pack -->
     <string name="custom_icon">Custom Icon</string>
     <string name="custom_icon_import">Import Icon Pack</string>
@@ -935,16 +937,12 @@
     <string name="amoled_theme">AMOLED True Black</string>
     <string name="amoled_theme_summary">Use pure black #000000 background in dark mode to save OLED battery</string>
     <string name="import_clipboard_prompt">Detected proxy or subscription configuration in clipboard. Do you want to import it?</string>
-<string name="auto_lowest_latency_enabled">Auto-select lowest latency node enabled</string>
+    <string name="auto_lowest_latency_enabled">Auto-select lowest latency node enabled</string>
     <string name="auto_lowest_latency_disabled">Auto-select lowest latency node disabled</string>
     <string name="auto_lowest_latency_summary">Continuously probe group nodes and route traffic to the lowest latency node</string>
     <string name="server_port_or_range">Server Port / Port Hopping Range</string>
     <string name="server_port_or_range_sum">Single port (e.g. 443) or range (e.g. 2080-3000)</string>
     <string name="hop_interval_sum">Randomly hop between ports in the range, default 30s</string>
-    <string name="group_is_url_test">Auto-select (URLTest)</string>
-    <string name="group_is_url_test_sum">Use urltest outbound to auto-pick the lowest latency node</string>
-    <string name="group_is_load_balance">Load Balance</string>
-    <string name="group_is_load_balance_sum">Distribute connections across all nodes in the group via round-robin</string>
     <string name="group_toggle_disabled">Toggle Enable/Disable</string>
     <string name="group_enable">Enable Group</string>
     <string name="group_disable">Disable Group</string>
@@ -985,16 +983,16 @@
     <string name="advanced_settings">Advanced Settings</string>
     <string name="widget_toggle">Tap to toggle connection</string>
     <string name="change_icon">Change icon</string>
-        <string name="app_icon_dynamic">Dynamic</string>
-        <string name="app_icon_light_mode">Light mode</string>
-        <string name="app_icon_dark_mode">Dark mode</string>
-        <string name="app_icon_old_nekobox_plus">Old MyBox+</string>
-        <string name="app_icon_nekobox" translatable="false">MyBox</string>
-        <string name="app_icon_midnight">Midnight</string>
-        <string name="app_icon_heavens">Heavens</string>
-        <string name="app_icon_black_white">Black and White</string>
-        <string name="app_icon_text">Text</string>
-        <string name="app_icon_selected">Selected</string>
+    <string name="app_icon_dynamic">Dynamic</string>
+    <string name="app_icon_light_mode">Light mode</string>
+    <string name="app_icon_dark_mode">Dark mode</string>
+    <string name="app_icon_old_nekobox_plus">Old MyBox+</string>
+    <string name="app_icon_nekobox" translatable="false">MyBox</string>
+    <string name="app_icon_midnight">Midnight</string>
+    <string name="app_icon_heavens">Heavens</string>
+    <string name="app_icon_black_white">Black and White</string>
+    <string name="app_icon_text">Text</string>
+    <string name="app_icon_selected">Selected</string>
     <string name="switch_node">Switch Node</string>
     <string name="switch_node_short">Switch</string>
     <string name="widget_1x1_name">MyBox Quick Toggle (1x1)</string>
@@ -1074,6 +1072,45 @@
     <string name="show_landing_ip_sum">Display the egress landing IP and country flag on the home status bar</string>
     <string name="balancer_type_list">List</string>
     <string name="balancer_type_group">Group</string>
+    <string name="balancer_type_mixed">Group + Extra Nodes</string>
+    <string name="balancer_match_summary_title">Matched Nodes Preview</string>
+    <string name="balancer_match_summary_empty">No usable nodes matched yet (check group, filter rules, or extra nodes)</string>
+    <string name="balancer_match_summary_regex_error">Invalid regex syntax — %s</string>
+    <string name="balancer_match_summary_group">Matched %d usable nodes</string>
+    <string name="balancer_match_summary_list">Selected %d usable nodes</string>
+    <string name="balancer_match_summary_mixed">Matched %1$d usable nodes (Group: %2$d + Extra: %3$d)</string>
+    <string name="strategy_stats_title">Strategy Group Stats</string>
+    <string name="strategy_status_running">Running %1$s · %2$s</string>
+    <string name="strategy_status_running_no_node">Running %1$s · Tap to view</string>
+    <string name="strategy_status_pinned">Pinned · %1$s</string>
+    <string name="strategy_overview_running">Running: %1$s (%2$s)</string>
+    <string name="strategy_overview_pinned">Manual Pin Locked: %1$s</string>
+    <string name="strategy_overview_meta">Last check %1$s, %2$d nodes total</string>
+    <string name="strategy_overview_meta_active">Last check %1$s, %2$d nodes · Active: %3$s</string>
+    <string name="strategy_check_all">Check All Now</string>
+    <string name="strategy_checking">Checking…</string>
+    <string name="strategy_restore_auto">Restore Auto</string>
+    <string name="strategy_not_running">No strategy group is currently running.</string>
+    <string name="strategy_pin_applied">Locked to %s (will hold strictly until restored)</string>
+    <string name="strategy_pin_failed">Unable to lock selected node</string>
+    <string name="strategy_pin_restored">Restored automatic strategy selection</string>
+    <string name="strategy_badge_active">Active</string>
+    <string name="strategy_badge_pinned">Locked</string>
+    <string name="strategy_latency_ms">%d ms</string>
+    <string name="strategy_untested">Untested</string>
+    <string name="strategy_time_never">Never checked</string>
+    <string name="strategy_time_just_now">Just now</string>
+    <string name="strategy_time_seconds_ago">%d seconds ago</string>
+    <string name="strategy_time_minutes_ago">%d minutes ago</string>
+    <string name="strategy_time_hours_ago">%d hours ago</string>
+    <string name="strategy_time_days_ago">%d days ago</string>
+    <string name="strategy_mode_least_ping">Lowest Latency</string>
+    <string name="strategy_mode_least_load">Lowest Load</string>
+    <string name="strategy_mode_round_robin">Round Robin</string>
+    <string name="strategy_mode_random">Random</string>
+    <string name="strategy_mode_consistent_hash">Consistent Hash</string>
+    <string name="strategy_mode_failover">Failover</string>
+    <string name="strategy_mode_stable">Most Stable</string>
     <string name="balancer_strategy_least_ping">Lowest Latency (leastPing)</string>
     <string name="balancer_strategy_least_load">Lowest Load (leastLoad)</string>
     <string name="balancer_strategy_random">Random (random)</string>
@@ -1089,19 +1126,20 @@
     <string name="balancer_interval_sum">Periodic health-check and observation interval in seconds, default 300s</string>
     <string name="balancer_tolerance">Switch Tolerance (Tolerance)</string>
     <string name="balancer_tolerance_sum">Latency switch tolerance threshold, default 50ms</string>
-    <string name="balancer_tolerance_unit">Tolerance Unit (Unit)</string>
     <string name="unit_ms">Milliseconds (ms)</string>
     <string name="unit_s">Seconds (s)</string>
     <string name="balancer_select_group">Select Group</string>
-    <string name="balancer_use_front_proxy">Use Group Front Proxy</string>
-    <string name="balancer_use_landing_proxy">Use Group Landing Proxy</string>
+    <string name="balancer_use_front_proxy">Follow Member Group Front Proxy</string>
+    <string name="balancer_use_front_proxy_sum">Off by default: ignores member group front proxies unless a custom front proxy is set below.</string>
+    <string name="balancer_use_front_proxy_overridden_sum">Overridden because a custom Front Proxy is selected below.</string>
+    <string name="balancer_use_landing_proxy">Follow Member Group Landing Proxy</string>
+    <string name="balancer_use_landing_proxy_sum">Off by default: ignores member group landing proxies. Turn on to keep each member group\'s landing proxy.</string>
     <string name="balancer_name_exclude">Name Exclusion (Regex)</string>
     <string name="balancer_name_include">Name Inclusion (Regex)</string>
     <string name="selected_count">Selected %d items</string>
     <string name="btn_confirm">Confirm</string>
     <string name="select_multi_profile">Select Nodes</string>
     <string name="batch_add_nodes">Batch Add Nodes</string>
-
     <string name="show_subscription_info_card">Subscription Asset Info Card</string>
     <string name="show_subscription_info_card_summary">Display subscription traffic and expiry card at top of subscription groups</string>
     <string name="subscription_info">Subscription Info</string>
@@ -1166,16 +1204,13 @@
     <string name="dashboard_log_resume">Resume Logs</string>
     <string name="dashboard_log_clear">Clear Logs</string>
     <string name="dashboard_search_rules_hint">Search rule payload or outbound</string>
-
     <!-- Haptic Feedback -->
     <string name="haptic_feedback">Haptic Feedback</string>
     <string name="haptic_feedback_summary">Vibrate slightly when tapping buttons</string>
-
     <!-- Show All Groups Tab -->
     <string name="show_all_groups_tab">Show All Groups Tab</string>
     <string name="show_all_groups_tab_summary">Add an "All" tab at the leftmost to show nodes from all subscription groups</string>
     <string name="group_tab_all">All</string>
-
     <!-- Dashboard & Route Rule Advanced -->
     <string name="dashboard_connect_service">Connect the proxy service first, then reload the dashboard.</string>
     <string name="dashboard_enable_api">Enable Clash API in Advanced Settings, reconnect the service, then reload.</string>
@@ -1183,7 +1218,6 @@
     <string name="dashboard_api_unavailable">Local Clash API is unavailable or returned an invalid response. Check the service connection and Clash API in Advanced Settings, then reload.</string>
     <string name="dashboard_html_unavailable">The API is available, but the bundled YACD page could not load. Reconnect the service and reload.</string>
     <string name="dashboard_storage_unavailable">YACD settings could not be saved. Reload the dashboard and check WebView storage availability.</string>
-
     <string name="rr_basic">Rule</string>
     <string name="rr_common">Match</string>
     <string name="rr_advanced">Advanced</string>
@@ -1218,7 +1252,10 @@
     <string name="rr_picker">Select rule sets</string>
     <string name="rr_lines">One value per line. Ports accept 80, 443 or 1000:2000.</string>
     <string name="rr_legacy_domain">Exact domains (JSON)</string>
-    <string name="rr_apps_modes">App rules apply to VPN traffic. Root TUN relies on UID/socket ownership and may vary by Android/kernel; mixed proxy traffic cannot reliably identify its originating app.</string>
+    <string name="rr_apps_modes">App rules apply to VPN traffic; mixed proxy traffic cannot reliably identify its originating app.</string>
+    <string name="route_banner_smart_mode">Smart Routing is currently active, so custom rules below are bypassed.</string>
+    <string name="route_banner_global_mode">Global Mode is currently active, so custom rules below are bypassed.</string>
+    <string name="route_banner_switch_custom">Use Custom</string>
     <string name="rr_limits">Wi-Fi and desktop process matching are not enabled. Removed sniff destination override is unsupported by this core. Existing custom JSON is preserved; unsupported fields must be reviewed before saving.</string>
     <string name="rr_invalid">Cannot save rule</string>
     <string name="rr_problem">%1$s: %2$s</string>
@@ -1230,15 +1267,26 @@
     <string name="rr_core_error">Core validation failed: %1$s</string>
     <string name="rr_save_error">The rule could not be saved. Your edits remain available.</string>
     <string name="rr_reload_error">Rule saved, but the running service could not reload. Reconnect the service.</string>
-
     <string name="rule_set_picker_title">Rule Sets</string>
     <string name="picker_selected">%1$d selected</string>
     <string name="search_rule_sets">Search rule-sets…</string>
+    <string name="rule_set_tab_all">All</string>
+    <string name="rule_set_tab_custom">Custom</string>
+    <string name="rule_set_tab_selected">Selected</string>
     <string name="rule_set_catalog_empty">The rule-set list is empty. Tap the menu in the top-right to refresh.</string>
+    <string name="rule_set_custom_empty">No custom rule-sets or local files found. Add a URL or import a local file.</string>
+    <string name="rule_set_selected_empty">No rule-sets selected.</string>
     <string name="rule_set_add_url">Add rule-set URL</string>
     <string name="rule_set_add_url_hint">https://example.com/rule-set.srs</string>
     <string name="rule_set_add_url_invalid">Enter an http:// or https:// URL of a .srs file</string>
     <string name="rule_set_url_source">URL · %1$s</string>
+    <string name="rule_set_local_source">Local rule-set file</string>
+    <string name="rule_set_custom_db_source">Custom database</string>
+    <string name="rule_set_custom_db_title">Custom database</string>
+    <string name="rule_set_custom_db_message">%1$s (%2$s) can be included in the selected route rule-sets.</string>
+    <string name="rule_set_custom_db_add">Add</string>
+    <string name="rule_set_custom_db_remove">Remove</string>
+    <string name="rule_set_delete_confirm">Delete this local rule-set file?</string>
     <string name="rule_set_unknown">Not in the rule-set list</string>
     <string name="rule_set_refresh_catalog">Refresh rule-set catalog</string>
     <string name="rule_set_refreshing_catalog">Refreshing remote rule-set catalog…</string>
@@ -1265,10 +1313,8 @@
     <string name="route_network_type_other">Other</string>
     <string name="route_rule_network_is_expensive">Metered network</string>
     <string name="route_rule_advanced_count">Advanced (%1$d set)</string>
-
-
     <!-- Network Diagnostics & Egress IP Details -->
-        <string name="landing_ip_disclaimer">Depends on third-party APIs, for reference only</string>
+    <string name="landing_ip_disclaimer">Depends on third-party APIs, for reference only</string>
     <string name="landing_ip_section_basic">Basic Info</string>
     <string name="landing_ip_section_network">Network</string>
     <string name="landing_ip_section_other">Other</string>
@@ -1302,7 +1348,6 @@
     <string name="service_status_available">Available</string>
     <string name="service_status_failed">Failed</string>
     <string name="diagnostics_not_connected">Proxy not connected. Please connect first.</string>
-
     <!-- Live Update & Notification -->
     <string name="live_update">Live Update (Notification Island)</string>
     <string name="live_update_sum">Display real-time traffic and connection status as a dynamic capsule/island on the status bar and lock screen</string>
@@ -1343,14 +1388,13 @@
     <string name="notification_permission_allowed">Allowed</string>
     <string name="notification_permission_blocked">Blocked: the service notification and its buttons are hidden. Tap to allow.</string>
     <string name="notification_permission_rationale">MyBox shows a notification while the VPN runs, with buttons to stop it and to switch servers. Allow notifications to see it.</string>
-
-    <string name="menu_connections">Connections</string>
+    <string name="menu_connections">Traffic Routing</string>
     <string name="connections_filter_active_initial">Active 0</string>
     <string name="connections_filter_active">Active %1$d</string>
     <string name="connections_filter_closed_initial">Closed 0</string>
     <string name="connections_filter_closed">Closed %1$d</string>
     <string name="connections_filter_all">All</string>
-    <string name="connections_search_hint">Search host, app, or rule</string>
+    <string name="connections_search_hint">Search domain, IP or rule...</string>
     <string name="connections_loading">Loading connections…</string>
     <string name="connections_service_offline">Connect the VPN service to view active connections.</string>
     <string name="connections_api_disabled">Enable the Clash API in Advanced Settings to view connections.</string>
@@ -1364,7 +1408,7 @@
     <string name="connections_status_active">Active: %1$d · ↑ %2$s · ↓ %3$s</string>
     <string name="connections_close_all_title">Close all connections?</string>
     <string name="connections_close_all_message">This will close %1$d active connections.</string>
-    <string name="connections_close_all">Close all</string>
+    <string name="connections_close_all">Close All</string>
     <string name="connections_close">Close connection</string>
     <string name="connections_none_to_close">There are no active connections to close.</string>
     <string name="connections_closed">Connection close requested.</string>
@@ -1383,5 +1427,235 @@
     <string name="connections_detail_closed">Closed %1$s</string>
     <string name="connections_detail_inbound">Inbound: %1$s</string>
     <string name="connections_direct">DIRECT</string>
+    <!-- Telegram Settings Category Strings -->
+    <string name="settings_cat_basic">Basic Experience</string>
+    <string name="settings_cat_core_network">Core Engine &amp; Network</string>
+    <string name="settings_cat_advanced">Advanced &amp; Diagnostics</string>
+    <string name="settings_ui_summary">Appearance, card style, language and haptics</string>
+    <string name="settings_vpn_summary">Auto-connect, per-app proxy, bypass LAN, strict route, MTU</string>
+    <string name="settings_mode_summary">Service mode, mixed inbound, proxy port, LAN sharing</string>
+    <string name="settings_core_summary">Smart routing region, traffic sniffing, QUIC blocking, IPv6, rule sets and auto update</string>
+    <string name="settings_dns_summary">Remote/Direct DNS, quick presets, FakeDNS, DNS strategy and Hosts</string>
+    <string name="settings_fragment_summary">TLS fragment toggle and fallback delay control</string>
+    <string name="settings_observatory_summary">Connection test URL, speed test mode and timeouts</string>
+    <string name="settings_advanced_summary">Subscription HWID, Clash API, connections monitor, smart auto-stop, log level, reset</string>
+    <string name="cag_advanced_network">Network &amp; Outbound</string>
+    <string name="cag_advanced_security">Security &amp; TLS</string>
+    <string name="cag_advanced_diagnostics">Diagnostics &amp; System</string>
+    <string name="rule_set_delete_url_confirm">Remove custom rule-set \"%s\"?</string>
+    <string name="rule_set_deleted">Removed %s</string>
+    <string name="rule_set_add_url_batch_hint">Supports single or multiple URLs (one per line or comma separated). Compatible with .srs and .json formats.</string>
+    <string name="rule_set_added_count">Successfully added %d rule-set(s)</string>
+    <string name="app_proxy_updated_restart">Per-app proxy updated, restarting connection…</string>
+    <string name="block_quic">Block QUIC (UDP 443)</string>
+    <string name="block_quic_summary">Reject QUIC UDP/443 at route entry for instant TCP HTTP/2 fallback; disable to allow native HTTP/3</string>
+    <string name="bypass_lan_in_core_summary">Bypass private/LAN destination IPs in core routing (applied after custom routing rules)</string>
+    <string name="route_invalid_outbound_toast">Rule \"%s\" references a missing node and was handled safely</string>
+    <string name="smart_auto_stop">Smart Auto-Stop Proxy</string>
+    <string name="smart_auto_stop_summary">Off by default. When enabled and a rule matches, it stops the proxy/VPN and disconnects active sessions; resumes after leaving.</string>
+    <string name="smart_auto_stop_networks">Trusted Intranet Rules</string>
+    <string name="smart_auto_stop_networks_summary_empty">Not set (IP, CIDR, or gateway:IP; comma-separated, max 5)</string>
+    <string name="smart_auto_stop_networks_hint">Use a specific subnet or gateway (for example, 192.168.1.0/24 or gateway:192.168.1.1). A match stops the proxy/VPN and disconnects active sessions; avoid broad CIDR ranges. Up to 5 comma-separated rules; no location permission needed.</string>
+    <string name="smart_auto_stop_too_many">Up to %d intranet rules are supported</string>
+    <string name="smart_auto_stop_invalid_rule">Invalid IP/CIDR/gateway rule: %s</string>
+    <string name="service_suspended">Paused · Trusted Intranet</string>
+    <string name="service_suspended_detail">Paused · Matched %s</string>
+    <string name="service_suspended_short">Paused (Intranet)</string>
+    <string name="smart_auto_stop_resume">Resume</string>
+    <string name="balancer_settings_autoselect">Auto-Select</string>
+    <string name="balancer_source_type">Member Source</string>
+    <string name="balancer_server_source">Server Source</string>
+    <string name="balancer_no_group_selected">No group selected</string>
+    <string name="balancer_explicit_nodes">Explicit Profiles</string>
+    <string name="balancer_explicit_nodes_empty">Tap to select profiles</string>
+    <string name="balancer_node_list_hint">Priority order · Drag ≡ to reorder · Tap to replace</string>
+    <string name="balancer_node_order_title">Node priority</string>
+    <string name="balancer_node_order_hint">Drag ≡ to reorder · Tap a row to replace · Auto-saves on back</string>
+    <string name="balancer_node_order_empty">No nodes selected yet. Tap + above to add nodes.</string>
+    <string name="balancer_node_order_summary">%1$d nodes: %2$s</string>
+    <string name="balancer_node_order_summary_empty">No nodes selected. Tap to pick and reorder.</string>
+    <string name="balancer_node_order_add">Add or pick nodes</string>
+    <string name="balancer_node_order_sort_latency">Sort by current latency</string>
+    <string name="balancer_node_order_sorted_by_latency">Sorted by current latency</string>
+    <string name="balancer_tier_badge">Tier %1$d</string>
+    <string name="balancer_tier_badge_fallback">Fallback</string>
+    <string name="balancer_explicit_nodes_summary">Selected %1$d profiles: %2$s</string>
+    <string name="balancer_name_include_all">Every profile in group</string>
+    <string name="balancer_selection_mode">Selection Mode</string>
+    <string name="balancer_selection_latency">Fastest &amp; Most Stable</string>
+    <string name="balancer_selection_priority">By Priority Order</string>
+    <string name="balancer_selection_latency_sum">Fastest &amp; Most Stable: always uses the best-measured available profile.</string>
+    <string name="balancer_selection_priority_sum">By Priority Order: prefers higher-priority tiers in order, picking the fastest healthy profile inside each tier.</string>
+    <string name="balancer_balance_enabled">Distribute Traffic Across Best Profiles</string>
+    <string name="balancer_balance_enabled_off_sum">Off by default: one profile carries all traffic while others stand by. Enable to spread traffic across verified available profiles.</string>
+    <string name="balancer_balance_enabled_on_sum">Enabled (%s): spreads traffic across verified available profiles.</string>
+    <string name="balancer_preview_title">Profiles</string>
+    <string name="balancer_preview_summary">%2$d of %1$d profiles in group available; all %3$d will be included.</string>
+    <string name="balancer_preview_summary_list">%2$d of %1$d selected profiles available; all %3$d will be included.</string>
+    <string name="balancer_preview_summary_mixed">%2$d of %1$d mixed profiles available; all %3$d will be included.</string>
+    <string name="balancer_advanced_title">Advanced</string>
+    <string name="balancer_advanced_show">Show advanced options</string>
+    <string name="balancer_advanced_hide">Hide advanced options</string>
+    <string name="balancer_cat_use_which">Which Profiles to Use</string>
+    <string name="balancer_cat_health">Health Checks</string>
+    <string name="balancer_cat_switching">Switching</string>
+    <string name="balancer_cat_load_balance">Load Balancing</string>
+    <string name="balancer_cat_endpoints">Test Endpoints</string>
+    <string name="balancer_cat_chain">Chaining &amp; Relay</string>
+    <string name="balancer_country_filter">Countries Only</string>
+    <string name="balancer_country_filter_any">Any country (e.g. DE, NL, FR)</string>
+    <string name="balancer_run_top_n">Max Profiles Included</string>
+    <string name="balancer_result_trust_minutes">Result Trust Duration</string>
+    <string name="balancer_skip_failed_within_trust">Skip Failed Profiles</string>
+    <string name="balancer_skip_failed_within_trust_sum">Skip profiles whose last test failed while still inside the trust window. Turn off if tests are unreliable and you prefer the selector to decide.</string>
+    <string name="balancer_standby_size">Keep Ready</string>
+    <string name="balancer_intensive_check_count">Intensive Checks</string>
+    <string name="balancer_interval_title">Check Interval</string>
+    <string name="balancer_full_scan_interval">Full Scan Interval</string>
+    <string name="balancer_watch_interval">Watch Active Profile</string>
+    <string name="balancer_sample_count">Retained Samples</string>
+    <string name="balancer_tolerance_title">Switch Tolerance</string>
+    <string name="balancer_max_rtt">Max Latency</string>
+    <string name="balancer_dial_retries">Failover Retries</string>
+    <string name="balancer_interrupt_on_switch">Interrupt Connections on Switch</string>
+    <string name="balancer_interrupt_on_switch_sum">Applies when switching due to better latency, failure, or fallback. On: immediately closes active connections so they reconnect via the new profile. Off: existing connections continue while new flows switch.</string>
+    <string name="balancer_failback_checks">Checks Before Failback</string>
+    <string name="balancer_failback_delay">Stable Before Failback</string>
+    <string name="balancer_interrupt_on_failback">Interrupt Connections on Failback</string>
+    <string name="balancer_interrupt_on_failback_sum">Priority mode only. Off: open connections remain while new flows move back up. On: all connections move immediately.</string>
+    <string name="balancer_learn_from_connections">Learn from Real Connections</string>
+    <string name="balancer_learn_from_connections_sum">Remembers the last working profile per site, temporarily avoids ones that failed for it (~10m recovery), and switches away when active connections fail repeatedly without altering routing rules, check intervals, or tolerance.</string>
+    <string name="balancer_site_sticky_minutes">Site Memory Duration</string>
+    <string name="balancer_balance_mode_title">Mode</string>
+    <string name="balancer_balance_mode_timed">Timed Rotation (Session Stable)</string>
+    <string name="balancer_balance_mode_per_conn">Per Connection (Round-Robin New Flows)</string>
+    <string name="balancer_balance_interval">Rotation Interval</string>
+    <string name="balancer_test_url_title">Test URL</string>
+    <string name="balancer_test_url_default">Global delay test URL (%s)</string>
+    <string name="balancer_connectivity_url">Connectivity URL</string>
+    <string name="balancer_connectivity_url_unset">Not set: use system network state</string>
+    <string name="balancer_unit_profiles">%d profiles</string>
+    <string name="balancer_unit_seconds">%d s</string>
+    <string name="balancer_unit_minutes">%d min</string>
+    <string name="balancer_unit_checks">%d checks</string>
+    <string name="balancer_unit_ms">%d ms</string>
+    <string name="balancer_unlimited">Unlimited</string>
+    <string name="strategy_toolbar_subtitle_group">(%s)</string>
+    <string name="strategy_header_auto_use">Auto-Select using %1$s (%3$d of %2$d available)</string>
+    <string name="strategy_header_pinned_use">Locked to %1$s (%3$d of %2$d available)</string>
+    <string name="strategy_header_switched_suffix">, switched %s</string>
+    <string name="strategy_header_offline_suffix"> (offline)</string>
+    <string name="strategy_header_counts">%1$d profiles: %2$d available</string>
+    <string name="strategy_meta_last_check">Last check %s.</string>
+    <string name="strategy_meta_next_check">Next check in %ds.</string>
+    <string name="strategy_meta_learned_sites">Learning from real connections: %d sites remembered.</string>
+    <string name="strategy_meta_last_switch">Last switch %1$s (%2$s).</string>
+    <string name="strategy_meta_last_switch_no_reason">Last switch %s.</string>
+    <string name="strategy_role_carrying_traffic">Carrying traffic</string>
+    <string name="strategy_role_standby">Standby ready</string>
+    <string name="strategy_role_suspect_cooldown">Suspect cooldown (%ds left)</string>
+    <string name="strategy_role_partial_failures">%2$d of %1$d checks failed</string>
+    <string name="strategy_role_frequent_fluctuations">Unstable recently (%2$d/%1$d failed)</string>
+    <string name="strategy_role_recent_failed_ratio">%2$d/%1$d failed</string>
+    <string name="strategy_err_timeout">Connection timed out</string>
+    <string name="strategy_err_connection_refused">Connection refused</string>
+    <string name="strategy_err_connection_reset">Connection reset</string>
+    <string name="strategy_err_eof">Server no response</string>
+    <string name="strategy_err_tls">TLS handshake error</string>
+    <string name="strategy_err_dns">DNS lookup failed</string>
+    <string name="strategy_err_unreachable">Network unreachable</string>
+    <string name="strategy_err_probe_failed">Health check failed</string>
+    <string name="strategy_member_time_ok">OK %s</string>
+    <string name="strategy_member_time_fail">Failed %s</string>
+    <string name="strategy_clear_learned">Clear Learned Sites</string>
+    <string name="strategy_learned_cleared">Cleared learned site memories</string>
+    <string name="balancer_cat_health_and_switch">Check &amp; Switching</string>
+    <string name="balancer_add_tier">Add tier</string>
+    <string name="balancer_add_tier_empty_hint">No tiers configured: falls back to list priority order (drag list or tap to add tiers).</string>
+    <string name="balancer_add_tier_sum">Prefers Tier 1 healthy profiles; falls back sequentially when exhausted, then to unmatched profiles.</string>
+    <string name="balancer_tier_title">Tier %d</string>
+    <string name="balancer_tier_dialog_add">Add Tier</string>
+    <string name="balancer_tier_dialog_edit">Edit Tier %d</string>
+    <string name="balancer_tier_group_label">Server Group</string>
+    <string name="balancer_tier_any_group">Any selected group</string>
+    <string name="balancer_tier_missing_group">Missing group (#%d)</string>
+    <string name="balancer_tier_filter_hint">Profile Name Regex (Optional)</string>
+    <string name="balancer_tier_filter_helper">Leave empty to match all profiles in scope (e.g. IEPL|IPLC)</string>
+    <string name="balancer_tier_regex_invalid">Invalid regular expression</string>
+    <string name="balancer_tier_move_up">Move up</string>
+    <string name="balancer_tier_move_down">Move down</string>
+    <string name="balancer_tier_sum_group_only">Group: %1$s (%2$d matched)</string>
+    <string name="balancer_tier_sum_regex_only">Name: %1$s (%2$d matched)</string>
+    <string name="balancer_tier_sum_both">%1$s · %2$s (%3$d matched)</string>
+    <string name="balancer_tier_sum_all">All matched profiles (%d)</string>
+    <string name="balancer_tier_fallback_note">Fallback tier: %d remaining</string>
+    <string name="action_batch_multiselect">Multi-select</string>
+    <string name="batch_selected_count">%d selected</string>
+    <string name="select_all">Select All</string>
+    <string name="deselect_all">Deselect All</string>
+    <string name="batch_delete_confirm_title">Delete %d item(s)?</string>
+    <string name="batch_delete_confirm_message">Are you sure you want to delete the selected %d profile(s)? This action cannot be undone.</string>
+    <string name="batch_delete_completed">Deleted %d profile(s)</string>
+    <string name="batch_skip_active_profile">Protected and skipped active profile in use</string>
+    <string name="batch_no_selection_hint">Please select at least one profile</string>
+    <string name="invert_selection">Invert Selection</string>
+    <string name="batch_speed_test_confirm_title">Run speed test (%d)?</string>
+    <string name="batch_speed_test_confirm_message">Are you sure you want to run speed test on the selected %d profile(s)? Speed testing can use significant data.</string>
+    <!-- DNS Presets & Protocols -->
+    <string name="remote_dns_presets">Select Remote DNS Preset</string>
+    <string name="remote_dns_presets_summary">Quickly fill in popular anti-censorship DoH/DoQ/DoH3 addresses</string>
+    <string name="direct_dns_presets">Select Direct DNS Preset</string>
+    <string name="direct_dns_presets_summary">Quickly fill in low-latency domestic DoH/DoQ addresses</string>
+    <string name="dns_preset_applied">Applied preset: %s</string>
+    <!-- Fallback Strategy -->
+    <string name="balancer_selection_fallback">Fallback (Priority Failover)</string>
+    <string name="balancer_selection_fallback_sum">Fallback: Always use the primary node. Automatically switch to backup nodes on failure, and return to primary upon recovery.</string>
+    <string name="balancer_fallback_order_title">Node Priority Order</string>
+    <string name="balancer_fallback_order_summary">Drag and arrange primary node and backup nodes</string>
+    <string name="balancer_fallback_auto_revert_title">Auto-Revert to Primary</string>
+    <string name="balancer_fallback_auto_revert_summary">Automatically switch back to primary node once it recovers</string>
+    <string name="balancer_fallback_max_fails_title">Failure Threshold</string>
+    <string name="balancer_fallback_max_fails_summary">Trigger failover after N consecutive failed checks (default: 2)</string>
+    <string name="balancer_fallback_timeout_title">Health Check Timeout</string>
+    <string name="balancer_fallback_timeout_summary">Timeout before a check is considered failed (default: 3000ms)</string>
+    <!-- Traffic & Routing Connections -->
+    <string name="connections_title">Traffic Routing</string>
+    <string name="connections_empty">No active connections</string>
+    <string name="enable_connections_monitor">Enable Traffic Routing</string>
+    <string name="enable_connections_monitor_summary">Show Traffic Routing in the sidebar (works without Clash API; polls only while viewing)</string>
+    <string name="connections_tab_active">Active %d</string>
+    <string name="connections_tab_closed">History %d</string>
+    <string name="connections_clear_history">Clear History</string>
+    <string name="connections_pause">Pause refresh</string>
+    <string name="connections_resume">Resume refresh</string>
+    <string name="connections_paused_banner">Paused</string>
+    <string name="connections_sort_time">Start Time</string>
+    <string name="connections_sort_download_speed">Download Speed</string>
+    <string name="connections_sort_upload_speed">Upload Speed</string>
+    <string name="connections_sort_download">Download Traffic</string>
+    <string name="connections_sort_upload">Upload Traffic</string>
+    <string name="connections_sort_host">Host</string>
+    <string name="connections_filter_proxy">Proxy</string>
+    <string name="connections_filter_direct">Direct</string>
+    <string name="connections_search_hint_regex">Search host, IP, app, rule (Regex)</string>
+    <string name="connections_detail_title">Connection Details</string>
+    <string name="connections_detail_overview">Overview</string>
+    <string name="connections_detail_proxy">Proxy</string>
+    <string name="connections_detail_raw">Raw Data</string>
+    <string name="connections_create_rule">Create Rule</string>
+    <string name="connections_copy">Copy</string>
+    <string name="connections_close_one">Close</string>
+    <string name="connections_copy_json">Copy JSON</string>
+    <string name="connections_history_empty">No closed connections yet</string>
 
+    <!-- Upstream v26.11.24 defaults required by added settings and menu entries. -->
+    <string name="active_profile_group_disabled">Group of active profile is disabled</string>
+    <string name="cag_profile_list">Profile List</string>
+    <string name="compact_group_cards">Compact Group Cards</string>
+    <string name="compact_group_cards_sum">Use quota bar and remaining time instead of subscription link and details</string>
+    <string name="compact_profile_rows">Compact Profile Rows</string>
+    <string name="compact_profile_rows_sum">Each profile is a single row with only name and latency</string>
+    <string name="locate_active_profile">Locate active profile</string>
+    <string name="located_active_profile">Located: %s</string>
+    <string name="no_active_profile_found">No active profile selected or connected</string>
 </resources>

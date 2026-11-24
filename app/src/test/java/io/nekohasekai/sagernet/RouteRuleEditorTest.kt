@@ -56,6 +56,12 @@ class RouteRuleEditorTest {
         assertTrue(problems(RuleEntity(domains = "example.com", config = """{"inbound":["desktop-tun"]}""")).any { it.field == "inbound" })
         assertTrue(problems(RuleEntity(ruleset = "rssite:https://example.com/list.srs")).isEmpty())
         assertTrue(problems(RuleEntity(ruleset = "rssite:http://example.com/list.srs")).any { it.field == "rule_set" })
+        assertTrue(problems(RuleEntity(ruleset = "local:custom.srs")).isEmpty())
+        assertTrue(problems(RuleEntity(ruleset = "local:geoip-lite.db")).isEmpty())
+        assertTrue(problems(RuleEntity(ruleset = "local:custom.srs", config = """{"rule_set":["local-custom"]}""")).isEmpty())
+        assertTrue(problems(RuleEntity(domains = "example.com", config = """{"rule_set":["local:custom.srs"]}""")).isEmpty())
+        assertTrue(problems(RuleEntity(ruleset = "local:")).any { it.field == "rule_set" })
+        assertTrue(problems(RuleEntity(ruleset = "local:../escape.srs")).any { it.field == "rule_set" })
     }
 
     @Test fun routeProjectionUsesActionAndOutboundSemantics() {

@@ -102,6 +102,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var appTLSVersion by configurationStore.string(Key.APP_TLS_VERSION)
     var enableClashAPI by configurationStore.boolean(Key.ENABLE_CLASH_API) { true }
+    var enableConnectionsMonitor by configurationStore.boolean(Key.ENABLE_CONNECTIONS_MONITOR) { false }
     var showBottomBar by configurationStore.boolean(Key.SHOW_BOTTOM_BAR)
     var confirmProfileDelete by configurationStore.boolean(Key.CONFIRM_PROFILE_DELETE) { true }
     var groupLayoutMode by configurationStore.stringToInt(Key.GROUP_LAYOUT_MODE) { 0 }
@@ -112,6 +113,18 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var activeLeafProfileName by configurationStore.string("activeLeafProfileName") { "" }
     var activeBalancerId by configurationStore.long("activeBalancerId") { 0L }
     var showSubscriptionInfoCard by configurationStore.boolean(Key.SHOW_SUBSCRIPTION_INFO_CARD) { true }
+    var rulesFirstCreate by configurationStore.boolean("rulesFirstCreate") { false }
+    var compactProfileRows by configurationStore.boolean("compactProfileRows") { false }
+    var compactGroupCards by configurationStore.boolean("compactGroupCards") { false }
+    var customRuleSets: List<String>
+        get() = runCatching {
+            val stored = configurationStore.getString("customRuleSets", "[]") ?: "[]"
+            val json = org.json.JSONArray(stored)
+            List(json.length()) { index -> json.getString(index) }
+        }.getOrDefault(emptyList())
+        set(value) {
+            configurationStore.putString("customRuleSets", org.json.JSONArray(value).toString())
+        }
     var customThemeColor by configurationStore.int("custom_theme_color") { 0x00E676 }
     var hapticFeedback by configurationStore.boolean(Key.HAPTIC_FEEDBACK) { true }
     var showAllGroupsTab by configurationStore.boolean(Key.SHOW_ALL_GROUPS_TAB) { false }
@@ -120,6 +133,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var allowInsecureOnRequest by configurationStore.boolean(Key.ALLOW_INSECURE_ON_REQUEST)
     var networkChangeResetConnections by configurationStore.boolean(Key.NETWORK_CHANGE_RESET_CONNECTIONS) { false }
     var wakeResetConnections by configurationStore.boolean(Key.WAKE_RESET_CONNECTIONS)
+    var smartAutoStop by configurationStore.boolean(Key.SMART_AUTO_STOP) { false }
+    var smartAutoStopNetworks by configurationStore.string(Key.SMART_AUTO_STOP_NETWORKS) { "" }
 
     //
 
@@ -132,6 +147,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }
 
     var trafficSniffing by configurationStore.stringToInt(Key.TRAFFIC_SNIFFING) { 1 }
+    var blockQuic by configurationStore.boolean(Key.BLOCK_QUIC) { true }
     var resolveDestination by configurationStore.boolean(Key.RESOLVE_DESTINATION)
 
     var mtu by configurationStore.stringToInt(Key.MTU) { 1360 }
@@ -143,7 +159,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var autoSelectLowestLatency by configurationStore.boolean(Key.AUTO_SELECT_LOWEST_LATENCY)
 
     var allowAccess by configurationStore.boolean(Key.ALLOW_ACCESS)
-    var speedInterval by configurationStore.stringToInt(Key.SPEED_INTERVAL)
+    var speedInterval by configurationStore.stringToInt(Key.SPEED_INTERVAL) { 1000 }
     var showGroupInNotification by configurationStore.boolean(Key.SHOW_GROUP_IN_NOTIFICATION)
     var liveUpdateEnabled by configurationStore.boolean(Key.LIVE_UPDATE_ENABLED)
     var liveUpdateShowCapsule by configurationStore.boolean(Key.LIVE_UPDATE_SHOW_CAPSULE) { true }
@@ -182,16 +198,16 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var disableMixedInbound by configurationStore.boolean(Key.DISABLE_MIXED_INBOUND)
 
-    // 仅在 TUN 模式下真正生效；系统代理模式必须保留 mixed 入站
+    // 仅在 TUN / Root TUN 模式下真正生效；系统代理模式必须保留 mixed 入站
     val mixedInboundDisabled: Boolean
-        get() = disableMixedInbound && serviceMode == Key.MODE_VPN
+        get() = disableMixedInbound && serviceMode != Key.MODE_PROXY
 
     // 混合入站账密由用户设置决定：用户名留空即不启用认证（本机回环免密直连）
     var mixedUsername by configurationStore.string(Key.MIXED_USERNAME) { "" }
     var mixedPassword by configurationStore.string(Key.MIXED_PASSWORD) { "" }
 
     val mixedInboundNeedsAuth: Boolean
-        get() = serviceMode == Key.MODE_VPN && !mixedInboundDisabled && mixedUsername.isNotBlank()
+        get() = serviceMode != Key.MODE_PROXY && !mixedInboundDisabled && mixedUsername.isNotBlank()
 
     val mixedInboundUser: String get() = if (mixedInboundAuthed) mixedUsername else ""
     val mixedInboundPass: String get() = if (mixedInboundAuthed) mixedPassword else ""
@@ -202,6 +218,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
             return if (!stored.isNullOrBlank()) stored else "NekoBox/Android/1.4.2 (Prefer ClashMeta Format)"
         }
         set(value) = configurationStore.putString(Key.DEFAULT_SUBSCRIPTION_USER_AGENT, value)
+
+    var subscriptionSendHwidHeaders by configurationStore.boolean(Key.SUBSCRIPTION_SEND_HWID_HEADERS) { false }
 
     var hideUnavailableProfiles by configurationStore.boolean(Key.HIDE_UNAVAILABLE_PROFILES) { false }
 
@@ -473,14 +491,22 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var balancerType by profileCacheStore.stringToInt("balancerType") { 0 }
     var balancerTargetGroup by profileCacheStore.stringToLong("balancerTargetGroup") { 0L }
     var balancerTargetGroups by profileCacheStore.string("balancerTargetGroups") { "" }
-    var balancerStrategy by profileCacheStore.string("balancerStrategy") { "random" }
     var balancerStickyByApp by profileCacheStore.boolean("balancerStickyByApp")
-    var balancerTestUrl by profileCacheStore.string("balancerTestUrl") { "" }
+    var balancerStrategy by profileCacheStore.string("balancerStrategy") { "latency" }
+    var balancerSelectionMode by profileCacheStore.string("balancerSelectionMode") { "latency" }
+    var balancerTiers by profileCacheStore.string("balancerTiers") { "" }
+    var balancerBalanceEnabled by profileCacheStore.boolean("balancerBalanceEnabled") { false }
+    var balancerBalanceMode by profileCacheStore.string("balancerBalanceMode") { "timed_rotation" }
+    var balancerBalanceIntervalSec by profileCacheStore.stringToInt("balancerBalanceIntervalSec") { 30 }
+    var balancerCountryFilter by profileCacheStore.string("balancerCountryFilter") { "" }
     var balancerInterval by profileCacheStore.stringToInt("balancerInterval") { 300 }
-    var balancerTolerance by profileCacheStore.stringToInt("balancerTolerance") { 300 }
+    var balancerTolerance by profileCacheStore.stringToInt("balancerTolerance") { 30 }
     var balancerToleranceUnit by profileCacheStore.string("balancerToleranceUnit") { "ms" }
-    var balancerUseFrontProxy by profileCacheStore.boolean("balancerUseFrontProxy")
-    var balancerUseLandingProxy by profileCacheStore.boolean("balancerUseLandingProxy")
+    var balancerInterruptOnSwitch by profileCacheStore.boolean("balancerInterruptOnSwitch") { false }
+    var balancerLearnFromConnections by profileCacheStore.boolean("balancerLearnFromConnections") { true }
+    var balancerFallbackAutoRevert by profileCacheStore.boolean("balancerFallbackAutoRevert") { true }
+    var balancerFallbackMaxFails by profileCacheStore.stringToInt("balancerFallbackMaxFails") { 2 }
+    var balancerTestUrl by profileCacheStore.string("balancerTestUrl") { "" }
     var balancerFrontProxy by profileCacheStore.long("balancerFrontProxyLong")
     var balancerLandingProxy by profileCacheStore.long("balancerLandingProxyLong")
     var balancerFrontProxyTmp by profileCacheStore.stringToInt("balancerFrontProxy")
@@ -488,32 +514,36 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var balancerNameExclude by profileCacheStore.string("balancerNameExclude") { "" }
     var balancerNameInclude by profileCacheStore.string("balancerNameInclude") { "" }
 
+    fun getProfileTestTimestampMs(profileId: Long): Long {
+        if (profileId <= 0L) return 0L
+        return runCatching { configurationStore.getLong("profile_test_ts_$profileId", 0L) }.getOrDefault(0L)
+    }
+
+    fun recordProfileTestTimestamp(profileId: Long, nowMs: Long = System.currentTimeMillis()) {
+        if (profileId <= 0L) return
+        runCatching { configurationStore.putLong("profile_test_ts_$profileId", nowMs) }
+    }
+
+    fun getProfileSpeedTestTimestampMs(profileId: Long): Long {
+        if (profileId <= 0L) return 0L
+        return runCatching { configurationStore.getLong("profile_speed_test_ts_$profileId", 0L) }.getOrDefault(0L)
+    }
+
+    fun recordProfileSpeedTestTimestamp(profileId: Long, nowMs: Long = System.currentTimeMillis()) {
+        if (profileId <= 0L) return
+        runCatching { configurationStore.putLong("profile_speed_test_ts_$profileId", nowMs) }
+    }
+
     var groupName by profileCacheStore.string(Key.GROUP_NAME)
     var groupType by profileCacheStore.stringToInt(Key.GROUP_TYPE)
     var groupOrder by profileCacheStore.stringToInt(Key.GROUP_ORDER)
     var groupIsSelector by profileCacheStore.boolean(Key.GROUP_IS_SELECTOR)
-    var groupIsUrlTest by profileCacheStore.boolean("groupIsUrlTest")
-    var groupIsLoadBalance by profileCacheStore.boolean("groupIsLoadBalance")
-    private var rawGroupUrlTestUrl by profileCacheStore.string("groupUrlTestUrl") {
-        SagerNet.application.getString(R.string.default_connection_test_url)
-    }
+    private var rawGroupUrlTestUrl by profileCacheStore.string("groupUrlTestUrl") { "" }
     var groupUrlTestUrl: String
-        get() {
-            val url = rawGroupUrlTestUrl.trim()
-            if (url.isBlank()) {
-                val newUrl = SagerNet.application.getString(R.string.default_connection_test_url)
-                rawGroupUrlTestUrl = newUrl
-                return newUrl
-            }
-            return url
-        }
+        get() = rawGroupUrlTestUrl.trim()
         set(value) {
             rawGroupUrlTestUrl = value.trim()
         }
-    var groupUrlTestInterval by profileCacheStore.stringToInt("groupUrlTestInterval") { 300 }
-    var groupUrlTestTolerance by profileCacheStore.stringToInt("groupUrlTestTolerance") { 50 }
-    var groupUrlTestIdleTimeout by profileCacheStore.string("groupUrlTestIdleTimeout") { "30m" }
-    var groupUrlTestInterruptExist by profileCacheStore.boolean("groupUrlTestInterruptExist")
 
     fun isGroupDisabled(groupId: Long): Boolean =
         configurationStore.getBoolean("group_${groupId}_disabled", false)
@@ -521,55 +551,35 @@ object DataStore : OnPreferenceDataStoreChangeListener {
         configurationStore.putBoolean("group_${groupId}_disabled", disabled)
     }
 
-    fun isGroupUrlTest(groupId: Long): Boolean =
-        configurationStore.getBoolean("group_${groupId}_isUrlTest", false)
-    fun setGroupUrlTest(groupId: Long, value: Boolean) {
-        configurationStore.putBoolean("group_${groupId}_isUrlTest", value)
-    }
-    fun groupIsUrlTest(groupId: Long): Boolean = isGroupUrlTest(groupId)
-    fun setGroupIsUrlTest(groupId: Long, value: Boolean) = setGroupUrlTest(groupId, value)
-
-    fun isGroupLoadBalance(groupId: Long): Boolean =
-        configurationStore.getBoolean("group_${groupId}_isLoadBalance", false)
-    fun setGroupLoadBalance(groupId: Long, value: Boolean) {
-        configurationStore.putBoolean("group_${groupId}_isLoadBalance", value)
-    }
-    fun groupIsLoadBalance(groupId: Long): Boolean = isGroupLoadBalance(groupId)
-    fun setGroupIsLoadBalance(groupId: Long, value: Boolean) = setGroupLoadBalance(groupId, value)
+    fun rawGroupUrlTestUrl(groupId: Long): String =
+        configurationStore.getString("group_${groupId}_urlTestUrl", "")?.trim() ?: ""
 
     fun groupUrlTestUrl(groupId: Long): String {
-        val stored = configurationStore.getString("group_${groupId}_urlTestUrl", "")?.trim()?.takeIf { it.isNotBlank() }
-        return stored ?: connectionTestURL
+        val stored = rawGroupUrlTestUrl(groupId)
+        val defaultUrl = SagerNet.application.getString(R.string.default_connection_test_url)
+        return stored.takeIf { it.isNotBlank() && it != defaultUrl } ?: connectionTestURL
     }
+
     fun setGroupUrlTestUrl(groupId: Long, value: String) {
-        configurationStore.putString("group_${groupId}_urlTestUrl", value)
+        val trimmed = value.trim()
+        val defaultUrl = SagerNet.application.getString(R.string.default_connection_test_url)
+        val storedValue = if (trimmed.isBlank() || trimmed == defaultUrl || trimmed == connectionTestURL) "" else trimmed
+        configurationStore.putString("group_${groupId}_urlTestUrl", storedValue)
     }
 
-    fun groupUrlTestInterval(groupId: Long): Long =
-        configurationStore.getString("group_${groupId}_urlTestInterval", "300")?.toLongOrNull() ?: 300L
-    fun setGroupUrlTestInterval(groupId: Long, value: Long) {
-        configurationStore.putString("group_${groupId}_urlTestInterval", value.toString())
+    fun getStrategyPinnedProfileId(strategyKey: String): Long {
+        if (strategyKey.isBlank()) return 0L
+        return configurationStore.getLong("strategy_pin_$strategyKey", 0L)
     }
 
-    fun groupUrlTestTolerance(groupId: Long): Int =
-        configurationStore.getString("group_${groupId}_urlTestTolerance", "50")?.toIntOrNull() ?: 50
-    fun setGroupUrlTestTolerance(groupId: Long, value: Int) {
-        configurationStore.putString("group_${groupId}_urlTestTolerance", value.toString())
+    fun setStrategyPinnedProfileId(strategyKey: String, profileId: Long) {
+        if (strategyKey.isBlank()) return
+        if (profileId > 0L) {
+            configurationStore.putLong("strategy_pin_$strategyKey", profileId)
+        } else {
+            configurationStore.remove("strategy_pin_$strategyKey")
+        }
     }
-
-    fun groupUrlTestIdleTimeout(groupId: Long): String =
-        configurationStore.getString("group_${groupId}_urlTestIdleTimeout", "30m") ?: "30m"
-    fun setGroupUrlTestIdleTimeout(groupId: Long, value: String) {
-        configurationStore.putString("group_${groupId}_urlTestIdleTimeout", value)
-    }
-
-    fun groupUrlTestInterrupt(groupId: Long): Boolean =
-        configurationStore.getBoolean("group_${groupId}_urlTestInterrupt", false)
-    fun setGroupUrlTestInterrupt(groupId: Long, value: Boolean) {
-        configurationStore.putBoolean("group_${groupId}_urlTestInterrupt", value)
-    }
-    fun groupUrlTestInterruptExist(groupId: Long): Boolean = groupUrlTestInterrupt(groupId)
-    fun setGroupUrlTestInterruptExist(groupId: Long, value: Boolean) = setGroupUrlTestInterrupt(groupId, value)
 
     var subscriptionLink by profileCacheStore.string(Key.SUBSCRIPTION_LINK)
     var subscriptionForceResolve by profileCacheStore.boolean(Key.SUBSCRIPTION_FORCE_RESOLVE)
@@ -579,7 +589,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var subscriptionLockUserAgent by profileCacheStore.boolean(Key.SUBSCRIPTION_LOCK_USER_AGENT) { false }
     var subscriptionRetainValidNodes by profileCacheStore.boolean(Key.SUBSCRIPTION_RETAIN_VALID_NODES) { false }
     var subscriptionAutoUpdate by profileCacheStore.boolean(Key.SUBSCRIPTION_AUTO_UPDATE)
-    var subscriptionAutoUpdateDelay by profileCacheStore.stringToInt(Key.SUBSCRIPTION_AUTO_UPDATE_DELAY) { 360 }
+    var subscriptionAutoUpdateDelay by profileCacheStore.stringToInt(Key.SUBSCRIPTION_AUTO_UPDATE_DELAY) { 1440 }
     var subscriptionFilterMode by profileCacheStore.stringToInt(Key.SUBSCRIPTION_FILTER_MODE) { 0 }
     var subscriptionFilterRegex by profileCacheStore.string(Key.SUBSCRIPTION_FILTER_REGEX)
     var subscriptionServerDns by profileCacheStore.string(Key.SUBSCRIPTION_SERVER_DNS)
@@ -599,7 +609,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
         set(value) = configurationStore.putString("webdavPassword", value)
 
     var webdavPath: String?
-        get() = configurationStore.getString("webdavPath") ?: "Throne"  // 设置默认值
+        get() = configurationStore.getString("webdavPath") ?: "OwnBox"  // 设置默认值
         set(value) = configurationStore.putString("webdavPath", value)
 
     var globalMode by configurationStore.boolean(Key.GLOBAL_MODE)

@@ -1,5 +1,7 @@
 package io.nekohasekai.sagernet.ui
 
+import io.nekohasekai.sagernet.ui.settings.enableMultiLineTitles
+
 import android.app.Activity
 import android.content.DialogInterface
 import android.content.Intent
@@ -50,11 +52,23 @@ class RouteSettingsActivity(
 ) : ThemedActivity(resId),
     OnPreferenceDataStoreChangeListener {
 
-    fun init(packageName: String?) {
+    fun init(packageName: String?, domain: String? = null, ip: String? = null) {
         RuleEntity().apply {
             if (!packageName.isNullOrBlank()) {
                 packages = setOf(packageName)
                 name = app.getString(R.string.route_for, PackageCache.loadLabel(packageName))
+            }
+            if (!domain.isNullOrBlank()) {
+                domains = domain
+                if (name.isBlank()) {
+                    name = domain.removePrefix("domain:").removePrefix("full:")
+                }
+            }
+            if (!ip.isNullOrBlank()) {
+                this.ip = ip
+                if (name.isBlank()) {
+                    name = ip
+                }
             }
         }.init()
     }
@@ -240,6 +254,8 @@ class RouteSettingsActivity(
     companion object {
         const val EXTRA_ROUTE_ID = "id"
         const val EXTRA_PACKAGE_NAME = "pkg"
+        const val EXTRA_DOMAIN = "domain"
+        const val EXTRA_IP = "ip"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -253,10 +269,16 @@ class RouteSettingsActivity(
 
         if (savedInstanceState == null) {
             val editingId = intent.getLongExtra(EXTRA_ROUTE_ID, 0L)
+            val prefillPkg = intent.getStringExtra(EXTRA_PACKAGE_NAME)
+            val prefillDomain = intent.getStringExtra(EXTRA_DOMAIN)
+            val prefillIp = intent.getStringExtra(EXTRA_IP)
+            val hasPrefill = editingId == 0L && (
+                !prefillPkg.isNullOrBlank() || !prefillDomain.isNullOrBlank() || !prefillIp.isNullOrBlank()
+                )
             DataStore.editingId = editingId
             runOnDefaultDispatcher {
                 if (editingId == 0L) {
-                    init(intent.getStringExtra(EXTRA_PACKAGE_NAME))
+                    init(prefillPkg, prefillDomain, prefillIp)
                 } else {
                     val ruleEntity = SagerDatabase.rulesDao.getById(editingId)
                     if (ruleEntity == null) {
@@ -273,7 +295,7 @@ class RouteSettingsActivity(
                         .replace(R.id.settings, MyPreferenceFragmentCompat())
                         .commit()
 
-                    DataStore.dirty = false
+                    DataStore.dirty = hasPrefill
                     DataStore.profileCacheStore.registerChangeListener(this@RouteSettingsActivity)
                 }
             }
@@ -302,7 +324,8 @@ class RouteSettingsActivity(
             val candidate = (if (editingId == 0L) RuleEntity() else SagerDatabase.rulesDao.getById(editingId)?.copy())
                 ?: return
             candidate.serialize()
-            if (candidate.packages.isNotEmpty() && DataStore.serviceMode != Key.MODE_VPN) {
+            val allowPackageRule = DataStore.serviceMode == Key.MODE_VPN
+            if (candidate.packages.isNotEmpty() && !allowPackageRule) {
                 onMainDispatcher { MaterialAlertDialogBuilder(this@RouteSettingsActivity).setTitle(R.string.rr_invalid)
                     .setMessage(R.string.rr_apps_modes).setPositiveButton(android.R.string.ok, null).show() }
                 return
@@ -425,6 +448,7 @@ class RouteSettingsActivity(
                 activity = (requireActivity() as RouteSettingsActivity).apply {
                     createPreferences(savedInstanceState, rootKey)
                 }
+                preferenceScreen?.enableMultiLineTitles()
             } catch (e: Exception) {
                 Toast.makeText(
                     SagerNet.application,

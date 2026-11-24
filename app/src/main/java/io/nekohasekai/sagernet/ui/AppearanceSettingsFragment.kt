@@ -1,5 +1,7 @@
 package io.nekohasekai.sagernet.ui
 
+import io.nekohasekai.sagernet.ui.settings.enableMultiLineTitles
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -13,8 +15,12 @@ import androidx.preference.MultiSelectListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
+import androidx.preference.SwitchPreferenceCompat
+import androidx.preference.PreferenceGroup
+import androidx.core.graphics.drawable.DrawableCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.Action
+import io.nekohasekai.sagernet.AppIconManager
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.bg.LiveUpdateFormatter
@@ -32,6 +38,21 @@ class AppearanceSettingsFragment : PreferenceFragmentCompat() {
 
     private lateinit var notificationPermission: Preference
 
+    private fun tintPreferenceIcons(group: PreferenceGroup, color: Int) {
+        for (index in 0 until group.preferenceCount) {
+            val preference = group.getPreference(index)
+            if (preference is PreferenceGroup) {
+                tintPreferenceIcons(preference, color)
+            } else {
+                preference.icon?.let { icon ->
+                    val tinted = icon.mutate()
+                    DrawableCompat.setTint(tinted, color)
+                    preference.icon = tinted
+                }
+            }
+        }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         listView.layoutManager = FixedLinearLayoutManager(listView)
@@ -44,6 +65,27 @@ class AppearanceSettingsFragment : PreferenceFragmentCompat() {
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceManager.preferenceDataStore = DataStore.configurationStore
         setPreferencesFromResource(R.xml.settings_appearance, rootKey)
+        preferenceScreen.enableMultiLineTitles()
+        tintPreferenceIcons(preferenceScreen, Theme.getPrimaryColor(requireContext()))
+
+        findPreference<SimpleMenuPreference>(Key.APP_ICON_MODE)?.setOnPreferenceChangeListener { _, newMode ->
+            val mode = (newMode as String).toInt()
+            DataStore.appIconMode = mode
+            AppIconManager.applyIconMode(requireContext(), mode = mode, force = true)
+            true
+        }
+
+        val profileTrafficStatistics =
+            findPreference<SwitchPreferenceCompat>(Key.PROFILE_TRAFFIC_STATISTICS)
+        val speedInterval = findPreference<SimpleMenuPreference>(Key.SPEED_INTERVAL)
+        if (profileTrafficStatistics != null && speedInterval != null) {
+            profileTrafficStatistics.isEnabled = speedInterval.value.toString() != "0"
+            speedInterval.setOnPreferenceChangeListener { _, newValue ->
+                profileTrafficStatistics.isEnabled = newValue.toString() != "0"
+                needReload()
+                true
+            }
+        }
 
         findPreference<Preference>("uiScaleSettings")?.apply {
             summary = UiScaleManager.formatSummary()

@@ -62,6 +62,15 @@ object SmartRouteRules {
         "com.android.systemui",
         "com.android.settings",
         "com.android.providers.telephony",
+        "com.android.providers.downloads",
+        "com.android.providers.downloads.ui",
+        "com.android.providers.media",
+        "com.android.providers.media.module",
+        "com.android.captiveportallogin",
+        "com.android.networkstack",
+        "com.google.android.networkstack",
+        "com.android.externalstorage",
+        "com.android.shell",
         "com.android.phone",
         "com.android.nfc",
         "com.android.bluetooth",
@@ -432,8 +441,7 @@ object SmartRouteRules {
             for (pkg in installedPackages) {
                 if (pkg in SYSTEM_EXCLUDED_PACKAGES || pkg in LEGACY_TARGET_ROUTED_PACKAGES) continue
 
-                val isExplicitForeign = pkg in CORE_FOREIGN_PACKAGES ||
-                    (pkg in foreignCandidatePool && pkg !in explicitDomestic)
+                val isExplicitForeign = pkg in CORE_FOREIGN_PACKAGES
                 val isPrefixForeign = FOREIGN_PACKAGE_PREFIXES.any { pkg.startsWith(it) } &&
                     pkg !in explicitDomestic
 
@@ -446,6 +454,13 @@ object SmartRouteRules {
                 val isPrefixDom = domesticPrefixes.any { pkg.startsWith(it) }
                 if (isExplicitDom || isPrefixDom) {
                     resolvedDomestic.add(pkg)
+                    continue
+                }
+
+                // Bundled package hints are a fallback only; a known domestic namespace
+                // must not be overridden by a stale or broad bundled-foreign entry.
+                if (pkg in foreignCandidatePool) {
+                    resolvedForeign.add(pkg)
                 }
             }
         }

@@ -7,12 +7,14 @@ import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyEntity.Companion.TYPE_CONFIG
 import io.nekohasekai.sagernet.database.ProxyGroup
+import io.nekohasekai.sagernet.database.RuleEntity
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.fmt.ConfigBuildResult.IndexEntity
 import io.nekohasekai.sagernet.fmt.hysteria.HysteriaBean
 import io.nekohasekai.sagernet.fmt.hysteria.buildSingBoxOutboundHysteriaBean
 import io.nekohasekai.sagernet.fmt.internal.ChainBean
 import io.nekohasekai.sagernet.fmt.internal.BalancerBean
+import io.nekohasekai.sagernet.fmt.internal.BalancerMemberResolver
 import io.nekohasekai.sagernet.fmt.shadowsocks.ShadowsocksBean
 import io.nekohasekai.sagernet.fmt.shadowsocks.buildSingBoxOutboundShadowsocksBean
 import io.nekohasekai.sagernet.fmt.socks.SOCKSBean
@@ -37,7 +39,9 @@ import io.nekohasekai.sagernet.ktx.isIpAddressV6
 import io.nekohasekai.sagernet.ktx.unwrapIPV6Host
 import io.nekohasekai.sagernet.ktx.mkPort
 import io.nekohasekai.sagernet.ktx.runOnMainDispatcher
+import io.nekohasekai.sagernet.utils.NetworkIPv6Detector
 import io.nekohasekai.sagernet.utils.PackageCache
+import libcore.Libcore
 import moe.matsuri.nb4a.*
 import moe.matsuri.nb4a.SingBoxOptions.*
 import moe.matsuri.nb4a.plugin.Plugins
@@ -53,6 +57,115 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import io.nekohasekai.sagernet.route.RouteRuleEditor
 
 const val TAG_MIXED = "mixed-in"
+
+internal val GOOGLE_PLAY_DOMAIN_SUFFIXES: List<String> = listOf(
+    "googleapis.cn",
+    "google.cn",
+    "play.googleapis.com",
+    "play.google.com",
+    "market.android.com",
+    "android.clients.google.com",
+    "playstoregatewayadapter-pa.googleapis.com",
+    "firebaselogging-pa.googleapis.com",
+    "dl.google.com",
+    "dl-ssl.google.com",
+    "mtalk.google.com",
+    "googlezip.net",
+    "xn--ngstr-lra8j.com",
+    "xn--ngstr-cn-8za9o.com",
+    "gvt1.com",
+    "gvt2.com",
+    "gvt3.com",
+    "gvt4.com",
+    "gvt5.com",
+    "gvt6.com",
+    "gvt7.com",
+    "gvt8.com",
+    "gvt9.com",
+    "gvt1-cn.com",
+    "gvt2-cn.com",
+    "googleusercontent.com",
+    "ggpht.com",
+)
+
+internal fun syncRuleSetDownloadDetours(
+    ruleSets: List<RuleSet>?,
+    availableOutboundTags: Set<String>,
+    mainProxyTag: String,
+) {
+    if (mainProxyTag.isBlank()) return
+    ruleSets.orEmpty().forEach { rs ->
+        val downloadDetour = rs.asMap()["download_detour"]?.toString()
+        if (rs.type == "remote" && !downloadDetour.isNullOrBlank() && downloadDetour !in availableOutboundTags) {
+            // download_detour is an extension option not exposed by this generated RuleSet model.
+            rs._hack_config_map["download_detour"] = mainProxyTag
+        }
+    }
+}
+
+internal data class ConfigBuilderHealthTags(
+    val available: List<String>,
+    val unavailable: List<String>,
+)
+
+/** Status 0 is unknown; only a successful measured ping is healthy. */
+internal fun configBuilderHealthTags(members: List<Pair<ProxyEntity, String>>) = ConfigBuilderHealthTags(
+    available = members.filter { (proxy, _) -> proxy.status == 1 && proxy.ping > 0 }.map { it.second },
+    unavailable = members.filter { (proxy, _) -> proxy.status in 2..3 }.map { it.second },
+)
+
+private fun isLiteralIpHost(host: String): Boolean {
+    val bare = host.removePrefix("[").removeSuffix("]")
+    if (bare.contains(':')) return true
+    val parts = bare.split('.')
+    return parts.size == 4 && parts.all { part ->
+        part.isNotEmpty() && part.length <= 3 && part.all(Char::isDigit) && (part.toIntOrNull() in 0..255)
+    }
+}
+
+internal fun extractEchQueryDomains(outboundMaps: List<Map<String, *>>): List<String> {
+    val domains = LinkedHashSet<String>()
+    for (outbound in outboundMaps) {
+        val tls = outbound["tls"] as? Map<*, *> ?: continue
+        if (tls["enabled"] as? Boolean == false) continue
+        val ech = tls["ech"] as? Map<*, *> ?: continue
+        if (ech["enabled"] as? Boolean != true) continue
+
+        val hasStaticConfig = when (val cfg = ech["config"]) {
+            is String -> cfg.isNotBlank()
+            is Collection<*> -> cfg.any { it?.toString()?.isNotBlank() == true }
+            else -> false
+        } || ech["config_path"]?.toString()?.isNotBlank() == true
+        if (hasStaticConfig) continue
+
+        val candidate = ech["query_server_name"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            ?: tls["server_name"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            ?: outbound["server"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            ?: continue
+        val normalized = candidate.trimEnd('.').lowercase()
+        if (normalized.isEmpty() || isLiteralIpHost(normalized)) continue
+        domains.add(normalized)
+    }
+    return domains.toList()
+}
+
+internal fun shouldWarnPackageRuleNeedsVpn(rule: RuleEntity): Boolean {
+    if (rule.name == "Smart-Foreign-Apps" || rule.name.startsWith("Smart-Domestic-Apps")) {
+        return false
+    }
+    return true
+}
+
+internal fun shouldUseFakeDns(
+    enableFakeDns: Boolean,
+    forTest: Boolean,
+    serviceMode: String,
+    proxyApps: Boolean,
+    bypass: Boolean,
+): Boolean {
+    if (!enableFakeDns || forTest) return false
+    return serviceMode == Key.MODE_VPN
+}
 
 const val TAG_PROXY = "proxy"
 const val TAG_DIRECT = "direct"
@@ -172,6 +285,79 @@ internal fun buildLoadBalanceOutbound(
         if (unavailableTags.isNotEmpty()) _hack_config_map["unavailable_outbounds"] = unavailableTags
     }
 
+internal fun buildAutoSelectOutbound(
+    balancer: BalancerBean,
+    memberEntities: List<ProxyEntity>,
+    memberTags: List<String>,
+    customTag: String? = null,
+    defaultTestUrl: String? = null,
+): Outbound_AutoSelectOptions = Outbound_AutoSelectOptions().apply {
+    type = "autoselect"
+    tag = customTag?.takeIf { it.isNotBlank() } ?: TAG_PROXY
+
+    val initialDelays = HashMap<String, Int>()
+    memberEntities.forEachIndexed { idx, member ->
+        val mTag = memberTags.getOrNull(idx) ?: return@forEachIndexed
+        if (member.ping > 0) {
+            initialDelays[mTag] = member.ping
+        }
+    }
+    if (initialDelays.isNotEmpty()) {
+        initial_delays = initialDelays
+    }
+
+    val uniqueTags = if (balancer.isPriorityMode() || balancer.isFallbackMode()) {
+        memberTags.distinct()
+    } else {
+        memberTags.distinct().sortedWith(compareBy<String> { tag ->
+            val p = initialDelays[tag] ?: 0
+            if (p > 0) 0 else 1
+        }.thenBy { tag ->
+            initialDelays[tag] ?: Int.MAX_VALUE
+        })
+    }
+    outbounds = uniqueTags
+    val fallbackUrl = defaultTestUrl?.takeIf { it.isNotBlank() }
+        ?: (if (SagerNet.isInitialized()) runCatching { DataStore.connectionTestURL }.getOrNull()?.takeIf { it.isNotBlank() } else null)
+        ?: "https://cp.cloudflare.com/generate_204"
+    url = balancer.testUrl?.takeIf { it.isNotBlank() } ?: fallbackUrl
+    selection_mode = when {
+        balancer.isFallbackMode() -> BalancerBean.SELECTION_FALLBACK
+        balancer.isPriorityMode() -> BalancerBean.SELECTION_PRIORITY
+        else -> BalancerBean.SELECTION_LATENCY
+    }
+    balance_enabled = if (balancer.isFallbackMode()) false else balancer.balanceEnabled
+    balance_mode = balancer.balanceMode?.takeIf { it == BalancerBean.BALANCE_PER_CONNECTION }
+        ?: BalancerBean.BALANCE_TIMED_ROTATION
+    balance_interval = "${balancer.balanceIntervalSec.coerceAtLeast(1)}s"
+    check_interval = "${balancer.interval.coerceAtLeast(5)}s"
+    tolerance = balancer.calculateToleranceMs().coerceIn(0L, 65535L).toInt()
+    interrupt_exist_connections = balancer.interruptOnSwitch
+    learn_from_connections = balancer.learnFromConnections
+    if (balancer.isFallbackMode()) {
+        fallback_auto_revert = balancer.fallbackAutoRevert
+        fallback_max_fails = balancer.fallbackMaxFails.coerceIn(1, 20)
+        val rawTimeoutMs = balancer.calculateToleranceMs()
+        probe_timeout_ms = if (rawTimeoutMs >= 500L) rawTimeoutMs.coerceAtMost(30000L).toInt() else 3000
+    }
+    if (shouldEnableStickyByApp(balancer)) _hack_config_map["sticky_by_app"] = true
+
+    if (balancer.isPriorityMode() && !balancer.tiers.isNullOrEmpty() && memberEntities.size == memberTags.size) {
+        val (tierMap, _) = BalancerMemberResolver.assignTierIndices(memberEntities, balancer.tiers)
+        val tierCount = balancer.tiers.size
+        val buckets = List(tierCount) { ArrayList<String>() }
+        val seenTags = HashSet<String>()
+        memberEntities.forEachIndexed { idx, member ->
+            val mTag = memberTags[idx]
+            val tIdx = tierMap[member.id] ?: tierCount
+            if (mTag in uniqueTags && tIdx in 0 until tierCount && seenTags.add(mTag)) {
+                buckets[tIdx].add(mTag)
+            }
+        }
+        tiers = buckets
+    }
+}
+
 internal fun buildUrlTestOutbound(
     memberTags: List<String>,
     testUrl: String? = null,
@@ -181,43 +367,667 @@ internal fun buildUrlTestOutbound(
     interruptExist: Boolean? = null,
     customTag: String? = null,
     healthyTags: List<String> = emptyList(),
-    unavailableTags: List<String> = emptyList()
-) =
-    Outbound_URLTestOptions().apply {
-        type = "urltest"
-        tag = customTag?.takeIf { it.isNotBlank() } ?: TAG_PROXY
-        outbounds = memberTags
-        url = testUrl?.takeIf { it.isNotBlank() }
-            ?: runCatching { DataStore.connectionTestURL }.getOrNull()?.takeIf { it.isNotBlank() }
-            ?: "https://cp.cloudflare.com/generate_204"
-        val iv = (intervalSec?.takeIf { it > 0 } ?: 60L).coerceAtLeast(10L)
-        interval = "${iv}s"
-        tolerance = toleranceMs?.takeIf { it >= 0 } ?: 50
-        // Enforce minimum 10-minute idle_timeout regardless of memory mode.
-        // This guarantees Telegram file uploads (which can take many minutes) are never
-        // interrupted by the kernel reclaiming an "idle" leastPing connection pool.
-        // DO NOT lower this threshold for any memory optimization — violates stability contract.
-        val rawIdleTimeout = idleTimeoutStr?.takeIf { it.isNotBlank() }
-        if (rawIdleTimeout != null) {
-            val parsed = if (rawIdleTimeout.all { c -> c.isDigit() }) "${rawIdleTimeout}s" else rawIdleTimeout
-            // Parse minutes from string like "3m", "5m", "10m", "30m"; enforce minimum 30m
-            val minSecs = 30 * 60
-            val parsedSecs = when {
-                parsed.endsWith("m") -> (parsed.dropLast(1).toLongOrNull() ?: 0L) * 60
-                parsed.endsWith("s") -> parsed.dropLast(1).toLongOrNull() ?: 0L
-                else -> 0L
-            }
-            idle_timeout = if (parsedSecs < minSecs) "30m" else parsed
-        } else {
-            idle_timeout = "30m"
+    unavailableTags: List<String> = emptyList(),
+) = Outbound_URLTestOptions().apply {
+    type = "urltest"
+    tag = customTag?.takeIf { it.isNotBlank() } ?: TAG_PROXY
+    outbounds = memberTags
+    url = testUrl?.takeIf { it.isNotBlank() }
+        ?: runCatching { DataStore.connectionTestURL }.getOrNull()?.takeIf { it.isNotBlank() }
+        ?: "https://cp.cloudflare.com/generate_204"
+    val iv = (intervalSec?.takeIf { it > 0 } ?: 60L).coerceAtLeast(10L)
+    interval = "${iv}s"
+    tolerance = toleranceMs?.takeIf { it >= 0 } ?: 50
+    // Preserve the existing long idle timeout so long-lived uploads are not reclaimed.
+    val rawIdleTimeout = idleTimeoutStr?.takeIf { it.isNotBlank() }
+    if (rawIdleTimeout != null) {
+        val parsed = if (rawIdleTimeout.all(Char::isDigit)) "${rawIdleTimeout}s" else rawIdleTimeout
+        val parsedSecs = when {
+            parsed.endsWith("m") -> (parsed.dropLast(1).toLongOrNull() ?: 0L) * 60
+            parsed.endsWith("s") -> parsed.dropLast(1).toLongOrNull() ?: 0L
+            else -> 0L
         }
-        // CRITICAL: Never interrupt active connections on node switch.
-        // interrupt_exist_connections=true would instantly kill Telegram upload streams on any
-        // 5ms latency fluctuation. This must always be false — it is NOT overridden by memory mode.
-        interrupt_exist_connections = false
-        if (healthyTags.isNotEmpty()) _hack_config_map["healthy_outbounds"] = healthyTags
-        if (unavailableTags.isNotEmpty()) _hack_config_map["unavailable_outbounds"] = unavailableTags
+        idle_timeout = if (parsedSecs < 30 * 60) "30m" else parsed
+    } else {
+        idle_timeout = "30m"
     }
+    // URL-test must not interrupt existing connections, regardless of the requested override.
+    interrupt_exist_connections = false
+    if (healthyTags.isNotEmpty()) _hack_config_map["healthy_outbounds"] = healthyTags
+    if (unavailableTags.isNotEmpty()) _hack_config_map["unavailable_outbounds"] = unavailableTags
+}
+
+internal data class ChainGraphTestResult(
+    val mainProxyTag: String,
+    val outbounds: List<Map<String, Any?>>,
+    val balancerMemberMap: Map<Long, List<Long>>,
+    val balancerTagMap: Map<Long, String>,
+    val outboundTagProfileMap: Map<String, Long>,
+    val activeStrategyTag: String,
+    val activeStrategyId: Long,
+)
+
+internal fun assembleChainGraphForTest(
+    root: ProxyEntity,
+    entitiesById: Map<Long, ProxyEntity>,
+    groupProfiles: Map<Long, List<ProxyEntity>> = emptyMap(),
+    groupsById: Map<Long, ProxyGroup> = emptyMap(),
+): ChainGraphTestResult {
+    val ctx = ChainGraphContext(
+        forTest = false,
+        ipv6Mode = IPv6Mode.ENABLE,
+        defaultServerDomainStrategy = "",
+        outbounds = mutableListOf(),
+        inbounds = mutableListOf(),
+        route = RouteOptions().apply { rules = mutableListOf() },
+        trafficMap = HashMap(),
+        tagMap = HashMap(),
+        customChainTagMap = HashMap(),
+        balancerMemberMap = HashMap(),
+        balancerTagMap = HashMap(),
+        outboundTagProfileMap = HashMap(),
+        globalOutbounds = HashMap(),
+        readableNames = mutableSetOf(TAG_DIRECT, TAG_BYPASS, TAG_BLOCK, TAG_FRAGMENT, TAG_MIXED, TAG_PROXY),
+        bypassDNSBeans = hashSetOf(),
+        perGroupResolver = HashMap(),
+        perGroupServerHosts = HashMap(),
+        hostResolvers = HashMap(),
+        nonCustomFinalHosts = hashSetOf(),
+        groupCache = HashMap(),
+        externalIndexMap = ArrayList(),
+        domainListDNSDirectForce = mutableListOf(),
+        getById = { id -> entitiesById[id] },
+        getEntities = { ids -> ids.mapNotNull { entitiesById[it] } },
+        getByGroup = { gid -> groupProfiles[gid].orEmpty() },
+        getGroup = { gid -> groupsById[gid] },
+        isGroupDisabled = { false },
+    )
+    val mainProxyTag = ctx.buildChain(0L, root)
+    val activeStrategyId = when {
+        root.type == ProxyEntity.TYPE_BALANCER -> root.id
+        root.type == ProxyEntity.TYPE_CHAIN && ctx.mainChainBalancerId > 0L -> ctx.mainChainBalancerId
+        else -> 0L
+    }
+    return ChainGraphTestResult(
+        mainProxyTag = mainProxyTag,
+        outbounds = ctx.outbounds.map { it.asMap() },
+        balancerMemberMap = ctx.balancerMemberMap,
+        balancerTagMap = ctx.balancerTagMap,
+        outboundTagProfileMap = ctx.outboundTagProfileMap,
+        activeStrategyTag = ctx.balancerTagMap[activeStrategyId].orEmpty(),
+        activeStrategyId = if (ctx.balancerTagMap.containsKey(activeStrategyId)) activeStrategyId else 0L,
+    )
+}
+
+internal class ChainGraphContext(
+    private val forTest: Boolean,
+    private val ipv6Mode: Int,
+    private val defaultServerDomainStrategy: String,
+    val outbounds: MutableList<SingBoxOption>,
+    val inbounds: MutableList<Inbound>,
+    val route: RouteOptions,
+    val trafficMap: HashMap<String, List<ProxyEntity>>,
+    val tagMap: HashMap<Long, String>,
+    val customChainTagMap: HashMap<BalancerMemberChainKey, String>,
+    val balancerMemberMap: HashMap<Long, List<Long>>,
+    val balancerTagMap: HashMap<Long, String>,
+    val outboundTagProfileMap: HashMap<String, Long>,
+    val globalOutbounds: HashMap<Long, String>,
+    val readableNames: MutableSet<String>,
+    val bypassDNSBeans: HashSet<AbstractBean>,
+    val perGroupResolver: HashMap<Long, String>,
+    val perGroupServerHosts: HashMap<Long, MutableSet<String>>,
+    val hostResolvers: HashMap<String, MutableSet<String>>,
+    val nonCustomFinalHosts: HashSet<String>,
+    val groupCache: HashMap<Long, ProxyGroup?>,
+    val externalIndexMap: ArrayList<IndexEntity>,
+    val domainListDNSDirectForce: MutableList<String>,
+    private val getById: (Long) -> ProxyEntity? = { id -> SagerDatabase.proxyDao.getById(id) },
+    private val getEntities: (List<Long>) -> List<ProxyEntity> = { ids -> SagerDatabase.proxyDao.getEntities(ids) },
+    private val getByGroup: (Long) -> List<ProxyEntity> = { gid -> SagerDatabase.proxyDao.getByGroup(gid) },
+    private val getGroup: (Long) -> ProxyGroup? = { gid -> SagerDatabase.groupDao.getById(gid) },
+    private val isGroupDisabled: (Long) -> Boolean = { gid ->
+        if (SagerNet.isInitialized()) DataStore.isGroupDisabled(gid) else false
+    },
+) {
+    var nextCustomChainId: Long = -1L
+    var mainChainBalancerId: Long = 0L
+
+    fun readableTag(name_: String): String {
+        var name = name_
+        var count = 0
+        while (!readableNames.add(name)) {
+            count++
+            name = "$name_-$count"
+        }
+        return name
+    }
+
+    private fun resolveChainInternal(
+        entity: ProxyEntity,
+        visitedChainIds: MutableSet<Long> = HashSet(),
+    ): MutableList<ProxyEntity> {
+        val bean = entity.requireBean()
+        if (bean is ChainBean) {
+            if (entity.id > 0L && !visitedChainIds.add(entity.id)) {
+                return mutableListOf()
+            }
+            val beans = getEntities(bean.proxies)
+            val beansMap = beans.associateBy { it.id }
+            val beanList = ArrayList<ProxyEntity>()
+            for (proxyId in bean.proxies) {
+                val item = beansMap[proxyId] ?: continue
+                beanList.addAll(resolveChainInternal(item, visitedChainIds))
+            }
+            return beanList.asReversed()
+        }
+        return mutableListOf(entity)
+    }
+
+    fun resolveChain(
+        entity: ProxyEntity,
+        useGroupFront: Boolean = true,
+        useGroupLanding: Boolean = true,
+    ): MutableList<ProxyEntity> {
+        val thisGroup = getGroup(entity.groupId)
+        val frontProxy = if (useGroupFront) thisGroup?.frontProxy?.let { getById(it) } else null
+        val landingProxy = if (useGroupLanding) thisGroup?.landingProxy?.let { getById(it) } else null
+        val list = resolveChainInternal(entity)
+        if (frontProxy != null) {
+            list.add(frontProxy)
+        }
+        if (landingProxy != null) {
+            list.add(0, landingProxy)
+        }
+        return list
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun buildChain(
+        chainId: Long,
+        entity: ProxyEntity,
+        useGroupFront: Boolean = true,
+        useGroupLanding: Boolean = true,
+        externalDetour: String? = null,
+        visitedBalancerIds: Set<Long> = emptySet(),
+        isMainChain: Boolean = (chainId == 0L),
+    ): String {
+        if (entity.type == ProxyEntity.TYPE_BALANCER) {
+            if (entity.id > 0L && entity.id in visitedBalancerIds) {
+                return TAG_DIRECT
+            }
+            val nextVisited = if (entity.id > 0L) visitedBalancerIds + entity.id else visitedBalancerIds
+            if (isMainChain && mainChainBalancerId == 0L) {
+                mainChainBalancerId = entity.id
+            }
+
+            val balancerBean = entity.balancerBean ?: (entity.requireBean() as? BalancerBean) ?: BalancerBean()
+            val balancerFrontEntity = if (balancerBean.frontProxy > 0L && balancerBean.frontProxy != entity.id) {
+                getById(balancerBean.frontProxy)
+            } else null
+            val balancerLandingEntity = if (balancerBean.landingProxy > 0L && balancerBean.landingProxy != entity.id) {
+                getById(balancerBean.landingProxy)
+            } else null
+
+            val balancerFrontTag = balancerFrontEntity?.let { front ->
+                if (!externalDetour.isNullOrBlank()) {
+                    buildChain(
+                        chainId = nextCustomChainId--,
+                        entity = front,
+                        useGroupFront = false,
+                        useGroupLanding = false,
+                        externalDetour = externalDetour,
+                        visitedBalancerIds = nextVisited,
+                        isMainChain = false,
+                    )
+                } else {
+                    tagMap[front.id] ?: buildChain(
+                        chainId = front.id,
+                        entity = front,
+                        visitedBalancerIds = nextVisited,
+                        isMainChain = false,
+                    ).also { tagMap[front.id] = it }
+                }
+            }
+
+            val resolvedResult = BalancerMemberResolver.resolve(
+                balancer = balancerBean,
+                selfId = entity.id,
+                frontProxyId = balancerFrontEntity?.id ?: 0L,
+                landingProxyId = balancerLandingEntity?.id ?: 0L,
+                groupProfilesProvider = getByGroup,
+                entitiesByIdsProvider = getEntities,
+                isGroupDisabled = isGroupDisabled,
+            )
+            val memberEntities = if (!balancerBean.isPriorityMode()) {
+                BalancerMemberResolver.sortForColdStart(resolvedResult.members)
+            } else {
+                resolvedResult.members
+            }
+
+            val memberEffectiveDetour = balancerFrontTag ?: externalDetour
+
+            val memberTags = memberEntities.map { member ->
+                val chainKey = BalancerMemberChainKey(
+                    profileId = member.id,
+                    useGroupFront = false,
+                    useGroupLanding = false,
+                    externalDetour = memberEffectiveDetour,
+                )
+                val memberTag = customChainTagMap.getOrPut(chainKey) {
+                    buildChain(
+                        chainId = nextCustomChainId--,
+                        entity = member,
+                        useGroupFront = false,
+                        useGroupLanding = false,
+                        externalDetour = memberEffectiveDetour,
+                        visitedBalancerIds = nextVisited,
+                        isMainChain = false,
+                    )
+                }
+                outboundTagProfileMap[memberTag] = member.id
+                memberTag
+            }.ifEmpty { listOf(TAG_DIRECT) }
+
+            val balancerTag = readableTag(entity.displayName())
+            val memberHealth = configBuilderHealthTags(memberEntities.zip(memberTags))
+            val stickyByApp = shouldEnableStickyByApp(balancerBean)
+            // MyBox's explicit app-affinity mode uses the custom load-balance outbound so
+            // successful members can be pinned per app. Keep priority/fallback on the upstream
+            // autoselect implementation, which owns tier and failure-state semantics.
+            val balancerOutbound = if (stickyByApp && !balancerBean.isPriorityMode() && !balancerBean.isFallbackMode()) {
+                buildLoadBalanceOutbound(
+                    memberTags = memberTags,
+                    strategy = if (balancerBean.balanceEnabled) {
+                        if (balancerBean.balanceMode == BalancerBean.BALANCE_PER_CONNECTION) "round_robin" else "consistent_hash"
+                    } else {
+                        "leastPing"
+                    },
+                    testUrl = balancerBean.testUrl,
+                    intervalSec = balancerBean.interval.toLong().coerceAtLeast(10L),
+                    toleranceMs = balancerBean.calculateToleranceMs().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+                    idleTimeoutStr = "30m",
+                    interruptExist = false,
+                    customTag = balancerTag,
+                    stickyByApp = true,
+                    stickyDiagnostic = isStickyDiagnosticBuild(),
+                    healthyTags = memberHealth.available,
+                    unavailableTags = memberHealth.unavailable,
+                )
+            } else {
+                buildAutoSelectOutbound(
+                    balancer = balancerBean,
+                    memberEntities = memberEntities,
+                    memberTags = memberTags,
+                    customTag = balancerTag,
+                )
+            }
+            outbounds.add(balancerOutbound)
+            trafficMap[balancerTag] = listOf(entity)
+            balancerMemberMap[entity.id] = memberEntities.map { it.id }
+            balancerTagMap[entity.id] = balancerTag
+
+            return if (balancerLandingEntity != null) {
+                buildChain(
+                    chainId = nextCustomChainId--,
+                    entity = balancerLandingEntity,
+                    useGroupFront = false,
+                    useGroupLanding = false,
+                    externalDetour = balancerTag,
+                    visitedBalancerIds = nextVisited,
+                    isMainChain = false,
+                )
+            } else {
+                balancerTag
+            }
+        }
+
+        val profileList = resolveChain(entity, useGroupFront, useGroupLanding)
+        return buildHopSequence(
+            seqId = chainId,
+            rootEntity = entity,
+            profileList = profileList,
+            useGroupFront = useGroupFront,
+            useGroupLanding = useGroupLanding,
+            externalDetour = externalDetour,
+            visitedBalancerIds = visitedBalancerIds,
+            isMainChain = isMainChain,
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun buildHopSequence(
+        seqId: Long,
+        rootEntity: ProxyEntity,
+        profileList: List<ProxyEntity>,
+        useGroupFront: Boolean,
+        useGroupLanding: Boolean,
+        externalDetour: String?,
+        visitedBalancerIds: Set<Long>,
+        isMainChain: Boolean,
+    ): String {
+        if (profileList.isEmpty()) return TAG_DIRECT
+
+        // profileList 的顺序即应用流量经过各 outbound 的顺序：前一跳通过
+        // detour 交给后一跳拨号，最后一项直接连接物理网络。
+        if (SagerNet.isInitialized()) {
+            Logs.d(
+                "Outbound chain id=$seqId forTest=$forTest appToEgress=" +
+                    profileList.joinToString(" -> ") { hop ->
+                        val hopBean = hop.requireBean()
+                        val host = serverHostOf(hopBean) ?: "<unknown>"
+                        val endpoint = hopBean.displayAddress().takeIf { it.isNotBlank() }
+                            ?: "$host:${hopBean.serverPort}"
+                        "${hop.id}:${hop.displayType()}@$endpoint"
+                    }
+            )
+        }
+        val chainTrafficSet = HashSet<ProxyEntity>().apply {
+            plusAssign(profileList)
+            add(rootEntity)
+        }
+
+        var currentOutbound: SingBoxOption
+        lateinit var pastOutbound: SingBoxOption
+        lateinit var pastInboundTag: String
+        var pastEntity: ProxyEntity? = null
+        val externalChainMap = LinkedHashMap<Int, ProxyEntity>()
+        externalIndexMap.add(IndexEntity(externalChainMap))
+        val chainOutbounds = ArrayList<SingBoxOption>()
+
+        var chainTagOut = ""
+        val chainTag = if (seqId < 0) "c-m${-seqId}" else "c-$seqId"
+        var muxApplied = false
+        val isCustomChainContext = !externalDetour.isNullOrBlank() || !useGroupFront || !useGroupLanding
+
+        for (index in profileList.indices) {
+            val proxyEntity = profileList[index]
+
+            // Nested strategy group inside a ChainBean: build suffix hops first so members detour via tail,
+            // then connect any prefix landing hop(s) -> balancerTag.
+            if (proxyEntity.type == ProxyEntity.TYPE_BALANCER) {
+                val tailHops = if (index < profileList.lastIndex) {
+                    profileList.subList(index + 1, profileList.size)
+                } else {
+                    emptyList()
+                }
+                val tailEntryTag = if (tailHops.isNotEmpty()) {
+                    buildHopSequence(
+                        seqId = nextCustomChainId--,
+                        rootEntity = rootEntity,
+                        profileList = tailHops,
+                        useGroupFront = !isCustomChainContext,
+                        useGroupLanding = !isCustomChainContext,
+                        externalDetour = externalDetour,
+                        visitedBalancerIds = visitedBalancerIds,
+                        isMainChain = false,
+                    )
+                } else {
+                    externalDetour
+                }
+                val balancerEffectiveTag = buildChain(
+                    chainId = nextCustomChainId--,
+                    entity = proxyEntity,
+                    useGroupFront = false,
+                    useGroupLanding = false,
+                    externalDetour = tailEntryTag,
+                    visitedBalancerIds = visitedBalancerIds,
+                    isMainChain = isMainChain,
+                )
+                chainTrafficSet.add(proxyEntity)
+                chainTrafficSet.addAll(tailHops)
+                if (index == 0) {
+                    trafficMap[balancerEffectiveTag] =
+                        (trafficMap[balancerEffectiveTag].orEmpty() + chainTrafficSet).distinct()
+                    return balancerEffectiveTag
+                }
+                if (pastEntity?.needExternal() == true) {
+                    route.rules.add(Rule_DefaultOptions().apply {
+                        inbound = listOf(pastInboundTag)
+                        outbound = balancerEffectiveTag
+                    })
+                } else {
+                    pastOutbound.detourTo(balancerEffectiveTag)
+                }
+                trafficMap[chainTagOut] = chainTrafficSet.toList()
+                return chainTagOut
+            }
+
+            val bean = proxyEntity.requireBean()
+            bypassDNSBeans += bean
+
+            var tagOut = "$chainTag-${proxyEntity.id}"
+            var needGlobal = false
+
+            if (index == profileList.lastIndex) {
+                if (!isCustomChainContext) {
+                    needGlobal = true
+                    tagOut = "g-" + proxyEntity.id
+                }
+
+                val ownerGid = rootEntity.groupId
+                val ownerGroup = groupCache.getOrPut(ownerGid) {
+                    getGroup(ownerGid)
+                }
+                val resolver = ownerGroup
+                    ?.takeIf { it.type == GroupType.SUBSCRIPTION }
+                    ?.subscription?.serverDnsResolver
+                    ?.let { sanitizeDnsEntry(it) }
+                    ?.takeIf { it.isNotBlank() }
+
+                if (resolver != null) {
+                    profileList.filter { it.type != ProxyEntity.TYPE_BALANCER }.forEach { hop ->
+                        val host = serverHostOf(hop.requireBean())
+                        if (host != null && !host.isIpAddress()) {
+                            if (hop.groupId == ownerGid) {
+                                perGroupResolver[ownerGid] = resolver
+                                perGroupServerHosts.getOrPut(ownerGid) { mutableSetOf() }
+                                    .add(host)
+                                hostResolvers.getOrPut(host) { mutableSetOf() }.add(resolver)
+                            } else {
+                                nonCustomFinalHosts.add(host)
+                            }
+                        }
+                    }
+                } else {
+                    profileList.filter { it.type != ProxyEntity.TYPE_BALANCER }.forEach { hop ->
+                        val host = serverHostOf(hop.requireBean())
+                        if (host != null && !host.isIpAddress()) {
+                            nonCustomFinalHosts.add(host)
+                        }
+                    }
+                }
+            }
+
+            if (index == 0) {
+                tagOut = readableTag(bean.displayName())
+            }
+
+            val resolvedTag = resolveChainHopTag(
+                proxyEntity.id,
+                tagOut,
+                needGlobal,
+                globalOutbounds,
+            )
+            tagOut = resolvedTag.tag
+
+            if (index > 0) {
+                if (pastEntity!!.needExternal()) {
+                    route.rules.add(Rule_DefaultOptions().apply {
+                        inbound = listOf(pastInboundTag)
+                        outbound = tagOut
+                    })
+                } else {
+                    pastOutbound.detourTo(tagOut)
+                }
+            } else {
+                chainTagOut = tagOut
+            }
+
+            if (resolvedTag.reused) continue
+
+            if (proxyEntity.needExternal()) {
+                val localPort = mkPort()
+                externalChainMap[localPort] = proxyEntity
+                currentOutbound = Outbound_SocksOptions().apply {
+                    type = "socks"
+                    server = LOCALHOST
+                    server_port = localPort
+                }
+            } else {
+                currentOutbound = when (bean) {
+                    is ConfigBean -> CustomSingBoxOption(sanitizeSingBoxConfig(bean.config)) as SingBoxOption
+                    is ShadowTLSBean -> buildSingBoxOutboundShadowTLSBean(bean)
+                    is StandardV2RayBean -> buildSingBoxOutboundStandardV2RayBean(bean)
+                    is HysteriaBean -> buildSingBoxOutboundHysteriaBean(bean)
+                    is TuicBean -> buildSingBoxOutboundTuicBean(bean)
+                    is JuicityBean -> buildSingBoxOutboundJuicityBean(bean)
+                    is SOCKSBean -> buildSingBoxOutboundSocksBean(bean)
+                    is ShadowsocksBean -> buildSingBoxOutboundShadowsocksBean(bean)
+                    is ShadowsocksRBean -> buildSingBoxOutboundShadowsocksRBean(bean)
+                    is WireGuardBean -> {
+                        val endpointMtu = bean.mtu?.takeIf { it > 0 }
+                        val peerAddressFamily = when {
+                            bean.serverAddress?.contains(':') == true -> "ipv6"
+                            bean.serverAddress?.isNotBlank() == true -> "ipv4-or-domain"
+                            else -> "missing"
+                        }
+                        Logs.i(
+                            "WireGuardEndpointTrace profileId=${proxyEntity.id} forTest=$forTest " +
+                                "endpointMtu=${endpointMtu ?: "default(1408)"} " +
+                                "tunMtu=${if (SagerNet.isInitialized()) DataStore.mtu else 9000} peerAddressFamily=$peerAddressFamily " +
+                                "peerPort=${bean.serverPort}"
+                        )
+                        buildSingBoxEndpointWireGuardBean(bean)
+                    }
+                    is SSHBean -> buildSingBoxOutboundSSHBean(bean)
+                    is AnyTLSBean -> buildSingBoxOutboundAnyTLSBean(bean)
+                    is SnellBean -> buildSingBoxOutboundSnellBean(bean)
+                    else -> throw IllegalStateException("can't reach")
+                }
+
+                if (!muxApplied) {
+                    val muxObj = proxyEntity.singMux()
+                    if (muxObj != null && muxObj.enabled) {
+                        muxApplied = true
+                        currentOutbound._hack_config_map["multiplex"] = muxObj.asMap()
+                    }
+                }
+
+                if (needGlobal && SagerNet.isInitialized() && DataStore.enableTLSFragment) {
+                    val outboundMap = currentOutbound.asMap()
+                    val tlsOptions = outboundMap["tls"] as? Map<*, *>
+                    if (tlsOptions?.get("enabled") == true) {
+                        val delay = DataStore.fragmentInterval.let {
+                            val first = it.split("-").firstOrNull()?.trim()
+                            val num = (first?.toLongOrNull() ?: 20L).coerceIn(1L, 1000L)
+                            "${num}ms"
+                        }
+                        currentOutbound._hack_config_map["tls"] = mapOf(
+                            "fragment" to true,
+                            "record_fragment" to true,
+                            "fragment_fallback_delay" to delay
+                        )
+                    }
+                }
+            }
+
+            currentOutbound.apply {
+                try {
+                    val sUoT = bean.javaClass.getField("sUoT").get(bean)
+                    if (sUoT is Boolean && sUoT) {
+                        _hack_config_map["udp_over_tcp"] = true
+                    }
+                } catch (_: Exception) {
+                }
+
+                pastEntity?.requireBean()?.apply {
+                    if (defaultServerDomainStrategy != "" && !serverAddress.isIpAddress()) {
+                        domainListDNSDirectForce.add("full:$serverAddress")
+                    }
+                }
+                _hack_config_map["domain_strategy"] = defaultServerDomainStrategy
+                _hack_config_map["fallback_delay"] = "100ms"
+                _hack_config_map["tcp_keep_alive"] = "45s"
+                _hack_config_map["tcp_keep_alive_interval"] = "30s"
+                _hack_config_map["connect_timeout"] = "5s"
+
+                val outboundResolver = if (perGroupResolver.containsKey(proxyEntity.groupId)) {
+                    "dns-sub-${proxyEntity.groupId}"
+                } else {
+                    "dns-direct"
+                }
+                _hack_config_map["domain_resolver"] = outboundResolver
+
+                _hack_config_map["tag"] = tagOut
+                _hack_config_map["tcp_multi_path"] = false
+                // Avoid forcing tcp_fast_open=true globally because mobile/carrier middleboxes
+                // frequently drop TFO SYNs, causing 1-3s handshake stalls on new connections.
+                _hack_config_map.remove("tcp_fast_open")
+                if (bean is HysteriaBean || bean is TuicBean || bean is JuicityBean) {
+                    // UDP/QUIC connect() is 0-RTT in Linux: under hybrid/fallback multi-interface racing,
+                    // standby cellular interfaces can outrace Wi-Fi and bind to a blackholed socket.
+                    _hack_config_map["network_strategy"] = "default"
+                }
+
+                _hack_custom_config = bean.customOutboundJson
+            }
+
+            bean.finalAddress = bean.serverAddress
+            bean.finalPort = bean.serverPort
+            if (bean.canMapping() && proxyEntity.needExternal()) {
+                var needExternal = true
+                if (index == profileList.lastIndex) {
+                    val pluginId = when (bean) {
+                        is HysteriaBean -> if (bean.protocolVersion == 1) "hysteria-plugin" else "hysteria2-plugin"
+                        else -> ""
+                    }
+                    if (Plugins.isUsingMatsuriExe(pluginId)) {
+                        needExternal = false
+                    } else if (Plugins.getPluginExternal(pluginId) != null) {
+                        throw Exception("You are using an unsupported $pluginId, please download the correct plugin.")
+                    }
+                }
+                if (needExternal) {
+                    val mappingPort = mkPort()
+                    bean.finalAddress = LOCALHOST
+                    bean.finalPort = mappingPort
+
+                    inbounds.add(Inbound_DirectOptions().apply {
+                        type = "direct"
+                        listen = LOCALHOST
+                        listen_port = mappingPort
+                        tag = "$chainTag-mapping-${proxyEntity.id}"
+
+                        override_address = bean.serverAddress
+                        override_port = bean.serverPort
+
+                        pastInboundTag = tag
+
+                        if (index == profileList.lastIndex) {
+                            route.rules.add(Rule_DefaultOptions().apply {
+                                inbound = listOf(tag)
+                                outbound = TAG_DIRECT
+                            })
+                        }
+                    })
+                }
+            }
+
+            outbounds.add(currentOutbound)
+            chainOutbounds.add(currentOutbound)
+            pastOutbound = currentOutbound
+            pastEntity = proxyEntity
+        }
+
+        if (!externalDetour.isNullOrBlank() && chainOutbounds.isNotEmpty()) {
+            chainOutbounds.last().detourTo(externalDetour)
+        }
+
+        trafficMap[chainTagOut] = chainTrafficSet.toList()
+        return chainTagOut
+    }
+}
 
 internal fun buildLeastPingBalancerOutbound(
     memberTags: List<String>,
@@ -338,6 +1148,13 @@ internal fun finalizeRootConfig(
     return configMap
 }
 
+internal data class BalancerMemberChainKey(
+    val profileId: Long,
+    val useGroupFront: Boolean,
+    val useGroupLanding: Boolean,
+    val externalDetour: String?,
+)
+
 class ConfigBuildResult(
     var config: String,
     var externalIndex: List<IndexEntity>,
@@ -346,6 +1163,11 @@ class ConfigBuildResult(
     var profileTagMap: Map<Long, String>,
     val selectorGroupId: Long,
     val balancerMemberMap: Map<Long, List<Long>> = emptyMap(),
+    val balancerTagMap: Map<Long, String> = emptyMap(),
+    val outboundTagProfileMap: Map<String, Long> = emptyMap(),
+    val activeStrategyTag: String = "",
+    val activeStrategyKind: String = "",
+    val activeStrategyId: Long = 0L,
 ) {
     data class IndexEntity(var chain: LinkedHashMap<Int, ProxyEntity>)
 }
@@ -393,6 +1215,14 @@ private fun serverHostOf(bean: AbstractBean): String? {
     return fallback
 }
 
+fun sanitizeSingBoxConfig(rawConfig: String): String {
+    if (rawConfig.isBlank()) return rawConfig
+    return rawConfig.replace(
+        Regex(""""stack"\s*:\s*"(?:gvisor|mixed)""", RegexOption.IGNORE_CASE),
+        """"stack": "go""",
+    )
+}
+
 fun buildConfig(
     proxy: ProxyEntity, forTest: Boolean = false, forExport: Boolean = false
 ): ConfigBuildResult {
@@ -402,7 +1232,7 @@ fun buildConfig(
         if (bean.type == 0) {
             val tagProxy = proxy.displayName()
             return ConfigBuildResult(
-                bean.config,
+                sanitizeSingBoxConfig(bean.config),
                 listOf(),
                 proxy.id, //
                 mapOf(tagProxy to listOf(proxy)), //
@@ -414,28 +1244,17 @@ fun buildConfig(
 
     val trafficMap = HashMap<String, List<ProxyEntity>>()
     val tagMap = HashMap<Long, String>()
+    val customChainTagMap = HashMap<BalancerMemberChainKey, String>()
     val balancerMemberMap = HashMap<Long, List<Long>>()
+    val balancerTagMap = HashMap<Long, String>()
+    var mainChainBalancerId = 0L
+    val outboundTagProfileMap = HashMap<String, Long>()
     val globalOutbounds = HashMap<Long, String>()
     val invalidOutboundRules = linkedSetOf<String>()
     val readableNames = mutableSetOf(TAG_DIRECT, TAG_BYPASS, TAG_BLOCK, TAG_FRAGMENT, TAG_MIXED, TAG_PROXY)
     val group = SagerDatabase.groupDao.getById(proxy.groupId)
     val groupTag = group?.name?.trim()?.takeIf { it.isNotBlank() } ?: TAG_PROXY
     readableNames.add(groupTag)
-
-    fun ProxyEntity.resolveChainInternal(): MutableList<ProxyEntity> {
-        val bean = requireBean()
-        if (bean is ChainBean) {
-            val beans = SagerDatabase.proxyDao.getEntities(bean.proxies)
-            val beansMap = beans.associateBy { it.id }
-            val beanList = ArrayList<ProxyEntity>()
-            for (proxyId in bean.proxies) {
-                val item = beansMap[proxyId] ?: continue
-                beanList.addAll(item.resolveChainInternal())
-            }
-            return beanList.asReversed()
-        }
-        return mutableListOf(this)
-    }
 
     fun readableTag(name_: String): String {
         var name = name_
@@ -445,20 +1264,6 @@ fun buildConfig(
             name = "$name_-$count"
         }
         return name
-    }
-
-    fun ProxyEntity.resolveChain(useGroupFront: Boolean = true, useGroupLanding: Boolean = true): MutableList<ProxyEntity> {
-        val thisGroup = SagerDatabase.groupDao.getById(groupId)
-        val frontProxy = if (useGroupFront) thisGroup?.frontProxy?.let { SagerDatabase.proxyDao.getById(it) } else null
-        val landingProxy = if (useGroupLanding) thisGroup?.landingProxy?.let { SagerDatabase.proxyDao.getById(it) } else null
-        val list = resolveChainInternal()
-        if (frontProxy != null) {
-            list.add(frontProxy)
-        }
-        if (landingProxy != null) {
-            list.add(0, landingProxy)
-        }
-        return list
     }
 
     val isSmartRouting = !forTest && DataStore.smartMode && !DataStore.globalMode
@@ -477,15 +1282,16 @@ fun buildConfig(
             smartRules = emptyList(),
         )
     }
+    val domesticCoreDomainSuffixes = if (isSmartRouting) {
+        io.nekohasekai.sagernet.route.SmartRouteRules.domesticCoreDomainSuffixes(DataStore.smartRouteCountry)
+    } else {
+        emptyList()
+    }
     val extraProxies =
         if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(extraRules.mapNotNull { rule ->
             rule.outbound.takeIf { it > 0 && it != proxy.id }
         }.toHashSet().toList()).associateBy { it.id }
     val buildSelector = !forTest && group?.isSelector == true && !forExport
-    val isGroupUrlTest = group?.let { DataStore.isGroupUrlTest(it.id) } == true
-    val isGroupLoadBalance = group?.let { DataStore.isGroupLoadBalance(it.id) } == true
-    val useAutoSelect = !forTest && !forExport && isGroupUrlTest
-    val useLoadBalance = !forTest && !forExport && isGroupLoadBalance
     val userDNSRuleList = mutableListOf<DNSRule_DefaultOptions>()
     val domainListDNSDirectForce = mutableListOf<String>()
     val bypassDNSBeans = hashSetOf<AbstractBean>()
@@ -494,7 +1300,9 @@ fun buildConfig(
     val hostResolvers = HashMap<String, MutableSet<String>>()
     val nonCustomFinalHosts = hashSetOf<String>()
     val groupCache = HashMap<Long, ProxyGroup?>()
-    val isVPN = DataStore.serviceMode == Key.MODE_VPN
+    val serviceMode = DataStore.serviceMode
+    val isVPN = serviceMode == Key.MODE_VPN
+    val tunInboundTags = listOf("tun-in")
     val bind = if (!forTest && DataStore.allowAccess) "0.0.0.0" else LOCALHOST
     val remoteDns = DataStore.remoteDns.split("\n")
         .mapNotNull { dns -> dns.trim().takeIf { it.isNotBlank() && !it.startsWith("#") } }
@@ -507,7 +1315,13 @@ fun buildConfig(
         merged
     }
     val enableDnsRouting = DataStore.enableDnsRouting
-    val useFakeDns = DataStore.enableFakeDns && !forTest
+    val useFakeDns = shouldUseFakeDns(
+        enableFakeDns = DataStore.enableFakeDns,
+        forTest = forTest,
+        serviceMode = DataStore.serviceMode,
+        proxyApps = DataStore.proxyApps,
+        bypass = DataStore.bypass,
+    )
     // sing-box 1.13 已移除 sniff_override_destination（sniff 规则动作不再覆盖目标地址），
     // trafficSniffing 退化为开关语义（>0 即启用）。
     val needSniff = DataStore.trafficSniffing > 0
@@ -529,6 +1343,11 @@ fun buildConfig(
         ipv6Mode = ipv6Mode,
         hasUnderlyingIpv6DefaultRoute = hasUnderlyingIpv6DefaultRoute,
     )
+    val rawDirectDomainStrategy = SingBoxOptionsUtil.domainStrategy("dns-direct")
+    if (!forTest && !forExport) {
+        runCatching { Libcore.setDirectIPv6Policy(ipv6Mode, rawDirectDomainStrategy) }
+        runCatching { NetworkIPv6Detector.syncToCore() }
+    }
 
     fun genDomainStrategy(noAsIs: Boolean): String {
         return when {
@@ -577,6 +1396,7 @@ fun buildConfig(
                     "cloudflare-dns.com",
                     "one.one.one.one",
                     "dns.quad9.net",
+                    "dns.adguard-dns.com",
                     "dns.opendns.com"
                 )
             )
@@ -585,6 +1405,7 @@ fun buildConfig(
                     "8.8.8.8", "8.8.4.4",
                     "1.1.1.1", "1.0.0.1",
                     "9.9.9.9", "149.112.112.112",
+                    "94.140.14.14", "94.140.15.15",
                     "208.67.222.222", "208.67.220.220",
                     "2001:4860:4860::8888", "2001:4860:4860::8844",
                     "2606:4700:4700::1111", "2606:4700:4700::1001",
@@ -863,7 +1684,6 @@ fun buildConfig(
                 // address 为合并后的新字段。
                 address = when (ipv6Mode) {
                     IPv6Mode.DISABLE -> listOf(VpnService.PRIVATE_VLAN4_CLIENT + "/30")
-                    IPv6Mode.ONLY -> listOf(VpnService.PRIVATE_VLAN6_CLIENT + "/126")
                     else -> listOf(
                         VpnService.PRIVATE_VLAN4_CLIENT + "/30",
                         VpnService.PRIVATE_VLAN6_CLIENT + "/126"
@@ -910,434 +1730,59 @@ fun buildConfig(
             }
         }
 
-        // returns outbound tag
-        @Suppress("UNCHECKED_CAST")
+        val defaultServerDomainStrategy = when (ipv6Mode) {
+            IPv6Mode.DISABLE -> "ipv4_only"
+            IPv6Mode.ONLY -> "ipv6_only"
+            else -> SingBoxOptionsUtil.domainStrategy("server")
+        }
+        val chainCtx = ChainGraphContext(
+            forTest = forTest,
+            ipv6Mode = ipv6Mode,
+            defaultServerDomainStrategy = defaultServerDomainStrategy,
+            outbounds = outbounds,
+            inbounds = inbounds,
+            route = route,
+            trafficMap = trafficMap,
+            tagMap = tagMap,
+            customChainTagMap = customChainTagMap,
+            balancerMemberMap = balancerMemberMap,
+            balancerTagMap = balancerTagMap,
+            outboundTagProfileMap = outboundTagProfileMap,
+            globalOutbounds = globalOutbounds,
+            readableNames = readableNames,
+            bypassDNSBeans = bypassDNSBeans,
+            perGroupResolver = perGroupResolver,
+            perGroupServerHosts = perGroupServerHosts,
+            hostResolvers = hostResolvers,
+            nonCustomFinalHosts = nonCustomFinalHosts,
+            groupCache = groupCache,
+            externalIndexMap = externalIndexMap,
+            domainListDNSDirectForce = domainListDNSDirectForce,
+        )
+
         fun buildChain(
             chainId: Long,
             entity: ProxyEntity,
             useGroupFront: Boolean = true,
             useGroupLanding: Boolean = true,
-            externalDetour: String? = null
+            externalDetour: String? = null,
         ): String {
-            if (entity.type == ProxyEntity.TYPE_BALANCER) {
-                val balancerBean = entity.balancerBean ?: (entity.requireBean() as? BalancerBean) ?: BalancerBean()
-                val balancerFrontEntity = if (balancerBean.frontProxy > 0L && balancerBean.frontProxy != entity.id) {
-                    SagerDatabase.proxyDao.getById(balancerBean.frontProxy)
-                } else null
-                val balancerLandingEntity = if (balancerBean.landingProxy > 0L && balancerBean.landingProxy != entity.id) {
-                    SagerDatabase.proxyDao.getById(balancerBean.landingProxy)
-                } else null
-
-                val balancerFrontTag = balancerFrontEntity?.let { front ->
-                    tagMap[front.id] ?: buildChain(front.id, front).also { tagMap[front.id] = it }
-                }
-
-                val memberEntities = BalancerMemberResolver.load(entity, balancerBean)
-
-                val useFront = if (balancerBean.balancerType == BalancerBean.TYPE_GROUP) balancerBean.useFrontProxy else true
-                val useLanding = if (balancerBean.balancerType == BalancerBean.TYPE_GROUP) balancerBean.useLandingProxy else true
-
-                val memberEffectiveDetour = balancerFrontTag ?: externalDetour
-
-                val memberTags = memberEntities.mapNotNull { member ->
-                    val customKey = if (memberEffectiveDetour != null) {
-                        -member.id
-                    } else if (balancerBean.balancerType == BalancerBean.TYPE_GROUP && (!useFront || !useLanding)) {
-                        -member.id
-                    } else {
-                        member.id
-                    }
-                    tagMap[customKey] ?: buildChain(
-                        member.id,
-                        member,
-                        useGroupFront = if (memberEffectiveDetour != null) false else useFront,
-                        useGroupLanding = useLanding,
-                        externalDetour = memberEffectiveDetour
-                    ).also { tagMap[customKey] = it }
-                }.ifEmpty { listOf(TAG_DIRECT) }
-
-                val balancerTag = readableTag(entity.displayName())
-                val memberHealth = BalancerMemberResolver.healthTags(memberEntities.zip(memberTags))
-
-                val stickyByApp = shouldEnableStickyByApp(balancerBean)
-                val balancerOutbound: SingBoxOption = if (balancerBean.strategy == "leastPing") {
-                    val iv = balancerBean.interval.toLong().coerceAtLeast(10L)
-                    val toleranceMs = balancerBean.calculateToleranceMs().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
-                    buildLeastPingBalancerOutbound(
-                        memberTags = memberTags,
-                        testUrl = balancerBean.testUrl,
-                        intervalSec = iv,
-                        toleranceMs = toleranceMs,
-                        customTag = balancerTag,
-                        stickyByApp = stickyByApp,
-                        stickyDiagnostic = isStickyDiagnosticBuild(),
-                        healthyTags = memberHealth.available,
-                        unavailableTags = memberHealth.unavailable
-                    )
-                } else {
-                    val iv = balancerBean.interval.toLong().coerceAtLeast(10L)
-                    val toleranceMs = balancerBean.calculateToleranceMs().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
-                    val strat = when (balancerBean.strategy) {
-                        "failover" -> "failover"
-                        "stable" -> "stable"
-                        "consistent_hash", "consistentHash" -> "consistent_hash"
-                        "leastLoad" -> "leastLoad"
-                        "round_robin", "roundRobin" -> "round_robin"
-                        "random" -> "random"
-                        else -> balancerBean.strategy?.takeIf { it.isNotBlank() } ?: "round_robin"
-                    }
-                    buildLoadBalanceOutbound(
-                        memberTags = memberTags,
-                        strategy = strat,
-                        testUrl = balancerBean.testUrl,
-                        intervalSec = iv,
-                        toleranceMs = toleranceMs,
-                        idleTimeoutStr = "${iv}s",
-                        interruptExist = false,
-                        customTag = balancerTag,
-                        stickyByApp = stickyByApp,
-                        stickyDiagnostic = isStickyDiagnosticBuild(),
-                        healthyTags = memberHealth.available,
-                        unavailableTags = memberHealth.unavailable
-                    )
-                }
-
-                outbounds.add(balancerOutbound)
-                trafficMap[balancerTag] = listOf(entity)
-                balancerMemberMap[entity.id] = memberEntities.map { it.id }
-
-                val finalBalancerTag = if (balancerLandingEntity != null) {
-                    val landingTag = buildChain(
-                        chainId = -balancerLandingEntity.id,
-                        entity = balancerLandingEntity,
-                        useGroupFront = false,
-                        useGroupLanding = false,
-                        externalDetour = balancerTag
-                    )
-                    landingTag
-                } else {
-                    balancerTag
-                }
-
-                return finalBalancerTag
-            }
-
-            val profileList = entity.resolveChain(useGroupFront, useGroupLanding)
-            // profileList 的顺序即应用流量经过各 outbound 的顺序：前一跳通过
-            // detour 交给后一跳拨号，最后一项直接连接物理网络。
-            Logs.d(
-                "Outbound chain id=$chainId forTest=$forTest appToEgress=" +
-                    profileList.joinToString(" -> ") { hop ->
-                        val hopBean = hop.requireBean()
-                        val host = serverHostOf(hopBean) ?: "<unknown>"
-                        val endpoint = hopBean.displayAddress().takeIf { it.isNotBlank() }
-                            ?: "$host:${hopBean.serverPort}"
-                        "${hop.id}:${hop.displayType()}@$endpoint"
-                    }
+            val tag = chainCtx.buildChain(
+                chainId = chainId,
+                entity = entity,
+                useGroupFront = useGroupFront,
+                useGroupLanding = useGroupLanding,
+                externalDetour = externalDetour,
             )
-            val chainTrafficSet = HashSet<ProxyEntity>().apply {
-                plusAssign(profileList)
-                add(entity)
+            if (mainChainBalancerId == 0L && chainCtx.mainChainBalancerId > 0L) {
+                mainChainBalancerId = chainCtx.mainChainBalancerId
             }
-
-            var currentOutbound: SingBoxOption
-            lateinit var pastOutbound: SingBoxOption
-            lateinit var pastInboundTag: String
-            var pastEntity: ProxyEntity? = null
-            val externalChainMap = LinkedHashMap<Int, ProxyEntity>()
-            externalIndexMap.add(IndexEntity(externalChainMap))
-            val chainOutbounds = ArrayList<SingBoxOption>()
-
-            // chainTagOut: v2ray outbound tag for this chain
-            var chainTagOut = ""
-            val chainTag = if (chainId < 0) "c-m${-chainId}" else "c-$chainId"
-            var muxApplied = false
-
-            val defaultServerDomainStrategy = if (ipv6Mode == IPv6Mode.DISABLE) "ipv4_only" else if (ipv6Mode == IPv6Mode.ONLY) "ipv6_only" else SingBoxOptionsUtil.domainStrategy("server")
-
-            profileList.forEachIndexed { index, proxyEntity ->
-                val bean = proxyEntity.requireBean()
-                bypassDNSBeans += bean
-
-                // tagOut: v2ray outbound tag for a profile
-                // profile2 (in) (global)   tag g-(id)
-                // profile1                 tag (chainTag)-(id)
-                // profile0 (out)           tag (chainTag)-(id) / single: "proxy"
-                var tagOut = "$chainTag-${proxyEntity.id}"
-
-                // needGlobal: can only contain one?
-                var needGlobal = false
-
-                // first profile set as global
-                if (index == profileList.lastIndex) {
-                    needGlobal = true
-                    tagOut = "g-" + proxyEntity.id
-
-                    val ownerGid = entity.groupId
-                    val ownerGroup = groupCache.getOrPut(ownerGid) {
-                        SagerDatabase.groupDao.getById(ownerGid)
-                    }
-                    val resolver = ownerGroup
-                        ?.takeIf { it.type == GroupType.SUBSCRIPTION }
-                        ?.subscription?.serverDnsResolver
-                        ?.let { sanitizeDnsEntry(it) }
-                        ?.takeIf { it.isNotBlank() }
-
-                    if (resolver != null) {
-                        profileList.forEach { hop ->
-                            val host = serverHostOf(hop.requireBean())
-                            if (host != null && !host.isIpAddress()) {
-                                if (hop.groupId == ownerGid) {
-                                    perGroupResolver[ownerGid] = resolver
-                                    perGroupServerHosts.getOrPut(ownerGid) { mutableSetOf() }
-                                        .add(host)
-                                    hostResolvers.getOrPut(host) { mutableSetOf() }.add(resolver)
-                                } else {
-                                    nonCustomFinalHosts.add(host)
-                                }
-                            }
-                        }
-                    } else {
-                        profileList.forEach { hop ->
-                            val host = serverHostOf(hop.requireBean())
-                            if (host != null && !host.isIpAddress()) {
-                                nonCustomFinalHosts.add(host)
-                            }
-                        }
-                    }
-                }
-
-                if (index == 0) {
-                    tagOut = readableTag(bean.displayName())
-                }
-
-                // Resolve a globally shared hop before writing the edge that references it.
-                // A hop built by an earlier rule may use a readable or endpoint tag instead of
-                // this chain's proposed g-<id> tag; the global map is the source of truth.
-                val resolvedTag = resolveChainHopTag(
-                    proxyEntity.id,
-                    tagOut,
-                    needGlobal,
-                    globalOutbounds,
-                )
-                tagOut = resolvedTag.tag
-
-                // chain rules
-                if (index > 0) {
-                    // chain route/proxy rules
-                    if (pastEntity!!.needExternal()) {
-                        route.rules.add(Rule_DefaultOptions().apply {
-                            inbound = listOf(pastInboundTag)
-                            outbound = tagOut
-                        })
-                    } else {
-                        pastOutbound.detourTo(tagOut)
-                    }
-                } else {
-                    // index == 0 means last profile in chain / not chain
-                    chainTagOut = tagOut
-                }
-
-                // The edge now points at the previously generated final tag, so the duplicate
-                // object can be skipped without leaving a dangling detour.
-                if (resolvedTag.reused) return@forEachIndexed
-
-                if (proxyEntity.needExternal()) { // externel outbound
-                    val localPort = mkPort()
-                    externalChainMap[localPort] = proxyEntity
-                    currentOutbound = Outbound_SocksOptions().apply {
-                        type = "socks"
-                        server = LOCALHOST
-                        server_port = localPort
-                    }
-                } else {
-                    // internal outbound
-
-                    currentOutbound = when (bean) {
-                        is ConfigBean -> CustomSingBoxOption(bean.config) as SingBoxOption
-
-                        is ShadowTLSBean -> // before StandardV2RayBean
-                            buildSingBoxOutboundShadowTLSBean(bean)
-
-                        is StandardV2RayBean -> // http/trojan/vmess/vless
-                            buildSingBoxOutboundStandardV2RayBean(bean)
-
-                        is HysteriaBean ->
-                            buildSingBoxOutboundHysteriaBean(bean)
-
-                        is TuicBean ->
-                            buildSingBoxOutboundTuicBean(bean)
-
-                        is JuicityBean ->
-                            buildSingBoxOutboundJuicityBean(bean)
-
-                        is SOCKSBean ->
-                            buildSingBoxOutboundSocksBean(bean)
-
-                        is ShadowsocksBean ->
-                            buildSingBoxOutboundShadowsocksBean(bean)
-
-                        is ShadowsocksRBean ->
-                            buildSingBoxOutboundShadowsocksRBean(bean)
-
-                        is WireGuardBean -> {
-                            val endpointMtu = bean.mtu?.takeIf { it > 0 }
-                            val peerAddressFamily = when {
-                                bean.serverAddress?.contains(':') == true -> "ipv6"
-                                bean.serverAddress?.isNotBlank() == true -> "ipv4-or-domain"
-                                else -> "missing"
-                            }
-                            Logs.i(
-                                "WireGuardEndpointTrace profileId=${proxyEntity.id} forTest=$forTest " +
-                                    "endpointMtu=${endpointMtu ?: "default(1408)"} " +
-                                    "tunMtu=${DataStore.mtu} peerAddressFamily=$peerAddressFamily " +
-                                    "peerPort=${bean.serverPort}"
-                            )
-                            buildSingBoxEndpointWireGuardBean(bean)
-                        }
-
-                        is SSHBean ->
-                            buildSingBoxOutboundSSHBean(bean)
-
-                        is AnyTLSBean ->
-                            buildSingBoxOutboundAnyTLSBean(bean)
-
-                        is SnellBean ->
-                            buildSingBoxOutboundSnellBean(bean)
-
-                        else -> throw IllegalStateException("can't reach")
-                    }
-
-                    // internal mux
-                    if (!muxApplied) {
-                        val muxObj = proxyEntity.singMux()
-                        if (muxObj != null && muxObj.enabled) {
-                            muxApplied = true
-                            currentOutbound._hack_config_map["multiplex"] = muxObj.asMap()
-                        }
-                    }
-
-                    if (needGlobal && DataStore.enableTLSFragment) {
-                        val outboundMap = currentOutbound.asMap()
-                        val tlsOptions = outboundMap["tls"] as? Map<*, *>
-                        if (tlsOptions?.get("enabled") == true) {
-                            val delay = DataStore.fragmentInterval.let {
-                                val first = it.split("-").firstOrNull()?.trim()
-                                val num = first?.toLongOrNull() ?: 20L
-                                "${num}ms"
-                            }
-                            currentOutbound._hack_config_map["tls"] = mapOf(
-                                "fragment" to true,
-                                "record_fragment" to true,
-                                "fragment_fallback_delay" to delay
-                            )
-                        }
-                    }
-                }
-
-                // internal & external
-                currentOutbound.apply {
-                    // udp over tcp
-                    try {
-                        val sUoT = bean.javaClass.getField("sUoT").get(bean)
-                        if (sUoT is Boolean && sUoT) {
-                            _hack_config_map["udp_over_tcp"] = true
-                        }
-                    } catch (_: Exception) {
-                    }
-
-                    // domain_strategy
-                    pastEntity?.requireBean()?.apply {
-                        // don't loopback
-                        if (defaultServerDomainStrategy != "" && !serverAddress.isIpAddress()) {
-                            domainListDNSDirectForce.add("full:$serverAddress")
-                        }
-                    }
-                    // 测速配置必须与正式连接一致（对齐 husi）：沿用统一的服务器
-                    // 域名解析策略。曾强制空——测速解析出的 IP/协议族与真实路径不同。
-                    _hack_config_map["domain_strategy"] = defaultServerDomainStrategy
-                    _hack_config_map["fallback_delay"] = "100ms"
-                    _hack_config_map["tcp_keep_alive"] = "45s"
-                    _hack_config_map["tcp_keep_alive_interval"] = "30s"
-                    _hack_config_map["connect_timeout"] = "5s"
-
-                    // 确保所有出站代理节点服务器域名强制使用直连/独立 DNS 解析器（抗运营商污染的加密阿里 DoH 或订阅专属 DNS）解析，
-                    // 彻底绕过 FakeIP 与路由分流规则，杜绝内核解析自身节点服务器域名时陷入 FakeIP 闭环回环死锁与国内移动基站 DNS 污染阻断
-                    val outboundResolver = if (perGroupResolver.containsKey(proxyEntity.groupId)) {
-                        "dns-sub-${proxyEntity.groupId}"
-                    } else {
-                        "dns-direct"
-                    }
-                    _hack_config_map["domain_resolver"] = outboundResolver
-
-                    _hack_config_map["tag"] = tagOut
-                    _hack_config_map["tcp_multi_path"] = false
-
-                    _hack_custom_config = bean.customOutboundJson
-                }
-
-                // External proxy need a dokodemo-door inbound to forward the traffic
-                // For external proxy software, their traffic must goes to v2ray-core to use protected fd.
-                bean.finalAddress = bean.serverAddress
-                bean.finalPort = bean.serverPort
-                if (bean.canMapping() && proxyEntity.needExternal()) {
-                    // With ss protect, don't use mapping
-                    var needExternal = true
-                    if (index == profileList.lastIndex) {
-                        val pluginId = when (bean) {
-                            is HysteriaBean -> if (bean.protocolVersion == 1) "hysteria-plugin" else "hysteria2-plugin"
-                            else -> ""
-                        }
-                        if (Plugins.isUsingMatsuriExe(pluginId)) {
-                            needExternal = false
-                        } else if (Plugins.getPluginExternal(pluginId) != null) {
-                            throw Exception("You are using an unsupported $pluginId, please download the correct plugin.")
-                        }
-                    }
-                    if (needExternal) {
-                        val mappingPort = mkPort()
-                        bean.finalAddress = LOCALHOST
-                        bean.finalPort = mappingPort
-
-                        inbounds.add(Inbound_DirectOptions().apply {
-                            type = "direct"
-                            listen = LOCALHOST
-                            listen_port = mappingPort
-                            tag = "$chainTag-mapping-${proxyEntity.id}"
-
-                            override_address = bean.serverAddress
-                            override_port = bean.serverPort
-
-                            pastInboundTag = tag
-
-                            // no chain rule and not outbound, so need to set to direct
-                            if (index == profileList.lastIndex) {
-                                route.rules.add(Rule_DefaultOptions().apply {
-                                    inbound = listOf(tag)
-                                    outbound = TAG_DIRECT
-                                })
-                            }
-                        })
-                    }
-                }
-
-                outbounds.add(currentOutbound)
-                chainOutbounds.add(currentOutbound)
-                pastOutbound = currentOutbound
-                pastEntity = proxyEntity
-            }
-
-            if (!externalDetour.isNullOrBlank() && chainOutbounds.isNotEmpty()) {
-                chainOutbounds.last().detourTo(externalDetour)
-            }
-
-            trafficMap[chainTagOut] = chainTrafficSet.toList()
-            return chainTagOut
+            return tag
         }
 
         // build outbounds
-        if (buildSelector || useAutoSelect || useLoadBalance) {
-            val rawList = if (group != null && group.id != 0L) {
+        if (buildSelector) {
+            val list = if (group != null && group.id != 0L) {
                 SagerDatabase.proxyDao.getByGroup(group.id)
             } else {
                 val all = SagerDatabase.proxyDao.getAll()
@@ -1346,56 +1791,14 @@ fun buildConfig(
                 !DataStore.isGroupDisabled(entity.groupId)
             }.ifEmpty { listOf(proxy) }
 
-            val list = if (useAutoSelect) {
-                // 解决策略组初始建立连接慢：在内核首次并发测速出结果前，
-                // sing-box 默认将首个出站作为无历史时的临时回退。
-                // 仅把最近一次成功测速的延迟用于排序；失败后残留的 ping 不应让超时节点置顶。
-                // 确保首包绝不阻塞死等，建立连接瞬时秒开。
-                BalancerMemberResolver.orderForUrlTest(rawList)
-            } else {
-                rawList
-            }
-
             list.forEach {
-                tagMap[it.id] = buildChain(it.id, it)
+                val builtTag = buildChain(it.id, it)
+                tagMap[it.id] = builtTag
+                if (it.type != ProxyEntity.TYPE_BALANCER) {
+                    outboundTagProfileMap[builtTag] = it.id
+                }
             }
-            val memberPairs = list.mapNotNull { entity -> tagMap[entity.id]?.let { entity to it } }
-            val memberTags = memberPairs.map { it.second }
-            val memberHealth = BalancerMemberResolver.healthTags(memberPairs)
-            if (useAutoSelect && tagMap.isNotEmpty()) {
-                val testUrl = group?.let { DataStore.groupUrlTestUrl(it.id) }
-                val intervalVal = group?.let { DataStore.groupUrlTestInterval(it.id) }
-                val toleranceVal = group?.let { DataStore.groupUrlTestTolerance(it.id) }
-                val idleTimeoutVal = group?.let { DataStore.groupUrlTestIdleTimeout(it.id) }
-                val interruptVal = group?.let { DataStore.groupUrlTestInterrupt(it.id) }
-                outbounds.add(
-                    0, buildUrlTestOutbound(
-                        memberTags,
-                        testUrl = testUrl,
-                        intervalSec = intervalVal,
-                        toleranceMs = toleranceVal,
-                        idleTimeoutStr = idleTimeoutVal,
-                        interruptExist = interruptVal,
-                        customTag = TAG_PROXY,
-                        healthyTags = memberHealth.available,
-                        unavailableTags = memberHealth.unavailable
-                    )
-                )
-            } else if (useLoadBalance && tagMap.isNotEmpty()) {
-                outbounds.add(
-                    0,
-                    buildLoadBalanceOutbound(
-                        memberTags,
-                        customTag = TAG_PROXY,
-                        stickyDiagnostic = isStickyDiagnosticBuild(),
-                        healthyTags = memberHealth.available,
-                        unavailableTags = memberHealth.unavailable
-                    )
-                )
-                balancerMemberMap[proxy.id] = list.mapNotNull { it.id.takeIf { id -> id != proxy.id } }
-            } else {
-                outbounds.add(0, buildSelectorOutbound(tagMap[proxy.id], tagMap.values.toList(), customTag = TAG_PROXY))
-            }
+            outbounds.add(0, buildSelectorOutbound(tagMap[proxy.id], tagMap.values.toList(), customTag = TAG_PROXY))
             trafficMap[TAG_PROXY] = listOf(proxy)
         } else {
             val mainTag = buildChain(0, proxy)
@@ -1406,7 +1809,7 @@ fun buildConfig(
             tagMap[key] = buildChain(key, p)
         }
 
-        val mainProxyTag = (if (buildSelector || useAutoSelect || useLoadBalance) TAG_PROXY else tagMap[proxy.id]) ?: TAG_PROXY
+        val mainProxyTag = (if (buildSelector) TAG_PROXY else tagMap[proxy.id]) ?: TAG_PROXY
 
         if (!forTest) {
             // 关键安全隔离：本地回环、多播与链路本地地址强制直连，
@@ -1436,11 +1839,15 @@ fun buildConfig(
             }
         }
 
+        val earlyRejectUserRules = mutableListOf<SingBoxOptions.Rule>()
+        val invalidRuleNames = linkedSetOf<String>()
+        val userRulesStartIndex = route.rules.size
+
         // 在应用用户规则之前检查全局模式
         if (!forTest && DataStore.globalMode) {
             // 全局模式下的规则处理
             route.rules.add(Rule_DefaultOptions().apply {
-                inbound = listOf("tun-in")
+                inbound = tunInboundTags
                 outbound = mainProxyTag
             })
 
@@ -1458,14 +1865,16 @@ fun buildConfig(
                     PackageCache.awaitLoadSync()
                 }
                 val selectedPackages = rule.packages.toMutableSet()
-                val uidList = selectedPackages.mapNotNull {
-                    if (!isVPN) {
+                if (!isVPN && selectedPackages.isNotEmpty() && shouldWarnPackageRuleNeedsVpn(rule)) {
+                    runOnMainDispatcher {
                         Toast.makeText(
                             SagerNet.application,
                             SagerNet.application.getString(R.string.route_need_vpn, rule.displayName()),
                             Toast.LENGTH_SHORT
                         ).show()
                     }
+                }
+                val uidList = selectedPackages.mapNotNull {
                     (PackageCache[it] ?: runCatching {
                         SagerNet.application.packageManager.getApplicationInfo(it, 0).uid
                     }.getOrNull())?.takeIf { uid -> uid >= 1000 }
@@ -1576,7 +1985,7 @@ fun buildConfig(
                                 if (useFakeDns) {
                                     userDNSRuleList += it.apply {
                                         server = "dns-fake"
-                                        inbound = listOf("tun-in")
+                                        inbound = tunInboundTags
                                         query_type = listOf("A", "AAAA")
                                     }
                                 } else {
@@ -1588,7 +1997,7 @@ fun buildConfig(
                                     if (useFakeDns) {
                                         userDNSRuleList += it.apply {
                                             server = "dns-fake"
-                                            inbound = listOf("tun-in")
+                                            inbound = tunInboundTags
                                             query_type = listOf("A", "AAAA")
                                         }
                                     } else {
@@ -1603,7 +2012,7 @@ fun buildConfig(
                                     userDNSRuleList += DNSRule_DefaultOptions().apply {
                                         rule_set = mutableListOf(tag)
                                         server = "dns-fake"
-                                        inbound = listOf("tun-in")
+                                        inbound = tunInboundTags
                                         query_type = listOf("A", "AAAA")
                                     }
                                 } else {
@@ -1721,21 +2130,22 @@ fun buildConfig(
                     if (!fallbackRule.checkEmpty()) generatedSubRules.add(fallbackRule)
                 }
 
+                val targetRuleBucket: MutableList<SingBoxOptions.Rule> = if (!isSmartRouting && routingAction == "reject") {
+                    earlyRejectUserRules
+                } else {
+                    route.rules
+                }
                 val invertedGroup = RouteRuleEditor.invertedGroup(generatedSubRules)
                 if (invertedGroup != null) {
-                    route.rules.add(invertedGroup)
+                    targetRuleBucket.add(invertedGroup)
                     route.rule_set.addAll(ruleSets)
                     continue
                 }
                 for (subRule in generatedSubRules) {
                     if (subRule.action !in setOf("reject", "sniff", "resolve", "hijack-dns", "route-options") && subRule.outbound.isNullOrBlank()) {
-                        Toast.makeText(
-                            SagerNet.application,
-                            "Warning: " + rule.displayName() + ": A non-existent outbound was specified.",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        invalidRuleNames += rule.displayName()
                     } else {
-                        route.rules.add(subRule)
+                        targetRuleBucket.add(subRule)
                         route.rule_set.addAll(ruleSets)
                         Logs.d("[ConfigBuilder] Route rule '${rule.displayName()}' condition added -> ${subRule.outbound ?: subRule.action}")
                     }
@@ -1748,19 +2158,20 @@ fun buildConfig(
             route.rule_set = route.rule_set.distinctBy { it.tag }
         }
 
+        val directOutboundStrategy = when {
+            ipv6Mode == IPv6Mode.DISABLE -> "ipv4_only"
+            ipv6Mode == IPv6Mode.ONLY -> "ipv6_only"
+            rawDirectDomainStrategy in setOf("ipv4_only", "ipv6_only", "prefer_ipv4", "prefer_ipv6") -> rawDirectDomainStrategy
+            ipv6Mode == IPv6Mode.PREFER -> "prefer_ipv6"
+            else -> "prefer_ipv4"
+        }
         for (freedom in arrayOf(TAG_DIRECT, TAG_BYPASS)) {
             outbounds.add(Outbound().apply {
                 tag = freedom
                 type = "direct"
                 // Ensure both direct and bypass outbounds bind to Android default physical network interface
                 _hack_config_map["network_strategy"] = "default"
-                if (ipv6Mode == IPv6Mode.DISABLE) {
-                    _hack_config_map["domain_strategy"] = "ipv4_only"
-                } else if (ipv6Mode == IPv6Mode.ONLY) {
-                    _hack_config_map["domain_strategy"] = "ipv6_only"
-                } else if (ipv6Mode == IPv6Mode.PREFER) {
-                    _hack_config_map["domain_strategy"] = "prefer_ipv6"
-                }
+                _hack_config_map["domain_strategy"] = directOutboundStrategy
             })
         }
 
@@ -1805,7 +2216,17 @@ fun buildConfig(
             detour = TAG_DIRECT
         })
 
-        val directAddress = directDNS.firstOrNull()?.takeIf { it.isNotBlank() } ?: "https://223.5.5.5/dns-query"
+        val rawDirectAddress = directDNS.firstOrNull()?.takeIf { it.isNotBlank() } ?: "https://223.5.5.5/dns-query"
+        val directAddress = if (ipv6Mode == IPv6Mode.ONLY && !forExport && rawDirectAddress.trim() == "https://223.5.5.5/dns-query") {
+            val netCaps = runCatching { NetworkIPv6Detector.inspectDefaultPhysicalNetwork() }.getOrNull()
+            if (netCaps != null && netCaps.hasPublicIPv6 && !netCaps.hasIPv4) {
+                "https://[2400:3200::1]/dns-query"
+            } else {
+                rawDirectAddress
+            }
+        } else {
+            rawDirectAddress
+        }
         val normalizedDirect = normalizeDnsAddress(directAddress)
         dns.servers.add(
             buildDnsServer(
@@ -1854,12 +2275,11 @@ fun buildConfig(
         }
 
         dns.final_ = if (forTest) "dns-direct" else "dns-remote"
-        if (ipv6Mode == IPv6Mode.DISABLE) {
-            dns.strategy = "ipv4_only"
-        } else if (ipv6Mode == IPv6Mode.ONLY) {
-            dns.strategy = "ipv6_only"
-        } else if (ipv6Mode == IPv6Mode.PREFER) {
-            dns.strategy = "prefer_ipv6"
+        dns.strategy = when (ipv6Mode) {
+            IPv6Mode.DISABLE -> "ipv4_only"
+            IPv6Mode.ONLY -> "ipv6_only"
+            IPv6Mode.PREFER -> "prefer_ipv6"
+            else -> "prefer_ipv4"
         }
 
         val directAaaaRejectRules = if (rejectDirectAaaa) {
@@ -1929,17 +2349,20 @@ fun buildConfig(
             })
             dns.rules = testRules
         } else {
-            // built-in DNS rules
-            if (ipv6Mode == IPv6Mode.DISABLE) {
-                dns.rules.add(0, DNSRule_DefaultOptions().apply {
-                    query_type = listOf("AAAA")
-                    action = "reject"
-                })
-            } else if (ipv6Mode == IPv6Mode.ONLY) {
-                dns.rules.add(0, DNSRule_DefaultOptions().apply {
-                    query_type = listOf("A")
-                    action = "reject"
-                })
+            // Google Play 商店与核心海外服务防误杀 DNS 专线规则：
+            // 使用后缀匹配（覆盖 services.googleapis.cn / dl.google.com 等下载域名），
+            // 并插入在首条 dns-direct 用户规则之前，防止被 geosite:cn 提前劫持至国内 DNS
+            val googlePlayDnsRule = DNSRule_DefaultOptions().apply {
+                domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES
+                server = "dns-remote"
+            }
+            val firstDirectDnsIdx = dns.rules.indexOfFirst {
+                it is DNSRule_DefaultOptions && it.server == "dns-direct"
+            }
+            if (firstDirectDnsIdx >= 0) {
+                dns.rules.add(firstDirectDnsIdx, googlePlayDnsRule)
+            } else {
+                dns.rules.add(googlePlayDnsRule)
             }
 
             if (!enableDnsRouting && !isSmartRouting && rejectDirectAaaa) {
@@ -1983,7 +2406,6 @@ fun buildConfig(
 
             // 智能模式下才启用本国核心域名的直连 DNS，普通规则模式仍完全由用户规则决定。
             if (isSmartRouting) {
-                val domesticCoreDomainSuffixes = io.nekohasekai.sagernet.route.SmartRouteRules.domesticCoreDomainSuffixes(DataStore.smartRouteCountry)
                 dns.rules.add(DNSRule_DefaultOptions().apply {
                     domain_suffix = domesticCoreDomainSuffixes
                     server = "dns-direct"
@@ -1995,8 +2417,8 @@ fun buildConfig(
             val directDomains = rawDirectDomains - rawRemoteDomains
             val remoteDomains = rawRemoteDomains
 
-            // 构建最优先前置路由规则（须位于所有用户规则之前）
-            val topRouteRules = mutableListOf<Rule_DefaultOptions>()
+            // 构建基础设施前置路由规则（仅保留协议嗅探、DNS 隔离与显式 reject）
+            val topRouteRules = mutableListOf<SingBoxOptions.Rule>()
 
             // 1. hijack-dns 拦截入站 DNS 流量进入内置 DNS 引擎（最高优先级，确保 DNS 解析不被后续嗅探/解析规则阻塞干扰）
             topRouteRules.add(Rule_DefaultOptions().apply {
@@ -2015,6 +2437,14 @@ fun buildConfig(
                     action = "sniff"
                     timeout = "100ms"
                     sniffer = listOf("tls", "http", "quic")
+                })
+            }
+
+            if (DataStore.blockQuic) {
+                topRouteRules.add(Rule_DefaultOptions().apply {
+                    network = listOf("udp")
+                    protocol = listOf("quic")
+                    action = "reject"
                 })
             }
 
@@ -2067,15 +2497,43 @@ fun buildConfig(
                 })
             }
 
-            // 7. 未拦截远程 DNS 兜底保护（port 53 / protocol dns 流量强制走代理）
-            topRouteRules.add(Rule_DefaultOptions().apply {
-                port = listOf(53)
-                outbound = mainProxyTag
-            })
-            topRouteRules.add(Rule_DefaultOptions().apply {
-                protocol = listOf("dns")
-                outbound = mainProxyTag
-            })
+            // 7. 用户自定义屏蔽 (reject) 规则优先于保底规则
+            if (earlyRejectUserRules.isNotEmpty()) {
+                topRouteRules.addAll(earlyRejectUserRules)
+            }
+
+            // 8. Google Play 防误杀专线保护：置于用户第一条直连/绕过规则之前（避免覆盖用户自定义节点分流，同时防止被 geosite:cn 截断）
+            if (!DataStore.globalMode) {
+                val googlePlayRouteRules = buildList {
+                    add(Rule_DefaultOptions().apply {
+                        domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES
+                        outbound = mainProxyTag
+                    })
+                    if (isVPN) {
+                        add(Rule_DefaultOptions().apply {
+                            package_name = listOf(
+                                "com.android.vending",
+                                "com.google.android.gms",
+                                "com.google.android.gsf",
+                            )
+                            outbound = mainProxyTag
+                        })
+                    }
+                }
+                val firstUserDirectIdx = (userRulesStartIndex until route.rules.size).firstOrNull { idx ->
+                    val r = route.rules[idx] as? Rule_DefaultOptions
+                    r != null && (r.outbound == TAG_BYPASS || r.outbound == TAG_DIRECT)
+                } ?: route.rules.size
+                route.rules.addAll(firstUserDirectIdx, googlePlayRouteRules)
+            }
+
+            // 9. 智能分流模式下本国主流服务静态直连兜底规则（置于所有用户/智能分流规则之后）
+            if (isSmartRouting) {
+                route.rules.add(Rule_DefaultOptions().apply {
+                    domain_suffix = domesticCoreDomainSuffixes
+                    outbound = TAG_DIRECT
+                })
+            }
 
             route.rules.addAll(0, topRouteRules)
 
@@ -2085,10 +2543,9 @@ fun buildConfig(
                     ip_is_private = true
                 })
             }
-            // block mcast
+            // block mcast (dst only; IPv4 mDNS 224.0.0.251 has already been handled earlier)
             route.rules.add(Rule_DefaultOptions().apply {
                 ip_cidr = listOf("224.0.0.0/3", "ff00::/8")
-                source_ip_cidr = listOf("224.0.0.0/3", "ff00::/8")
                 action = "reject"
             })
             // FakeDNS obj (sing-box 1.14: fakeip configured as a server in dns.servers)
@@ -2102,7 +2559,7 @@ fun buildConfig(
                     }
                 })
                 dns.rules.add(DNSRule_DefaultOptions().apply {
-                    inbound = listOf("tun-in")
+                    inbound = tunInboundTags
                     server = "dns-fake"
                     disable_cache = true
                     query_type = when (ipv6Mode) {
@@ -2156,9 +2613,30 @@ fun buildConfig(
                 action = "reject"
             })
         }
+        if (!forTest) {
+            // Return empty NOERROR for HTTPS (Type 65) and SVCB (Type 64) DNS queries immediately
+            // so Chrome/Android do not stall waiting for remote DoH roundtrips on page loads.
+            dns.rules.add(0, DNSRule_DefaultOptions().apply {
+                query_type = listOf("HTTPS", "SVCB")
+                action = "predefined"
+            })
+        }
 
-        // Synchronize route.rules and route.final_ against available outbound tags to avoid "tag not found"
-        val availableOutboundTags = outbounds.mapNotNull { it.asMap()["tag"]?.toString() }.toSet()
+        val outboundMaps = outbounds.map { it.asMap() }
+        val echQueryDomains = extractEchQueryDomains(outboundMaps)
+        if (echQueryDomains.isNotEmpty()) {
+            // Allow outbound ECH HTTPS/SVCB (Type 65/64) lookups via dns-direct, bypassing both
+            // the predefined empty NOERROR rule and any dns-remote proxy bootstrap deadlock.
+            dns.rules.add(0, DNSRule_DefaultOptions().apply {
+                domain = echQueryDomains
+                query_type = listOf("HTTPS", "SVCB")
+                server = "dns-direct"
+            })
+        }
+
+        // Synchronize route.rules, route.rule_set.download_detour and route.final_ against available outbound tags
+        val availableOutboundTags = outboundMaps.mapNotNull { it["tag"]?.toString() }.toSet()
+        syncRuleSetDownloadDetours(route.rule_set, availableOutboundTags, mainProxyTag)
         route.rules.filterIsInstance<Rule_DefaultOptions>().forEach { r ->
             val out = r.outbound
             if (!out.isNullOrBlank() && out !in availableOutboundTags) {
@@ -2171,7 +2649,20 @@ fun buildConfig(
                 } else {
                     invalidOutboundRules += out
                     Logs.w("ConfigBuilder: rule outbound tag '$out' not found in outbounds, fallback to '$mainProxyTag'")
+                    invalidRuleNames += out
                     r.outbound = mainProxyTag
+                }
+            }
+        }
+        if (invalidRuleNames.isNotEmpty() && !forTest && !forExport) {
+            val joined = invalidRuleNames.joinToString(", ")
+            runOnMainDispatcher {
+                runCatching {
+                    Toast.makeText(
+                        SagerNet.application,
+                        SagerNet.application.getString(R.string.route_invalid_outbound_toast, joined),
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -2247,14 +2738,30 @@ fun buildConfig(
                 Toast.makeText(SagerNet.application, warning, Toast.LENGTH_LONG).show()
             }
         }
+        val effectiveStrategyBalancerId = when {
+            proxy.type == ProxyEntity.TYPE_BALANCER -> proxy.id
+            proxy.type == ProxyEntity.TYPE_CHAIN && mainChainBalancerId > 0L -> mainChainBalancerId
+            else -> 0L
+        }
+        val (activeStrategyTag, activeStrategyKind, activeStrategyId) = when {
+            !forTest && !forExport && effectiveStrategyBalancerId > 0L && balancerTagMap[effectiveStrategyBalancerId] != null ->
+                Triple(balancerTagMap[effectiveStrategyBalancerId].orEmpty(), "balancer", effectiveStrategyBalancerId)
+            else -> Triple("", "", 0L)
+        }
+
         ConfigBuildResult(
             gson.toJson(configMap),
             externalIndexMap,
             proxy.id,
             trafficMap,
             tagMap,
-            if (buildSelector || useAutoSelect || useLoadBalance) group?.id ?: 0L else -1L,
-            balancerMemberMap
+            if (buildSelector) group?.id ?: 0L else -1L,
+            balancerMemberMap,
+            balancerTagMap,
+            outboundTagProfileMap,
+            activeStrategyTag,
+            activeStrategyKind,
+            activeStrategyId,
         )
     }
 

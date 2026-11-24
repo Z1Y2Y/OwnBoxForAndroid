@@ -391,4 +391,18 @@
     <color name="color_amoled_card_elevated">#0D0D0D</color>
     <color name="color_amoled_text_secondary">#B3FFFFFF</color>
     <color name="color_amoled_text_tertiary">#80FFFFFF</color>
+
+    <!-- Upstream v26.11.24 switch palette. -->
+    <color name="telegram_switch_track_off">#E2E8F0</color>
+    <color name="telegram_switch_thumb_off">#FFFFFF</color>
+
+    <!-- Restored upstream v26.11.24 spinner palette. -->
+    <color name="spinner_dropdown_bg">#F2F4F7</color>
+
+    <color name="spinner_dropdown_stroke">#CBD5E1</color>
+
+    <color name="spinner_dropdown_arrow">#64748B</color>
+
+
+
 </resources>

@@ -1957,6 +1957,14 @@ public class SingBoxOptions {
 
         public String certificate_path;
 
+        public String client_certificate;
+
+        public String client_certificate_path;
+
+        public String client_key;
+
+        public String client_key_path;
+
         public List<String> certificate_sha256;
 
         public List<String> certificate_public_key_sha256;
@@ -4631,6 +4639,40 @@ public class SingBoxOptions {
         public String idle_timeout;
 
         public Boolean interrupt_exist_connections;
+
+    }
+
+    public static class Outbound_AutoSelectOptions extends Outbound {
+
+        public List<String> outbounds;
+
+        public String url;
+
+        public String selection_mode;
+
+        public Boolean balance_enabled;
+
+        public String balance_mode;
+
+        public String balance_interval;
+
+        public String check_interval;
+
+        public Integer tolerance;
+
+        public Boolean interrupt_exist_connections;
+
+        public Boolean learn_from_connections;
+
+        public List<List<String>> tiers;
+
+        public Map<String, Integer> initial_delays;
+
+        public Boolean fallback_auto_revert;
+
+        public Integer fallback_max_fails;
+
+        public Integer probe_timeout_ms;
 
     }
 

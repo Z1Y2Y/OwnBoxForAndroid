@@ -4,6 +4,10 @@ import androidx.annotation.NonNull;
 
 import com.esotericsoftware.kryo.io.ByteBufferInput;
 import com.esotericsoftware.kryo.io.ByteBufferOutput;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -17,6 +21,7 @@ public class BalancerBean extends InternalBean {
 
     public static final int TYPE_LIST = 0;
     public static final int TYPE_GROUP = 1;
+    public static final int TYPE_MIXED = 2;
 
     public static final String STRATEGY_LEAST_PING = "leastPing";
     public static final String STRATEGY_LEAST_LOAD = "leastLoad";
@@ -28,18 +33,22 @@ public class BalancerBean extends InternalBean {
     public static final String STRATEGY_CONSISTENT_HASH = "consistent_hash";
     public static final String STRATEGY_CONSISTENT_HASH_CAMEL = "consistentHash";
 
+    public static final String SELECTION_LATENCY = "latency";
+    public static final String SELECTION_PRIORITY = "priority";
+    public static final String SELECTION_FALLBACK = "fallback";
+    public static final String BALANCE_TIMED_ROTATION = "timed_rotation";
+    public static final String BALANCE_PER_CONNECTION = "per_connection";
+
     public int balancerType = TYPE_LIST; // 0 = list, 1 = group
     public long targetGroupId = 0L;
     public List<Long> targetGroupIds = new ArrayList<>();
     public List<Long> proxies = new ArrayList<>();
-    public String strategy = STRATEGY_LEAST_PING;
+    public String strategy = SELECTION_LATENCY;
     public String testUrl = "";
     public int interval = 300;
-    public int tolerance = 50;
+    public int tolerance = 30;
     public String toleranceUnit = "ms";
     // v4 fields
-    public boolean useFrontProxy = false;
-    public boolean useLandingProxy = false;
     public String nameExclude = "";
     public String nameInclude = "";
     // v5 fields
@@ -47,6 +56,89 @@ public class BalancerBean extends InternalBean {
     public long landingProxy = -1L;
     // v6 fields
     public boolean stickyByApp = false;
+    // v6 unified auto-select fields
+    public String selectionMode = SELECTION_LATENCY;
+    public boolean balanceEnabled = false;
+    public String balanceMode = BALANCE_TIMED_ROTATION;
+    public int balanceIntervalSec = 30;
+    public String countryFilter = "";
+    public boolean interruptOnSwitch = false;
+    public boolean learnFromConnections = true;
+    // v7 priority tiers
+    public List<PriorityTier> tiers = new ArrayList<>();
+    // v9 fallback fields
+    public boolean fallbackAutoRevert = true;
+    public int fallbackMaxFails = 2;
+
+    public static class PriorityTier {
+        public long groupId = -1L;
+        public String nameFilter = "";
+
+        public PriorityTier() {
+        }
+
+        public PriorityTier(long groupId, String nameFilter) {
+            this.groupId = groupId;
+            this.nameFilter = nameFilter != null ? nameFilter : "";
+        }
+
+        public PriorityTier copy() {
+            return new PriorityTier(groupId, nameFilter);
+        }
+
+        public boolean matchesAll() {
+            return groupId <= 0L && (nameFilter == null || nameFilter.trim().isEmpty());
+        }
+    }
+
+    public static String tiersToJson(List<PriorityTier> list) {
+        if (list == null || list.isEmpty()) {
+            return "[]";
+        }
+        JsonArray arr = new JsonArray();
+        for (PriorityTier t : list) {
+            if (t == null) continue;
+            JsonObject obj = new JsonObject();
+            obj.addProperty("groupId", t.groupId);
+            obj.addProperty("nameFilter", t.nameFilter != null ? t.nameFilter : "");
+            arr.add(obj);
+        }
+        return arr.toString();
+    }
+
+    public static List<PriorityTier> parseTiersJson(String json) {
+        List<PriorityTier> out = new ArrayList<>();
+        if (json == null || json.trim().isEmpty()) {
+            return out;
+        }
+        try {
+            JsonElement parsed = JsonParser.parseString(json);
+            if (!parsed.isJsonArray()) {
+                return out;
+            }
+            for (JsonElement elem : parsed.getAsJsonArray()) {
+                if (!elem.isJsonObject()) continue;
+                JsonObject obj = elem.getAsJsonObject();
+                long gid = obj.has("groupId") && obj.get("groupId").isJsonPrimitive()
+                        ? obj.get("groupId").getAsLong()
+                        : -1L;
+                String filter = obj.has("nameFilter") && obj.get("nameFilter").isJsonPrimitive()
+                        ? obj.get("nameFilter").getAsString()
+                        : "";
+                out.add(new PriorityTier(gid, filter));
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    public boolean isPriorityMode() {
+        return SELECTION_PRIORITY.equals(selectionMode);
+    }
+
+    public boolean isFallbackMode() {
+        return SELECTION_FALLBACK.equals(selectionMode);
+    }
 
     public long calculateToleranceMs() {
         long value = tolerance;
@@ -70,30 +162,31 @@ public class BalancerBean extends InternalBean {
 
     @Override
     public String displayAddress() {
-        String stratName;
-        if (STRATEGY_LEAST_PING.equals(strategy)) {
-            stratName = "最低延迟";
-        } else if (STRATEGY_LEAST_LOAD.equals(strategy)) {
-            stratName = "最低负载";
-        } else if (STRATEGY_RANDOM.equals(strategy)) {
-            stratName = "随机选择";
-        } else if (STRATEGY_ROUND_ROBIN.equals(strategy) || STRATEGY_ROUND_ROBIN_LEGACY.equals(strategy)) {
-            stratName = "轮询";
-        } else if (STRATEGY_FAILOVER.equals(strategy)) {
-            stratName = "故障转移";
-        } else if (STRATEGY_STABLE.equals(strategy)) {
-            stratName = "最稳定";
-        } else if (STRATEGY_CONSISTENT_HASH.equals(strategy) || STRATEGY_CONSISTENT_HASH_CAMEL.equals(strategy)) {
-            stratName = "一致性哈希";
+        StringBuilder stratBuilder = new StringBuilder();
+        if (isFallbackMode()) {
+            stratBuilder.append("故障转移");
+        } else if (isPriorityMode()) {
+            stratBuilder.append("按优先级");
         } else {
-            stratName = strategy != null ? strategy : STRATEGY_LEAST_PING;
+            stratBuilder.append("最快最稳");
         }
+        if (isPriorityMode() && tiers != null && !tiers.isEmpty()) {
+            stratBuilder.append(" · ").append(tiers.size()).append("层级");
+        }
+        if (!isFallbackMode() && balanceEnabled) {
+            stratBuilder.append(" · 流量分配");
+        }
+        String stratName = stratBuilder.toString();
         if (balancerType == TYPE_GROUP) {
             int gCount = targetGroupIds != null && !targetGroupIds.isEmpty() ? targetGroupIds.size() : (targetGroupId > 0 ? 1 : 0);
-            return "分组 " + gCount + (stratName != null && !stratName.isEmpty() ? " · " + stratName : "");
+            return "分组 " + gCount + " · " + stratName;
+        } else if (balancerType == TYPE_MIXED) {
+            int gCount = targetGroupIds != null && !targetGroupIds.isEmpty() ? targetGroupIds.size() : (targetGroupId > 0 ? 1 : 0);
+            int pCount = proxies != null ? proxies.size() : 0;
+            return "混合 " + gCount + "+" + pCount + " · " + stratName;
         } else {
             int count = proxies != null ? proxies.size() : 0;
-            return "节点 " + count + (stratName != null && !stratName.isEmpty() ? " · " + stratName : "");
+            return "节点 " + count + " · " + stratName;
         }
     }
 
@@ -101,6 +194,10 @@ public class BalancerBean extends InternalBean {
         if (balancerType == TYPE_GROUP) {
             int gCount = targetGroupIds != null && !targetGroupIds.isEmpty() ? targetGroupIds.size() : (targetGroupId > 0 ? 1 : 0);
             return "分组 " + gCount;
+        } else if (balancerType == TYPE_MIXED) {
+            int gCount = targetGroupIds != null && !targetGroupIds.isEmpty() ? targetGroupIds.size() : (targetGroupId > 0 ? 1 : 0);
+            int pCount = proxies != null ? proxies.size() : 0;
+            return "混合 " + gCount + "+" + pCount;
         } else {
             int count = proxies != null ? proxies.size() : 0;
             return "节点 " + count;
@@ -108,19 +205,67 @@ public class BalancerBean extends InternalBean {
     }
 
     public String displayWithNodeName(String nodeName) {
+        String prefix;
         if (balancerType == TYPE_GROUP) {
             int gCount = targetGroupIds != null && !targetGroupIds.isEmpty() ? targetGroupIds.size() : (targetGroupId > 0 ? 1 : 0);
-            if (nodeName != null && !nodeName.trim().isEmpty()) {
-                return "分组 " + gCount + " · " + nodeName.trim();
-            }
-            return "分组 " + gCount;
+            prefix = "分组 " + gCount;
+        } else if (balancerType == TYPE_MIXED) {
+            int gCount = targetGroupIds != null && !targetGroupIds.isEmpty() ? targetGroupIds.size() : (targetGroupId > 0 ? 1 : 0);
+            int pCount = proxies != null ? proxies.size() : 0;
+            prefix = "混合 " + gCount + "+" + pCount;
         } else {
             int count = proxies != null ? proxies.size() : 0;
-            if (nodeName != null && !nodeName.trim().isEmpty()) {
-                return "节点 " + count + " · " + nodeName.trim();
-            }
-            return "节点 " + count;
+            prefix = "节点 " + count;
         }
+        if (nodeName != null && !nodeName.trim().isEmpty()) {
+            return prefix + " · " + nodeName.trim();
+        }
+        return prefix;
+    }
+
+    private static String nonNullString(String value) {
+        return value != null ? value : "";
+    }
+
+    private void resetActiveStrategyDefaults() {
+        selectionMode = SELECTION_LATENCY;
+        balanceEnabled = false;
+        balanceMode = BALANCE_TIMED_ROTATION;
+        balanceIntervalSec = 30;
+        countryFilter = "";
+        interruptOnSwitch = false;
+        learnFromConnections = true;
+        tiers = new ArrayList<>();
+        fallbackAutoRevert = true;
+        fallbackMaxFails = 2;
+    }
+
+    private void migrateLegacyStrategy(String rawStrategy) {
+        resetActiveStrategyDefaults();
+        String norm = rawStrategy != null ? rawStrategy.trim() : "";
+        if (STRATEGY_FAILOVER.equals(norm) || SELECTION_PRIORITY.equals(norm)) {
+            selectionMode = SELECTION_PRIORITY;
+            balanceEnabled = false;
+            balanceMode = BALANCE_TIMED_ROTATION;
+        } else if (STRATEGY_ROUND_ROBIN.equals(norm)
+                || STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)
+                || STRATEGY_RANDOM.equals(norm)
+                || STRATEGY_LEAST_LOAD.equals(norm)) {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = true;
+            balanceMode = BALANCE_PER_CONNECTION;
+        } else if (STRATEGY_CONSISTENT_HASH.equals(norm)
+                || STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = true;
+            balanceMode = BALANCE_TIMED_ROTATION;
+            learnFromConnections = true;
+        } else {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = false;
+            balanceMode = BALANCE_TIMED_ROTATION;
+        }
+        strategy = selectionMode;
     }
 
     @Override
@@ -129,29 +274,55 @@ public class BalancerBean extends InternalBean {
         if (name == null) name = "";
         if (proxies == null) proxies = new ArrayList<>();
         if (targetGroupIds == null) targetGroupIds = new ArrayList<>();
-        if (strategy == null || strategy.isEmpty()) strategy = STRATEGY_LEAST_PING;
+        if (tiers == null) tiers = new ArrayList<>();
+        if (selectionMode == null || selectionMode.isEmpty()) {
+            if (SELECTION_FALLBACK.equals(strategy)) {
+                selectionMode = SELECTION_FALLBACK;
+            } else if (SELECTION_PRIORITY.equals(strategy) || STRATEGY_FAILOVER.equals(strategy)) {
+                selectionMode = SELECTION_PRIORITY;
+            } else {
+                selectionMode = SELECTION_LATENCY;
+            }
+        } else if (!SELECTION_LATENCY.equals(selectionMode) && !SELECTION_PRIORITY.equals(selectionMode) && !SELECTION_FALLBACK.equals(selectionMode)) {
+            selectionMode = SELECTION_LATENCY;
+        }
+        strategy = selectionMode;
+        if (balanceMode == null || (!BALANCE_TIMED_ROTATION.equals(balanceMode) && !BALANCE_PER_CONNECTION.equals(balanceMode))) {
+            balanceMode = BALANCE_TIMED_ROTATION;
+        }
+        if (balanceIntervalSec <= 0) balanceIntervalSec = 30;
+        if (countryFilter == null) countryFilter = "";
         if (testUrl == null) testUrl = "";
         if (interval <= 0) interval = 300;
-        if (tolerance < 0) tolerance = 300;
+        if (tolerance < 0) tolerance = 30;
         if (toleranceUnit == null || toleranceUnit.isEmpty()) toleranceUnit = "ms";
         if (nameExclude == null) nameExclude = "";
         if (nameInclude == null) nameInclude = "";
         if (frontProxy == 0L) frontProxy = -1L;
         if (landingProxy == 0L) landingProxy = -1L;
+        if (fallbackMaxFails <= 0) fallbackMaxFails = 2;
     }
 
     @Override
     public void serialize(ByteBufferOutput output) {
-        output.writeInt(6); // version
+        String effectiveSelection = SELECTION_FALLBACK.equals(selectionMode)
+                ? SELECTION_FALLBACK
+                : (SELECTION_PRIORITY.equals(selectionMode) ? SELECTION_PRIORITY : SELECTION_LATENCY);
+        strategy = effectiveSelection;
+
+        output.writeInt(10); // version
         output.writeInt(balancerType);
         output.writeLong(targetGroupId);
         output.writeString(strategy);
-        output.writeString(testUrl);
+        output.writeString(nonNullString(testUrl));
         output.writeInt(interval);
 
+        if (proxies == null) {
+            proxies = new ArrayList<>();
+        }
         output.writeInt(proxies.size());
         for (Long proxy : proxies) {
-            output.writeLong(proxy);
+            output.writeLong(proxy != null ? proxy : 0L);
         }
 
         if (targetGroupIds == null) {
@@ -159,19 +330,33 @@ public class BalancerBean extends InternalBean {
         }
         output.writeInt(targetGroupIds.size());
         for (Long gid : targetGroupIds) {
-            output.writeLong(gid);
+            output.writeLong(gid != null ? gid : 0L);
         }
         output.writeInt(tolerance);
         output.writeString(toleranceUnit != null ? toleranceUnit : "ms");
-        // v4 fields
-        output.writeBoolean(useFrontProxy);
-        output.writeBoolean(useLandingProxy);
-        output.writeString(nameExclude != null ? nameExclude : "");
-        output.writeString(nameInclude != null ? nameInclude : "");
-        // v5 fields
+        output.writeString(nonNullString(nameExclude));
+        output.writeString(nonNullString(nameInclude));
         output.writeLong(frontProxy);
         output.writeLong(landingProxy);
-        // v6 fields
+        output.writeString(effectiveSelection);
+        output.writeBoolean(balanceEnabled);
+        output.writeString(balanceMode != null ? balanceMode : BALANCE_TIMED_ROTATION);
+        output.writeInt(balanceIntervalSec);
+        output.writeString(nonNullString(countryFilter));
+        output.writeBoolean(interruptOnSwitch);
+        output.writeBoolean(learnFromConnections);
+
+        if (tiers == null) {
+            tiers = new ArrayList<>();
+        }
+        output.writeInt(tiers.size());
+        for (PriorityTier tier : tiers) {
+            output.writeLong(tier != null ? tier.groupId : -1L);
+            output.writeString(tier != null && tier.nameFilter != null ? tier.nameFilter : "");
+        }
+        output.writeBoolean(fallbackAutoRevert);
+        output.writeInt(fallbackMaxFails > 0 ? fallbackMaxFails : 2);
+        // v10 MyBox extension; previous upstream v1-v9 layouts remain readable.
         output.writeBoolean(stickyByApp);
     }
 
@@ -182,7 +367,7 @@ public class BalancerBean extends InternalBean {
             balancerType = input.readInt();
             targetGroupId = input.readLong();
             strategy = input.readString();
-            testUrl = input.readString();
+            testUrl = nonNullString(input.readString());
             interval = input.readInt();
 
             int length = input.readInt();
@@ -204,19 +389,54 @@ public class BalancerBean extends InternalBean {
             if (version >= 3) {
                 tolerance = input.readInt();
                 toleranceUnit = input.readString();
+                if (toleranceUnit == null || toleranceUnit.isEmpty()) {
+                    toleranceUnit = "ms";
+                }
             } else {
-                tolerance = 300;
+                tolerance = 50;
                 toleranceUnit = "ms";
             }
 
+            if (version >= 8) {
+                nameExclude = nonNullString(input.readString());
+                nameInclude = nonNullString(input.readString());
+                frontProxy = input.readLong();
+                landingProxy = input.readLong();
+                selectionMode = input.readString();
+                balanceEnabled = input.readBoolean();
+                balanceMode = input.readString();
+                if (!BALANCE_PER_CONNECTION.equals(balanceMode)) {
+                    balanceMode = BALANCE_TIMED_ROTATION;
+                }
+                balanceIntervalSec = input.readInt();
+                countryFilter = nonNullString(input.readString());
+                interruptOnSwitch = input.readBoolean();
+                learnFromConnections = input.readBoolean();
+                if (!SELECTION_PRIORITY.equals(selectionMode) && !SELECTION_FALLBACK.equals(selectionMode)) {
+                    selectionMode = SELECTION_LATENCY;
+                }
+                strategy = selectionMode;
+                readTiers(input);
+                if (version >= 9) {
+                    fallbackAutoRevert = input.readBoolean();
+                    fallbackMaxFails = input.readInt();
+                    if (fallbackMaxFails <= 0) {
+                        fallbackMaxFails = 2;
+                    }
+                    stickyByApp = version >= 10 && input.readBoolean();
+                } else {
+                    fallbackAutoRevert = true;
+                    fallbackMaxFails = 2;
+                }
+                return;
+            }
+
             if (version >= 4) {
-                useFrontProxy = input.readBoolean();
-                useLandingProxy = input.readBoolean();
-                nameExclude = input.readString();
-                nameInclude = input.readString();
+                input.readBoolean(); // legacy useFrontProxy
+                input.readBoolean(); // legacy useLandingProxy
+                nameExclude = nonNullString(input.readString());
+                nameInclude = nonNullString(input.readString());
             } else {
-                useFrontProxy = false;
-                useLandingProxy = false;
                 nameExclude = "";
                 nameInclude = "";
             }
@@ -229,11 +449,71 @@ public class BalancerBean extends InternalBean {
                 landingProxy = -1L;
             }
 
-            if (version >= 6) {
-                stickyByApp = input.readBoolean();
-            } else {
-                stickyByApp = false;
+            if (version == 6 && input.position() < input.limit()) {
+                // Both schemas share the v4/v5 prefix. MyBox v6 ends after the
+                // front/landing IDs with stickyByApp; upstream v6 continues with a
+                // Kryo selection-mode string, whose encoded first byte is not 0 or 1.
+                int nextByte = input.getBuffer()[input.position()] & 0xff;
+                if (nextByte <= 1) {
+                    stickyByApp = input.readBoolean();
+                    migrateLegacyStrategy(strategy);
+                    fallbackAutoRevert = true;
+                    fallbackMaxFails = 2;
+                    tiers = new ArrayList<>();
+                    return;
+                }
             }
+            if (version >= 6) {
+                selectionMode = input.readString();
+                balanceEnabled = input.readBoolean();
+                balanceMode = input.readString();
+                if (!BALANCE_PER_CONNECTION.equals(balanceMode)) {
+                    balanceMode = BALANCE_TIMED_ROTATION;
+                }
+                balanceIntervalSec = input.readInt();
+                countryFilter = nonNullString(input.readString());
+                input.readInt(); // legacy runTopN
+                input.readInt(); // legacy rankTopN
+                input.readInt(); // legacy resultTrustMinutes
+                input.readBoolean(); // legacy skipFailedWithinTrust
+                input.readInt(); // legacy standbySize
+                input.readInt(); // legacy intensiveCheckCount
+                input.readInt(); // legacy fullScanIntervalSec
+                input.readInt(); // legacy watchIntervalSec
+                input.readInt(); // legacy sampleCount
+                input.readInt(); // legacy maxRttMs
+                input.readInt(); // legacy dialRetries
+                interruptOnSwitch = input.readBoolean();
+                input.readInt(); // legacy failbackChecks
+                input.readInt(); // legacy failbackDelaySec
+                input.readBoolean(); // legacy interruptOnFailback
+                learnFromConnections = input.readBoolean();
+                input.readInt(); // legacy siteStickyMinutes
+                input.readString(); // legacy connectivityUrl
+                if (!SELECTION_PRIORITY.equals(selectionMode) && !SELECTION_FALLBACK.equals(selectionMode)) {
+                    selectionMode = SELECTION_LATENCY;
+                }
+                strategy = selectionMode;
+            } else {
+                migrateLegacyStrategy(strategy);
+            }
+
+            fallbackAutoRevert = true;
+            fallbackMaxFails = 2;
+            tiers = new ArrayList<>();
+            if (version >= 7) {
+                readTiers(input);
+            }
+        }
+    }
+
+    private void readTiers(ByteBufferInput input) {
+        tiers = new ArrayList<>();
+        int tCount = input.readInt();
+        for (int i = 0; i < tCount; i++) {
+            long gId = input.readLong();
+            String filter = nonNullString(input.readString());
+            tiers.add(new PriorityTier(gId, filter));
         }
     }
 

@@ -15,7 +15,6 @@ import androidx.appcompat.widget.TooltipCompat
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.whenStarted
 import com.google.android.material.bottomappbar.BottomAppBar
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.bg.BaseService
@@ -28,6 +27,7 @@ import io.nekohasekai.sagernet.utils.LandingIpManager
 import io.nekohasekai.sagernet.utils.Theme
 import io.nekohasekai.sagernet.utils.UiScaleManager
 import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,8 +41,9 @@ class StatsBar @JvmOverloads constructor(
     defStyleAttr: Int = R.attr.bottomAppBarStyle,
 ) : BottomAppBar(context, attrs, defStyleAttr) {
     companion object {
-        private const val INITIAL_HIDE_DELAY_MS = 100L
         private const val SCROLL_TOGGLE_THRESHOLD_DP = 8f
+        private const val SHOW_ANIM_DURATION_MS = 225L
+        private const val HIDE_ANIM_DURATION_MS = 175L
     }
 
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
@@ -59,7 +60,7 @@ class StatsBar @JvmOverloads constructor(
         ShowImmediate,
         ShowAnimated,
         HideImmediate,
-        HideAfterStart,
+        HideAnimated,
     }
 
     private lateinit var statusText: TextView
@@ -77,7 +78,9 @@ class StatsBar @JvmOverloads constructor(
     private lateinit var behavior: YourBehavior
     private var currentState = BaseService.State.Idle
     private var pendingTransition: Transition? = Transition.HideImmediate
-    private var transitionJob: Job? = null
+    private var isAnimatingVisibility = false
+    private var pendingDisconnectedReset = false
+    private var landingIpJob: Job? = null
 
     private var scrollHidden = false
     private var scrollDirection = 0 // 1 = hide (dy>0), -1 = show (dy<0), 0 = none
@@ -102,6 +105,13 @@ class StatsBar @JvmOverloads constructor(
 
     init {
         alpha = 0f
+        isClickable = false
+    }
+
+    private fun hiddenOffset(): Float {
+        val lp = layoutParams as? MarginLayoutParams
+        val bottomMargin = lp?.bottomMargin ?: 0
+        return (height + bottomMargin).coerceAtLeast(0).toFloat()
     }
 
     override fun getBehavior(): YourBehavior {
@@ -131,7 +141,7 @@ class StatsBar @JvmOverloads constructor(
         }
 
         override fun slideUp(child: BottomAppBar) {
-            if (!allowShow) return
+            if (!shouldShow()) return
             super.slideUp(child)
         }
     }
@@ -142,8 +152,17 @@ class StatsBar @JvmOverloads constructor(
         if (transition != null) {
             pendingTransition = null
             applyTransition(transition)
-        } else if (alpha == 0f) {
+            return
+        }
+        if (isAnimatingVisibility) {
+            return
+        }
+        if (!shouldShow() || scrollHidden) {
+            syncHiddenPosition()
+        } else {
+            translationY = 0f
             alpha = 1f
+            isClickable = true
         }
     }
 
@@ -327,7 +346,7 @@ class StatsBar @JvmOverloads constructor(
 
     private fun syncScrollHiddenFromView() {
         if (!isLaidOut || height <= 0) return
-        scrollHidden = translationY >= height / 2f
+        scrollHidden = translationY >= hiddenOffset() / 2f
     }
 
     fun onListScrolled(dy: Int) {
@@ -351,7 +370,7 @@ class StatsBar @JvmOverloads constructor(
 
         scrollHidden = wantHidden
         scrollAccumulatedDy = 0
-        if (wantHidden) performHide() else performShow()
+        if (wantHidden) commitHidden(animated = true) else commitVisible(animated = true)
     }
 
     fun syncMainControls(
@@ -361,29 +380,37 @@ class StatsBar @JvmOverloads constructor(
         animate: Boolean,
     ) {
         runOnUi {
+            val wasShowing =
+                allowShow && !scrollHidden && isLaidOut && alpha > 0f && translationY < hiddenOffset() - 1f
+            val alreadyAnimatingHide = isAnimatingVisibility && scrollHidden
             currentState = state
             allowShow = showControls
             when {
                 !showControls || state != BaseService.State.Connected -> {
+                    if (animate && alreadyAnimatingHide) return@runOnUi
                     applyTransition(
-                        if (animate && showControls) Transition.HideAfterStart else Transition.HideImmediate
+                        if (animate && wasShowing) Transition.HideAnimated else Transition.HideImmediate
                     )
                 }
 
                 showWhenConnected -> applyTransition(
                     if (animate) Transition.ShowAnimated else Transition.ShowImmediate
                 )
-                alpha == 0f && isLaidOut -> alpha = 1f
+                !isAnimatingVisibility && !scrollHidden && isLaidOut -> commitVisible(animated = false)
             }
         }
     }
 
     private fun applyTransition(transition: Transition) {
-        if (transition == Transition.HideImmediate && hasPendingDelayedHide()) return
         cancelPendingTransition()
         if (!isLaidOut || height == 0) {
             pendingTransition = transition
-            alpha = if (transition == Transition.HideImmediate && !allowShow) 0f else 1f
+            if (transition == Transition.HideImmediate || transition == Transition.HideAnimated) {
+                alpha = 0f
+                isClickable = false
+            } else {
+                alpha = 1f
+            }
             return
         }
         pendingTransition = null
@@ -391,73 +418,77 @@ class StatsBar @JvmOverloads constructor(
             Transition.ShowImmediate -> commitVisible(animated = false)
             Transition.ShowAnimated -> commitVisible(animated = true)
             Transition.HideImmediate -> commitHidden(animated = false)
-            Transition.HideAfterStart -> commitHidden(animated = true)
+            Transition.HideAnimated -> commitHidden(animated = true)
         }
     }
 
     private fun commitVisible(animated: Boolean) {
-        alpha = 1f
         scrollHidden = false
         resetScrollDriverState()
-        if (animated) {
-            performShow()
-        } else {
-            getBehavior().slideUp(this)
-            animate().cancel()
+        isClickable = true
+        alpha = 1f
+        getBehavior().slideUp(this)
+        animate().setListener(null).withEndAction(null).cancel()
+        if (!animated || !isLaidOut || height <= 0) {
+            isAnimatingVisibility = false
             translationY = 0f
+            return
         }
+        isAnimatingVisibility = true
+        animate()
+            .translationY(0f)
+            .setDuration(SHOW_ANIM_DURATION_MS)
+            .withEndAction {
+                isAnimatingVisibility = false
+                if (shouldShow() && !scrollHidden) {
+                    translationY = 0f
+                    alpha = 1f
+                    isClickable = true
+                } else {
+                    syncHiddenPosition()
+                }
+            }
+            .start()
     }
 
     private fun commitHidden(animated: Boolean) {
-        alpha = 1f
         scrollHidden = true
         resetScrollDriverState()
-        if (!animated) {
+        isClickable = false
+        animate().setListener(null).withEndAction(null).cancel()
+        if (!animated || !isLaidOut || height <= 0) {
             syncHiddenPosition()
             return
         }
-        val activity = context as? MainActivity
-        if (activity == null) {
-            post {
-                if (shouldShow()) {
-                    commitVisible(animated = false)
-                } else if (isLaidOut && height > 0) {
-                    performHide()
+        isAnimatingVisibility = true
+        val targetY = hiddenOffset()
+        animate()
+            .translationY(targetY)
+            .setDuration(HIDE_ANIM_DURATION_MS)
+            .withEndAction {
+                isAnimatingVisibility = false
+                if (!shouldShow() || scrollHidden) {
+                    syncHiddenPosition()
                 } else {
-                    pendingTransition = Transition.HideAfterStart
+                    commitVisible(animated = false)
                 }
             }
-            return
-        }
-        transitionJob = activity.lifecycleScope.launch(Dispatchers.Main) {
-            delay(INITIAL_HIDE_DELAY_MS)
-            activity.whenStarted {
-                transitionJob = null
-                if (shouldShow()) {
-                    commitVisible(animated = false)
-                } else if (isLaidOut && height > 0) {
-                    performHide()
-                } else {
-                    pendingTransition = Transition.HideAfterStart
-                }
-            }
-        }
+            .start()
     }
 
     private fun syncHiddenPosition() {
+        isAnimatingVisibility = false
         getBehavior().slideDown(this)
-        animate().cancel()
-        translationY = height.toFloat()
-        alpha = 1f
+        animate().setListener(null).withEndAction(null).cancel()
+        alpha = 0f
+        isClickable = false
+        resetDisconnectedViews()
+        translationY = hiddenOffset()
     }
 
     private fun cancelPendingTransition() {
-        transitionJob?.cancel()
-        transitionJob = null
-    }
-
-    private fun hasPendingDelayedHide(): Boolean {
-        return pendingTransition == Transition.HideAfterStart || transitionJob != null
+        isAnimatingVisibility = false
+        animate().setListener(null).withEndAction(null).cancel()
     }
 
     private var lastMeasuredLatency: Int = -1
@@ -525,6 +556,7 @@ class StatsBar @JvmOverloads constructor(
                     when (currentState) {
                         BaseService.State.Connecting -> R.string.connecting
                         BaseService.State.Stopping -> R.string.stopping
+                        BaseService.State.Suspended -> R.string.service_suspended
                         else -> R.string.not_connected
                     }
                 )
@@ -552,11 +584,22 @@ class StatsBar @JvmOverloads constructor(
         }
     }
 
+    private fun resetDisconnectedViews() {
+        if (!pendingDisconnectedReset) return
+        pendingDisconnectedReset = false
+        if (currentState != BaseService.State.Connected && !DataStore.serviceState.connected) {
+            btnIpDetail?.visibility = View.GONE
+            updateSpeed(0, 0)
+            updateStatusViews()
+        }
+    }
+
     fun changeState(state: BaseService.State) {
         runOnUi {
             currentState = state
             updateHideOnScroll()
             if (state == BaseService.State.Connected) {
+                pendingDisconnectedReset = false
                 btnIpDetail?.visibility = if (DataStore.showLandingIp) View.VISIBLE else View.GONE
                 updateStatusViews()
                 if (DataStore.showLandingIp) {
@@ -564,11 +607,16 @@ class StatsBar @JvmOverloads constructor(
                 }
                 testConnection(silent = true)
             } else {
-                btnIpDetail?.visibility = View.GONE
                 resetLatencyState()
+                landingIpJob?.cancel()
+                landingIpJob = null
                 LandingIpManager.clearCache()
-                updateSpeed(0, 0)
-                updateStatusViews()
+                pendingDisconnectedReset = true
+                val isVisiblyOnScreen =
+                    isLaidOut && alpha > 0f && translationY < hiddenOffset() - 1f
+                if (!isVisiblyOnScreen && !isAnimatingVisibility) {
+                    resetDisconnectedViews()
+                }
             }
         }
     }
@@ -577,6 +625,8 @@ class StatsBar @JvmOverloads constructor(
         runOnUi {
             if (currentState != BaseService.State.Connected && !DataStore.serviceState.connected) return@runOnUi
             if (!DataStore.showLandingIp) {
+                landingIpJob?.cancel()
+                landingIpJob = null
                 btnIpDetail?.visibility = View.GONE
                 statusIpText.visibility = View.GONE
                 updateStatusViews()
@@ -589,6 +639,9 @@ class StatsBar @JvmOverloads constructor(
                 updateStatusViews()
                 return@runOnUi
             }
+            if (!forceRefresh && landingIpJob?.isActive == true) {
+                return@runOnUi
+            }
 
             btnIpDetail?.visibility = View.VISIBLE
             if (forceRefresh || cached == null) {
@@ -596,10 +649,17 @@ class StatsBar @JvmOverloads constructor(
                 statusIpText.visibility = View.VISIBLE
             }
 
+            landingIpJob?.cancel()
             val activity = context as? MainActivity
             val scope = activity?.lifecycleScope ?: CoroutineScope(Dispatchers.Main)
-            scope.launch {
-                val result = LandingIpManager.queryLandingIp(currentProfile, forceRefresh = forceRefresh) { intermediateInfo ->
+            landingIpJob = scope.launch {
+                if (forceRefresh) {
+                    delay(120L)
+                }
+                if (currentState != BaseService.State.Connected && !DataStore.serviceState.connected) return@launch
+                if (!DataStore.showLandingIp) return@launch
+                val profileForQuery = DataStore.selectedProxy
+                val result = LandingIpManager.queryLandingIp(profileForQuery, forceRefresh = forceRefresh) { intermediateInfo ->
                     runOnUi {
                         if ((currentState == BaseService.State.Connected || DataStore.serviceState.connected) && DataStore.showLandingIp) {
                             statusIpText.text = "${intermediateInfo.countryFlag} ${intermediateInfo.countryCode} ${intermediateInfo.ip}"
@@ -619,6 +679,12 @@ class StatsBar @JvmOverloads constructor(
                     btnIpDetail?.visibility = View.VISIBLE
                     updateStatusViews()
                 }.onFailure { err ->
+                    if (err is CancellationException ||
+                        err.message == "Landing IP query superseded" ||
+                        err.message == "Landing IP query already in progress"
+                    ) {
+                        return@launch
+                    }
                     Logs.w(err)
                     btnIpDetail?.visibility = View.VISIBLE
                     updateStatusViews()

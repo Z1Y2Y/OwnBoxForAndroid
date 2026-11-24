@@ -36,130 +36,10 @@ class ConfigBuilderLoadBalanceTest {
     }
 
     @Test
-    fun perAppStickyOptionIsOptInAndSurvivesBeanSerialization() {
-        val defaultConfig = buildLoadBalanceOutbound(listOf("node1", "node2"), "random").asMap()
-        assertFalse(defaultConfig.containsKey("sticky_by_app"))
-
-        val stickyConfig = buildLoadBalanceOutbound(
-            memberTags = listOf("node1", "node2"),
-            strategy = "random",
-            stickyByApp = true
-        ).asMap()
-        assertEquals(true, stickyConfig["sticky_by_app"])
-
-        val bean = io.nekohasekai.sagernet.fmt.internal.BalancerBean().apply {
-            stickyByApp = true
-        }
-        assertTrue(bean.clone().stickyByApp)
-
-        val fixedSingleNode = buildSelectorOutbound("selected-node", listOf("selected-node")).asMap()
-        assertEquals("selector", fixedSingleNode["type"])
-        assertEquals("selected-node", fixedSingleNode["default"])
-        assertEquals(listOf("selected-node"), fixedSingleNode["outbounds"])
-        assertFalse(fixedSingleNode.containsKey("sticky_by_app"))
-    }
-
-    @Test
-    fun legacyBalancerV5ConfigDefaultsPerAppStickyToFalse() {
-        val bytes = ByteArrayOutputStream()
-        val output = ByteBufferOutput(bytes)
-        output.writeInt(5) // legacy version
-        output.writeInt(io.nekohasekai.sagernet.fmt.internal.BalancerBean.TYPE_GROUP)
-        output.writeLong(0L)
-        output.writeString("random")
-        output.writeString("")
-        output.writeInt(300)
-        output.writeInt(0) // proxies
-        output.writeInt(0) // targetGroupIds
-        output.writeInt(50) // tolerance
-        output.writeString("ms")
-        output.writeBoolean(false) // useFrontProxy
-        output.writeBoolean(false) // useLandingProxy
-        output.writeString("") // nameExclude
-        output.writeString("") // nameInclude
-        output.writeLong(-1L) // frontProxy
-        output.writeLong(-1L) // landingProxy
-        output.writeInt(1) // AbstractBean extra fields version
-        output.writeString("legacy")
-        output.writeString("")
-        output.writeString("")
-        output.flush()
-        output.close()
-
-        val restored = io.nekohasekai.sagernet.fmt.internal.BalancerBean()
-        restored.deserializeFromBuffer(ByteBufferInput(bytes.toByteArray()))
-
-        assertFalse(restored.stickyByApp)
-    }
-
-    @Test
-    fun leastPingKeepsLegacyUrlTestUnlessPerAppStickyIsEnabled() {
-        val members = listOf("node1", "node2")
-        val url = "https://www.gstatic.com/generate_204"
-
-        val legacy = buildLeastPingBalancerOutbound(
-            memberTags = members,
-            testUrl = url,
-            intervalSec = 120,
-            toleranceMs = 75,
-            customTag = "least-ping",
-            stickyByApp = false,
-            healthyTags = listOf("node1"),
-            unavailableTags = listOf("node2")
-        ).asMap()
-        assertEquals("urltest", legacy["type"])
-        assertEquals("least-ping", legacy["tag"])
-        assertEquals(members, legacy["outbounds"])
-        assertEquals(url, legacy["url"])
-        assertEquals("120s", legacy["interval"])
-        assertEquals(75L, legacy["tolerance"])
-        assertEquals("30m", legacy["idle_timeout"])
-        assertEquals(listOf("node1"), legacy["healthy_outbounds"])
-        assertEquals(listOf("node2"), legacy["unavailable_outbounds"])
-        assertFalse(legacy.containsKey("sticky_by_app"))
-
-        val sticky = buildLeastPingBalancerOutbound(
-            memberTags = members,
-            testUrl = url,
-            intervalSec = 120,
-            toleranceMs = 75,
-            customTag = "least-ping",
-            stickyByApp = true,
-            healthyTags = listOf("node1"),
-            unavailableTags = listOf("node2")
-        ).asMap()
-        assertEquals("loadbalance", sticky["type"])
-        assertEquals("leastPing", sticky["strategy"])
-        assertEquals("least-ping", sticky["tag"])
-        assertEquals(members, sticky["outbounds"])
-        assertEquals(url, sticky["url"])
-        assertEquals("120s", sticky["interval"])
-        assertEquals(75L, sticky["tolerance"])
-        assertEquals("30m", sticky["idle_timeout"])
-        assertEquals(true, sticky["sticky_by_app"])
-        assertEquals(listOf("node1"), sticky["healthy_outbounds"])
-        assertEquals(listOf("node2"), sticky["unavailable_outbounds"])
-    }
-
-    @Test
-    fun buildUrlTestOutboundAllowsZeroTolerance() {
-        val members = listOf("node1", "node2")
-        val testUrl = "http://cp.cloudflare.com/generate_204"
-        val ut = buildUrlTestOutbound(members, testUrl = testUrl, toleranceMs = 0)
-        assertEquals(0, ut.tolerance)
-
-        val ut30 = buildUrlTestOutbound(members, testUrl = testUrl, toleranceMs = 30)
-        assertEquals(30, ut30.tolerance)
-
-        val utNull = buildUrlTestOutbound(members, testUrl = testUrl, toleranceMs = null)
-        assertEquals(50, utNull.tolerance)
-    }
-
-    @Test
-    fun balancerBeanDefaultToleranceIs50() {
+    fun balancerBeanDefaultToleranceIs30() {
         val bean = io.nekohasekai.sagernet.fmt.internal.BalancerBean()
-        assertEquals(50, bean.tolerance)
-        assertEquals(50L, bean.calculateToleranceMs())
+        assertEquals(30, bean.tolerance)
+        assertEquals(30L, bean.calculateToleranceMs())
     }
 
     @Test
@@ -195,28 +75,21 @@ class ConfigBuilderLoadBalanceTest {
     }
 
     @Test
-    fun testAllFourStrategiesInBalancerBean() {
+    fun testUnifiedModesInBalancerBean() {
         val bean = io.nekohasekai.sagernet.fmt.internal.BalancerBean()
         bean.proxies = listOf(1L, 2L, 3L)
 
-        bean.strategy = io.nekohasekai.sagernet.fmt.internal.BalancerBean.STRATEGY_LEAST_PING
-        assertEquals("节点 3 · 最低延迟", bean.displayAddress())
+        bean.selectionMode = io.nekohasekai.sagernet.fmt.internal.BalancerBean.SELECTION_LATENCY
+        bean.balanceEnabled = false
+        assertEquals("节点 3 · 最快最稳", bean.displayAddress())
         assertEquals("节点 3 · 日本 02", bean.displayWithNodeName("日本 02"))
 
-        bean.strategy = io.nekohasekai.sagernet.fmt.internal.BalancerBean.STRATEGY_LEAST_LOAD
-        assertEquals("节点 3 · 最低负载", bean.displayAddress())
+        bean.selectionMode = io.nekohasekai.sagernet.fmt.internal.BalancerBean.SELECTION_PRIORITY
+        assertEquals("节点 3 · 按优先级", bean.displayAddress())
 
-        bean.strategy = io.nekohasekai.sagernet.fmt.internal.BalancerBean.STRATEGY_RANDOM
-        assertEquals("节点 3 · 随机选择", bean.displayAddress())
-
-        bean.strategy = io.nekohasekai.sagernet.fmt.internal.BalancerBean.STRATEGY_ROUND_ROBIN
-        assertEquals("节点 3 · 轮询", bean.displayAddress())
-
-        bean.strategy = io.nekohasekai.sagernet.fmt.internal.BalancerBean.STRATEGY_CONSISTENT_HASH
-        assertEquals("节点 3 · 一致性哈希", bean.displayAddress())
-
-        bean.strategy = io.nekohasekai.sagernet.fmt.internal.BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
-        assertEquals("节点 3 · 一致性哈希", bean.displayAddress())
+        bean.selectionMode = io.nekohasekai.sagernet.fmt.internal.BalancerBean.SELECTION_LATENCY
+        bean.balanceEnabled = true
+        assertEquals("节点 3 · 最快最稳 · 流量分配", bean.displayAddress())
     }
 
     @Test

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="@string/dns_settings">
+
+        <EditTextPreference
+            app:defaultValue="https://dns.google/dns-query"
+            app:icon="@drawable/solar_global_linear"
+            app:key="remoteDns"
+            app:title="@string/remote_dns"
+            app:useSimpleSummaryProvider="true" />
+
+        <Preference
+            app:icon="@drawable/solar_checklist_minimalistic_linear"
+            app:key="remoteDnsPresets"
+            app:summary="@string/remote_dns_presets_summary"
+            app:title="@string/remote_dns_presets" />
+
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:defaultValue="auto"
+            app:entries="@array/dns_network_select"
+            app:entryValues="@array/dns_network_select"
+            app:icon="@drawable/solar_tuning_square_2_linear"
+            app:key="domain_strategy_for_remote"
+            app:title="@string/domain_strategy_for_remote"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="https://223.5.5.5/dns-query"
+            app:icon="@drawable/solar_map_point_wave_linear"
+            app:key="directDns"
+            app:title="@string/direct_dns"
+            app:useSimpleSummaryProvider="true" />
+
+        <Preference
+            app:icon="@drawable/solar_checklist_minimalistic_linear"
+            app:key="directDnsPresets"
+            app:summary="@string/direct_dns_presets_summary"
+            app:title="@string/direct_dns_presets" />
+
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:defaultValue="auto"
+            app:entries="@array/dns_network_select"
+            app:entryValues="@array/dns_network_select"
+            app:icon="@drawable/solar_tuning_linear"
+            app:key="domain_strategy_for_direct"
+            app:title="@string/domain_strategy_for_direct"
+            app:useSimpleSummaryProvider="true" />
+
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:defaultValue="auto"
+            app:entries="@array/dns_network_select"
+            app:entryValues="@array/dns_network_select"
+            app:icon="@drawable/solar_server_square_linear"
+            app:key="domain_strategy_for_server"
+            app:title="@string/domain_strategy_for_server"
+            app:useSimpleSummaryProvider="true" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:icon="@drawable/solar_routing_3_linear"
+            app:key="enableDnsRouting"
+            app:summary="@string/dns_routing_message"
+            app:title="@string/enable_dns_routing" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="true"
+            app:icon="@drawable/solar_mask_happly_linear"
+            app:key="enableFakeDns"
+            app:summary="@string/fakedns_message"
+            app:title="@string/enable_fakedns" />
+
+        <EditTextPreference
+            app:defaultValue=""
+            app:dialogMessage="@string/dns_hosts_dialog_message"
+            app:icon="@drawable/solar_pen_new_square_linear"
+            app:key="dnsHosts"
+            app:title="@string/dns_hosts"
+            app:useSimpleSummaryProvider="true" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

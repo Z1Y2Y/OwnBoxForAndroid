@@ -2,12 +2,16 @@ package urltest
 
 import (
 	"context"
+	"errors"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/outbound"
+	"github.com/sagernet/sing-box/common/interrupt"
 	singUrltest "github.com/sagernet/sing-box/common/urltest"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -15,6 +19,8 @@ import (
 
 type testMockOutbound struct {
 	outbound.Adapter
+	dialFn   func(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error)
+	packetFn func(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error)
 }
 
 var _ adapter.Outbound = (*testMockOutbound)(nil)
@@ -26,10 +32,16 @@ func newTestOutbound(tag string) *testMockOutbound {
 }
 
 func (m *testMockOutbound) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	if m.dialFn != nil {
+		return m.dialFn(ctx, network, destination)
+	}
 	return nil, nil
 }
 
 func (m *testMockOutbound) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+	if m.packetFn != nil {
+		return m.packetFn(ctx, destination)
+	}
 	return nil, nil
 }
 
@@ -314,5 +326,400 @@ func TestLeastPingStrategyGroupIsolation(t *testing.T) {
 	}
 	if sel2 == nil || sel2.Tag() != "jp-02" {
 		t.Fatalf("expected grp2 to select jp-02, got %v", sel2)
+	}
+}
+
+type stubConn struct {
+	closed atomic.Bool
+}
+
+func (c *stubConn) Read(b []byte) (int, error)         { return 0, nil }
+func (c *stubConn) Write(b []byte) (int, error)        { return len(b), nil }
+func (c *stubConn) Close() error                       { c.closed.Store(true); return nil }
+func (c *stubConn) LocalAddr() net.Addr                { return nil }
+func (c *stubConn) RemoteAddr() net.Addr               { return nil }
+func (c *stubConn) SetDeadline(t time.Time) error      { return nil }
+func (c *stubConn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *stubConn) SetWriteDeadline(t time.Time) error { return nil }
+
+type stubPacketConn struct {
+	closed atomic.Bool
+}
+
+func (p *stubPacketConn) ReadFrom(b []byte) (int, net.Addr, error) { return 0, nil, nil }
+func (p *stubPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	return len(b), nil
+}
+func (p *stubPacketConn) Close() error                       { p.closed.Store(true); return nil }
+func (p *stubPacketConn) LocalAddr() net.Addr                { return nil }
+func (p *stubPacketConn) SetDeadline(t time.Time) error      { return nil }
+func (p *stubPacketConn) SetReadDeadline(t time.Time) error  { return nil }
+func (p *stubPacketConn) SetWriteDeadline(t time.Time) error { return nil }
+
+// 测试 11：容灾按最低延迟排序、防抖阈值切换、且绝不打断已建立的外部连接
+func TestDialFailoverPrefersLowestDelayAndAntiFlapPromotion(t *testing.T) {
+	tags := []string{"primary", "slow-backup", "fast-backup"}
+	grp, history, mocks := createTestURLTestGroup(tags, 50)
+	grp.interval = 3 * time.Minute
+	grp.interruptGroup = interrupt.NewGroup()
+	grp.interruptExternalConnections = true
+
+	history.StoreURLTestHistory("primary", &adapter.URLTestHistory{Time: time.Now(), Delay: 50})
+	history.StoreURLTestHistory("slow-backup", &adapter.URLTestHistory{Time: time.Now(), Delay: 300})
+	history.StoreURLTestHistory("fast-backup", &adapter.URLTestHistory{Time: time.Now(), Delay: 70})
+	grp.selectedOutboundTCP = mocks[0]
+
+	var (
+		mu          sync.Mutex
+		dialAttempt []string
+	)
+	recordAttempt := func(tag string) {
+		mu.Lock()
+		dialAttempt = append(dialAttempt, tag)
+		mu.Unlock()
+	}
+
+	mocks[0].dialFn = func(ctx context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		recordAttempt("primary")
+		return nil, errors.New("primary connection reset")
+	}
+	mocks[1].dialFn = func(ctx context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		recordAttempt("slow-backup")
+		return &stubConn{}, nil
+	}
+	fastConn1 := &stubConn{}
+	var fastCount atomic.Int32
+	mocks[2].dialFn = func(ctx context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		recordAttempt("fast-backup")
+		if fastCount.Add(1) == 1 {
+			return fastConn1, nil
+		}
+		return &stubConn{}, nil
+	}
+
+	u := &URLTest{group: grp}
+	dest := M.ParseSocksaddrHostPort("example.com", 443)
+
+	// 首次单点失败：立即容灾至延迟更低的 fast-backup（跳过 config 在前的 slow-backup），但暂不改主选防单次抖动横跳
+	extCtx := interrupt.ContextWithIsExternalConnection(context.Background(), true)
+	conn1, err := u.DialContext(extCtx, N.NetworkTCP, dest)
+	if err != nil {
+		t.Fatalf("expected failover connection 1 to succeed, got %v", err)
+	}
+	if u.Now() != "primary" {
+		t.Fatalf("expected primary to remain selected after single transient failure, got %s", u.Now())
+	}
+
+	// 第二次失败：达到阈值，自动晋升为 fast-backup，且之前建连的 fastConn1 不被掐断
+	conn2, err := u.DialContext(extCtx, N.NetworkTCP, dest)
+	if err != nil {
+		t.Fatalf("expected failover connection 2 to succeed, got %v", err)
+	}
+	_ = conn2
+	if u.Now() != "fast-backup" {
+		t.Fatalf("expected promotion to fast-backup after threshold failures, got %s", u.Now())
+	}
+	if fastConn1.closed.Load() {
+		t.Fatal("existing healthy connection must NOT be interrupted during failover promotion")
+	}
+	_ = conn1
+
+	// 第三次请求：直接命中 fast-backup，不再去撞失败的 primary
+	dialAttempt = nil
+	if _, err := u.DialContext(context.Background(), N.NetworkTCP, dest); err != nil {
+		t.Fatalf("expected third dial to succeed via promoted fast-backup, got %v", err)
+	}
+	if len(dialAttempt) != 1 || dialAttempt[0] != "fast-backup" {
+		t.Fatalf("expected direct dial to fast-backup only, got %v", dialAttempt)
+	}
+
+	// 验证原主节点测速缓存已被惩罚并过期，以便下轮探测重测而不回弹
+	penalized := history.LoadURLTestHistory("primary")
+	if penalized == nil || penalized.Delay < 1000 {
+		t.Fatalf("expected primary delay to be penalized after confirmed failover, got %+v", penalized)
+	}
+	if time.Since(penalized.Time) < grp.interval {
+		t.Fatalf("expected penalized primary history timestamp to be aged for re-probe, got %v", penalized.Time)
+	}
+}
+
+// 测试 12：调用方 Context 已取消时，不盲目轮询备用节点且不惩罚当前主选节点
+func TestDialFailoverCanceledContextSkipsBackupAndPenalty(t *testing.T) {
+	tags := []string{"primary", "backup"}
+	grp, history, mocks := createTestURLTestGroup(tags, 50)
+	grp.interruptGroup = interrupt.NewGroup()
+	grp.selectedOutboundTCP = mocks[0]
+	history.StoreURLTestHistory("primary", &adapter.URLTestHistory{Time: time.Now(), Delay: 50})
+	history.StoreURLTestHistory("backup", &adapter.URLTestHistory{Time: time.Now(), Delay: 80})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	mocks[0].dialFn = func(c context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		cancel()
+		return nil, context.Canceled
+	}
+	var backupCalled atomic.Bool
+	mocks[1].dialFn = func(c context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		backupCalled.Store(true)
+		return &stubConn{}, nil
+	}
+
+	u := &URLTest{group: grp}
+	_, err := u.DialContext(ctx, N.NetworkTCP, M.ParseSocksaddrHostPort("example.com", 443))
+	if err == nil {
+		t.Fatal("expected error when caller context is canceled")
+	}
+	if backupCalled.Load() {
+		t.Fatal("backup outbound should not be dialed after context cancellation")
+	}
+	if u.Now() != "primary" {
+		t.Fatalf("expected primary to remain selected on context cancel, got %s", u.Now())
+	}
+}
+
+// 测试 13：UDP ListenPacket 容灾晋升与并发读写竞态验证
+func TestListenPacketFailoverAndConcurrentAccess(t *testing.T) {
+	tags := []string{"udp-a", "udp-dead-backup", "udp-b"}
+	grp, history, mocks := createTestURLTestGroup(tags, 50)
+	grp.interruptGroup = interrupt.NewGroup()
+	grp.selectedOutboundUDP = mocks[0]
+	grp.selectedOutboundTCP = mocks[0]
+
+	history.StoreURLTestHistory("udp-a", &adapter.URLTestHistory{Time: time.Now(), Delay: 40})
+	history.StoreURLTestHistory("udp-dead-backup", &adapter.URLTestHistory{Time: time.Now(), Delay: 60})
+	history.StoreURLTestHistory("udp-b", &adapter.URLTestHistory{Time: time.Now(), Delay: 70})
+
+	mocks[0].packetFn = func(ctx context.Context, dest M.Socksaddr) (net.PacketConn, error) {
+		return nil, errors.New("udp primary failed")
+	}
+	mocks[1].packetFn = func(ctx context.Context, dest M.Socksaddr) (net.PacketConn, error) {
+		return nil, errors.New("udp backup 1 also failed")
+	}
+	mocks[2].packetFn = func(ctx context.Context, dest M.Socksaddr) (net.PacketConn, error) {
+		return &stubPacketConn{}, nil
+	}
+
+	u := &URLTest{group: grp}
+	dest := M.ParseSocksaddrHostPort("1.1.1.1", 53)
+	for i := 0; i < dialFailThreshold; i++ {
+		if _, err := u.ListenPacket(context.Background(), dest); err != nil {
+			t.Fatalf("ListenPacket attempt %d failed: %v", i+1, err)
+		}
+	}
+	if sel := u.Selected(N.NetworkUDP); sel == nil || sel.Tag() != "udp-b" {
+		t.Fatalf("expected UDP failover promotion to udp-b, got %v", sel)
+	}
+
+	// 并发读写检查：performUpdateCheck + DialContext + Selected + Now 无数据竞争
+	for i := range mocks {
+		mocks[i].dialFn = func(ctx context.Context, network string, d M.Socksaddr) (net.Conn, error) {
+			return &stubConn{}, nil
+		}
+	}
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for step := 0; step < 50; step++ {
+				if id%2 == 0 {
+					grp.performUpdateCheck()
+				} else {
+					_ = u.Now()
+					_ = u.Selected(N.NetworkTCP)
+					if c, err := u.DialContext(context.Background(), N.NetworkTCP, dest); err == nil && c != nil {
+						_ = c.Close()
+					}
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
+func TestPenalizeURLTestDelayClampsAndProbeEvictsDeadNode(t *testing.T) {
+	if got := penalizeURLTestDelay(64500, 1000); got != urlTestMaxPenalizedDelay {
+		t.Fatalf("expected penalized delay to clamp at %d without uint16 overflow, got %d", urlTestMaxPenalizedDelay, got)
+	}
+	if got := penalizeURLTestDelay(120, urlTestProbePenaltyFloor); got != 5120 {
+		t.Fatalf("expected 120 + %d = 5120, got %d", urlTestProbePenaltyFloor, got)
+	}
+
+	tags := []string{"ok-node", "dead-node"}
+	grp, history, mocks := createTestURLTestGroup(tags, 50)
+	grp.link = "http://127.0.0.1/generate_204"
+	grp.interval = 5 * time.Minute
+
+	seedTime := time.Now().Add(-30 * time.Second)
+	history.StoreURLTestHistory("ok-node", &adapter.URLTestHistory{Time: seedTime, Delay: 60})
+	history.StoreURLTestHistory("dead-node", &adapter.URLTestHistory{Time: seedTime, Delay: 120})
+
+	mocks[0].dialFn = func(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+		return serveHTTP204Pipe(5 * time.Millisecond)
+	}
+	mocks[1].dialFn = func(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+		return nil, errors.New("connection reset by peer")
+	}
+
+	// First failure inside freshness window keeps one penalized entry without refreshing Time.
+	URLTestOutboundsWithMeta(context.Background(), grp.outbound, history, grp.logger, grp.outbounds, grp.link, grp.interval, true)
+	h1 := history.LoadURLTestHistory("dead-node")
+	if h1 == nil {
+		t.Fatal("expected single transient failure to keep one penalized history entry")
+	}
+	if h1.Delay < urlTestProbePenaltyFloor {
+		t.Fatalf("expected penalized delay >= %d, got %d", urlTestProbePenaltyFloor, h1.Delay)
+	}
+	if h1.Time.Sub(seedTime).Abs() > time.Millisecond {
+		t.Fatalf("expected failure branch NOT to refresh Time to now (got %v, want %v)", h1.Time, seedTime)
+	}
+
+	// Second failure evicts dead-node cleanly instead of keeping it alive forever.
+	URLTestOutboundsWithMeta(context.Background(), grp.outbound, history, grp.logger, grp.outbounds, grp.link, grp.interval, true)
+	if h2 := history.LoadURLTestHistory("dead-node"); h2 != nil {
+		t.Fatalf("expected persistent dead node history to be deleted on second failure, got %+v", h2)
+	}
+	if okHist := history.LoadURLTestHistory("ok-node"); okHist == nil || okHist.Delay == 0 || okHist.Delay >= 1000 {
+		t.Fatalf("expected healthy ok-node history to be updated, got %+v", okHist)
+	}
+
+	// Recovery restores history once reachable again.
+	mocks[1].dialFn = func(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+		return serveHTTP204Pipe(5 * time.Millisecond)
+	}
+	URLTestOutboundsWithMeta(context.Background(), grp.outbound, history, grp.logger, grp.outbounds, grp.link, grp.interval, true)
+	if h3 := history.LoadURLTestHistory("dead-node"); h3 == nil || h3.Delay == 0 || h3.Delay >= 1000 {
+		t.Fatalf("expected recovered node history to be restored cleanly, got %+v", h3)
+	}
+}
+
+func TestDialBlackholeTimeoutFailoverAndPromotion(t *testing.T) {
+	tags := []string{"blackhole-primary", "healthy-backup"}
+	grp, history, mocks := createTestURLTestGroup(tags, 50)
+	grp.interval = 3 * time.Minute
+	grp.interruptGroup = interrupt.NewGroup()
+	grp.interruptExternalConnections = true
+
+	history.StoreURLTestHistory("blackhole-primary", &adapter.URLTestHistory{Time: time.Now(), Delay: 40})
+	history.StoreURLTestHistory("healthy-backup", &adapter.URLTestHistory{Time: time.Now(), Delay: 120})
+	grp.selectedOutboundTCP = mocks[0]
+
+	var primaryTimeouts atomic.Int32
+	mocks[0].dialFn = func(ctx context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		<-ctx.Done()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			primaryTimeouts.Add(1)
+		}
+		return nil, ctx.Err()
+	}
+	var backupCalls atomic.Int32
+	mocks[1].dialFn = func(ctx context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		backupCalls.Add(1)
+		return &stubConn{}, nil
+	}
+
+	u := &URLTest{group: grp}
+	dest := M.ParseSocksaddrHostPort("example.com", 443)
+	parentCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// Attempt 1: blackhole primary times out via candidate attemptCtx without exhausting parentCtx.
+	conn1, err := u.DialContext(parentCtx, N.NetworkTCP, dest)
+	if err != nil {
+		t.Fatalf("expected first blackhole failover to succeed via backup, got %v", err)
+	}
+	_ = conn1.Close()
+	if parentCtx.Err() != nil {
+		t.Fatalf("expected caller parentCtx to remain valid after candidate timeout, got %v", parentCtx.Err())
+	}
+	if primaryTimeouts.Load() != 1 || backupCalls.Load() != 1 {
+		t.Fatalf("expected 1 primary attempt timeout and 1 backup call, got primary=%d backup=%d", primaryTimeouts.Load(), backupCalls.Load())
+	}
+	if u.Now() != "blackhole-primary" {
+		t.Fatalf("expected single failover not to switch primary yet (anti-flap), got %s", u.Now())
+	}
+
+	// Attempt 2: reaches dialFailThreshold and promotes healthy-backup.
+	conn2, err := u.DialContext(parentCtx, N.NetworkTCP, dest)
+	if err != nil {
+		t.Fatalf("expected second blackhole failover to succeed via backup, got %v", err)
+	}
+	_ = conn2.Close()
+	if u.Now() != "healthy-backup" {
+		t.Fatalf("expected promotion to healthy-backup after %d blackhole failures, got %s", dialFailThreshold, u.Now())
+	}
+
+	// Caller cancellation must abort immediately without trying backup.
+	cancelTags := []string{"blackhole-cancel", "backup-cancel"}
+	cGrp, cHist, cMocks := createTestURLTestGroup(cancelTags, 50)
+	cGrp.interval = 3 * time.Minute
+	cHist.StoreURLTestHistory("blackhole-cancel", &adapter.URLTestHistory{Time: time.Now(), Delay: 40})
+	cHist.StoreURLTestHistory("backup-cancel", &adapter.URLTestHistory{Time: time.Now(), Delay: 120})
+	cGrp.selectedOutboundTCP = cMocks[0]
+	cMocks[0].dialFn = func(ctx context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	var cancelBackupCalls atomic.Int32
+	cMocks[1].dialFn = func(ctx context.Context, network string, dest M.Socksaddr) (net.Conn, error) {
+		cancelBackupCalls.Add(1)
+		return &stubConn{}, nil
+	}
+	cancelCtx, cancelNow := context.WithCancel(context.Background())
+	time.AfterFunc(80*time.Millisecond, cancelNow)
+	cu := &URLTest{group: cGrp}
+	if _, cancelErr := cu.DialContext(cancelCtx, N.NetworkTCP, dest); !errors.Is(cancelErr, context.Canceled) {
+		t.Fatalf("expected caller cancellation error, got %v", cancelErr)
+	}
+	if cancelBackupCalls.Load() != 0 {
+		t.Fatalf("expected backup not to be dialed after caller cancellation, got %d", cancelBackupCalls.Load())
+	}
+}
+
+func TestListenPacketBlackholeTimeoutFailover(t *testing.T) {
+	tags := []string{"blackhole-udp", "healthy-udp"}
+	grp, history, mocks := createTestURLTestGroup(tags, 50)
+	grp.interval = 3 * time.Minute
+	grp.interruptGroup = interrupt.NewGroup()
+	grp.interruptExternalConnections = true
+
+	history.StoreURLTestHistory("blackhole-udp", &adapter.URLTestHistory{Time: time.Now(), Delay: 40})
+	history.StoreURLTestHistory("healthy-udp", &adapter.URLTestHistory{Time: time.Now(), Delay: 120})
+	grp.selectedOutboundUDP = mocks[0]
+
+	var udpTimeouts atomic.Int32
+	mocks[0].packetFn = func(ctx context.Context, dest M.Socksaddr) (net.PacketConn, error) {
+		<-ctx.Done()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			udpTimeouts.Add(1)
+		}
+		return nil, ctx.Err()
+	}
+	var udpBackupCalls atomic.Int32
+	mocks[1].packetFn = func(ctx context.Context, dest M.Socksaddr) (net.PacketConn, error) {
+		udpBackupCalls.Add(1)
+		return &stubPacketConn{}, nil
+	}
+
+	u := &URLTest{group: grp}
+	dest := M.ParseSocksaddrHostPort("1.1.1.1", 53)
+	parentCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	for i := 0; i < dialFailThreshold; i++ {
+		pc, err := u.ListenPacket(parentCtx, dest)
+		if err != nil {
+			t.Fatalf("UDP ListenPacket blackhole attempt %d failed: %v", i+1, err)
+		}
+		_ = pc.Close()
+		if parentCtx.Err() != nil {
+			t.Fatalf("expected caller parentCtx valid on UDP failover attempt %d, got %v", i+1, parentCtx.Err())
+		}
+	}
+	if udpTimeouts.Load() != int32(dialFailThreshold) || udpBackupCalls.Load() != int32(dialFailThreshold) {
+		t.Fatalf("expected %d UDP candidate timeouts and %d backup calls, got timeouts=%d backup=%d",
+			dialFailThreshold, dialFailThreshold, udpTimeouts.Load(), udpBackupCalls.Load())
+	}
+	if sel := u.Selected(N.NetworkUDP); sel == nil || sel.Tag() != "healthy-udp" {
+		t.Fatalf("expected UDP failover promotion to healthy-udp, got %v", sel)
 	}
 }

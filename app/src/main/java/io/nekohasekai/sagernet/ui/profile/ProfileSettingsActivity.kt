@@ -1,5 +1,7 @@
 package io.nekohasekai.sagernet.ui.profile
 
+import io.nekohasekai.sagernet.ui.settings.enableMultiLineTitles
+
 import android.annotation.SuppressLint
 import android.content.DialogInterface
 import android.content.Intent
@@ -192,7 +194,7 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
             }
         }
         // shared menu item
-        menu.findItem(R.id.action_custom_outbound_json)?.isVisible = true
+        menu.findItem(R.id.action_custom_outbound_json)?.isVisible = this !is BalancerSettingsActivity
         menu.findItem(R.id.action_custom_config_json)?.isVisible = true
         return true
     }
@@ -239,9 +241,12 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             preferenceManager.preferenceDataStore = DataStore.profileCacheStore
             try {
-                activity = (requireActivity() as ProfileSettingsActivity<*>).apply {
+                val host = requireActivity() as ProfileSettingsActivity<*>
+                activity = host
+                host.apply {
                     createPreferences(savedInstanceState, rootKey)
                 }
+                preferenceScreen?.enableMultiLineTitles()
             } catch (e: Exception) {
                 Toast.makeText(
                     SagerNet.application,

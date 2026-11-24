@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="docs/readme-banner.svg" alt="OwnBox for Android — Proxy & Network Diagnostics" width="100%" />
+  <img src="docs/readme-banner.svg" alt="MyBox for Android — Proxy & Network Diagnostics" width="100%" />
   <br />
-  <h1>OwnBox for Android</h1>
+  <h1>MyBox for Android</h1>
   <p><strong>把连接、诊断与管理，收进一个简洁的 Android 客户端。</strong></p>
   <p>基于原生 sing-box 内核打造的多协议代理客户端与网络诊断工具。</p>
 
@@ -27,11 +27,11 @@
 
 ## ✦ 项目简介
 
-**OwnBox** 是一款面向 Android 的现代化代理客户端与网络诊断工具。项目基于原生 **sing-box** 内核进行适配与扩展，将多协议节点管理、真实连接延迟测试、分应用路由、网络服务连通性检测、WebDAV 备份与系统快捷操作整合到同一个应用中。
+**MyBox** 是一款面向 Android 的现代化代理客户端与网络诊断工具。项目基于原生 **sing-box** 内核进行适配与扩展，将多协议节点管理、真实连接延迟测试、分应用路由、网络服务连通性检测、WebDAV 备份与系统快捷操作整合到同一个应用中。
 
 我们希望它不只是一个“能连接”的客户端，也是一套方便观察网络状态、管理配置并快速定位连接问题的日常工具。
 
-> **项目定位：** OwnBox 是客户端软件，不内置或提供第三方代理订阅。实际连接速度、稳定性以及各网站/服务的可用状态，会受到设备、网络环境、节点质量和服务端策略等因素影响。
+> **项目定位：** MyBox 是客户端软件，不内置或提供第三方代理订阅。实际连接速度、稳定性以及各网站/服务的可用状态，会受到设备、网络环境、节点质量和服务端策略等因素影响。
 
 ## ✨ 核心功能
 
@@ -39,7 +39,7 @@
   <tr>
     <td width="50%" valign="top">
       <h3>🚀 原生内核与极速调优</h3>
-      <p>基于官方 sing-box v1.15.0 纯 Go 原生 TUN 栈打造，更低内存与待机功耗；优化并发拨号与 Telegram 直连，消除首次缓冲并保障分流优先生效。</p>
+      <p>基于官方 sing-box v1.15.0 纯 Go 原生 TUN 栈打造，更低内存与待机功耗；优化并发拨号与 按用户配置的路由规则分流，消除首次缓冲并保障分流优先生效。</p>
     </td>
     <td width="50%" valign="top">
       <h3>📡 真实连接与带宽测试</h3>
@@ -107,10 +107,10 @@
 
 | 架构 | 适用设备 | 下载 | 校验 |
 |:--|:--|:--:|:--:|
-| **ARM64 (v8a)** · 推荐 | 大多数现代 Android 手机与平板 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/OwnBox-26.11.3-arm64-v8a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
-| **armeabi-v7a** | 较旧的 32 位 Android 设备 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/OwnBox-26.11.3-armeabi-v7a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
-| **x86_64** | 64 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/OwnBox-26.11.3-x86_64-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
-| **x86** | 32 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/OwnBox-26.11.3-x86-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
+| **ARM64 (v8a)** · 推荐 | 大多数现代 Android 手机与平板 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/MyBox-26.11.3-arm64-v8a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
+| **armeabi-v7a** | 较旧的 32 位 Android 设备 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/MyBox-26.11.3-armeabi-v7a-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
+| **x86_64** | 64 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/MyBox-26.11.3-x86_64-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
+| **x86** | 32 位 Android 模拟器 | [下载 APK](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/MyBox-26.11.3-x86-release.apk) | [SHA-256](https://github.com/Own716/OwnBoxForAndroid/releases/download/v26.11.3/sha256sums.txt) |
 
 > **如何选择？** 一般手机请选择 `ARM64 (v8a)`。如果不确定设备架构，请先查看设备信息；不要仅凭 Android 版本号判断 CPU 架构。
 
@@ -160,17 +160,17 @@
 ---
 
 <div align="center">
-  <p><strong>OwnBox · Connect clearly. Diagnose confidently.</strong></p>
-  <p><sub>如果 OwnBox 对你有帮助，欢迎点亮 ⭐ Star、提交反馈，或加入 Telegram 社区。</sub></p>
+  <p><strong>MyBox · Connect clearly. Diagnose confidently.</strong></p>
+  <p><sub>如果 MyBox 对你有帮助，欢迎点亮 ⭐ Star、提交反馈，或加入 Telegram 社区。</sub></p>
 </div>
 
 <details>
   <summary><strong>English</strong> — Show the English overview</summary>
 
   <div align="center">
-    <h2>OwnBox for Android</h2>
+    <h2>MyBox for Android</h2>
     <p><strong>A modern Android proxy client and network diagnostics toolkit.</strong></p>
-    <p>Built around the native sing-box core, OwnBox brings together multi-protocol connections, node latency tests, per-app routing, service connectivity checks, WebDAV backup and Android system shortcuts.</p>
+    <p>Built around the native sing-box core, MyBox brings together multi-protocol connections, node latency tests, per-app routing, service connectivity checks, WebDAV backup and Android system shortcuts.</p>
     <p>
       <a href="https://github.com/Own716/OwnBoxForAndroid/releases/latest">Download latest release</a> ·
       <a href="https://github.com/Own716/OwnBoxForAndroid/issues">Report an issue</a> ·
@@ -180,7 +180,7 @@
 
   ### Highlights
 
-  - **Native Core & Performance:** pure Go sing-box v1.15 TUN stack, staggered dial, zero-delay Telegram media routing & KeepAlive.
+  - **Native Core & Performance:** pure Go sing-box v1.15 TUN stack, staggered dial, routing driven by the user configuration & KeepAlive.
   - **Remote Rule Sets:** Modern structured rule editor, 2,300+ built-in remote .srs rulesets with search & auto-updates.
   - **Live Update & Island:** native Android Live Update ongoing notifications & status bar capsules with 15 dynamic variables.
   - **Granular UI Scaling:** independent system-font ignore toggle, dual global sliders and 6-region fine-grained scale controls.
@@ -195,7 +195,7 @@
 
   The repository's [SECURITY.md](SECURITY.md) states that historical `release.keystore` files and credentials appearing in commits before September 2026 are compromised and untrusted. Download current builds from the official Releases page and do not reuse historical signing materials.
 
-  OwnBox is a client application and does not provide third-party proxy subscriptions. Connectivity, speed and service availability depend on the device, network, server and service-side policies.
+  MyBox is a client application and does not provide third-party proxy subscriptions. Connectivity, speed and service availability depend on the device, network, server and service-side policies.
 
   ### License & community
 

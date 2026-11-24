@@ -2,14 +2,27 @@ package io.nekohasekai.sagernet.utils
 
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.USER_AGENT
+import io.nekohasekai.sagernet.ktx.isIpAddress
 import io.nekohasekai.sagernet.ktx.tryProxyOutbound
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import libcore.Libcore
 import moe.matsuri.nb4a.utils.Util
 import org.json.JSONObject
+import java.net.InetAddress
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+
+data class ConnectionIpGeo(
+    val ip: String,
+    val asn: String,
+    val location: String,
+    val org: String,
+    val isPrivate: Boolean,
+)
 
 enum class IpRiskLevel(val label: String, val colorHex: String) {
     CLEAN("极低风险", "#10B981"),
@@ -73,7 +86,7 @@ data class LandingIpInfo(
 
 object LandingIpManager {
 
-    private const val CACHE_TTL_MS = 60_000L
+    const val CACHE_TTL_MS = 60_000L
 
     @Volatile
     private var currentCache: LandingIpInfo? = null
@@ -85,12 +98,104 @@ object LandingIpManager {
     @Volatile
     private var isQuerying: Boolean = false
 
+    @Volatile
+    private var activeQueryProfileId: Long = -1L
+
+    private val queryGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    private val ipGeoCache = ConcurrentHashMap<String, ConnectionIpGeo>()
+
+    private fun isPrivateOrLocalIp(ip: String): Boolean {
+        if (!ip.isIpAddress()) return false
+        return try {
+            val addr = InetAddress.getByName(ip)
+            if (addr.isAnyLocalAddress || addr.isLoopbackAddress || addr.isLinkLocalAddress ||
+                addr.isSiteLocalAddress || addr.isMulticastAddress
+            ) {
+                return true
+            }
+            val bytes = addr.address
+            if (bytes.size == 4) {
+                val b0 = bytes[0].toInt() and 0xFF
+                val b1 = bytes[1].toInt() and 0xFF
+                // 100.64.0.0/10 (CGNAT), 198.18.0.0/15 (FakeIP / Benchmarking), 169.254.0.0/16
+                (b0 == 100 && b1 in 64..127) ||
+                    (b0 == 198 && (b1 == 18 || b1 == 19)) ||
+                    (b0 == 169 && b1 == 254)
+            } else if (bytes.size == 16) {
+                val b0 = bytes[0].toInt() and 0xFF
+                // fc00::/7 (Unique Local Address)
+                (b0 and 0xFE) == 0xFC
+            } else {
+                false
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    suspend fun lookupIpGeo(rawIp: String): ConnectionIpGeo? {
+        val cleanIp = rawIp.trim().removePrefix("[").removeSuffix("]").substringBefore("%").trim()
+        if (cleanIp.isEmpty() || !cleanIp.isIpAddress()) return null
+        if (isPrivateOrLocalIp(cleanIp)) {
+            return ConnectionIpGeo(cleanIp, "", "局域网 / 内网地址", "", isPrivate = true)
+        }
+        ipGeoCache[cleanIp]?.let { return it }
+
+        return withContext(Dispatchers.IO) {
+            val startTime = System.currentTimeMillis()
+            val ua = USER_AGENT
+            val info = withTimeoutOrNull(4500L) {
+                fetchFromIpLocate(cleanIp, "", ua, startTime)
+                    ?: fetchFromIpApiCom(cleanIp, "", ua, startTime)
+            } ?: return@withContext null
+
+            val location = buildString {
+                if (info.countryFlag.isNotBlank()) append(info.countryFlag).append(' ')
+                val locText = listOf(info.city, info.country)
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .joinToString(", ")
+                append(locText.ifBlank { info.countryCode.ifBlank { "未知地区" } })
+            }.trim()
+
+            val result = ConnectionIpGeo(
+                ip = cleanIp,
+                asn = info.asn,
+                location = location,
+                org = info.org.ifBlank { info.isp },
+                isPrivate = false,
+            )
+            if (ipGeoCache.size > 256) {
+                ipGeoCache.clear()
+            }
+            ipGeoCache[cleanIp] = result
+            result
+        }
+    }
+
     fun clearCache() {
+        queryGeneration.incrementAndGet()
         currentCache = null
         cachedProfileId = -1L
+        activeQueryProfileId = -1L
+        isQuerying = false
     }
 
     fun getCachedInfo(): LandingIpInfo? = currentCache
+
+    fun getCachedInfo(expectedProfileId: Long, maxAgeMs: Long = CACHE_TTL_MS): LandingIpInfo? {
+        val cache = currentCache ?: return null
+        if (expectedProfileId <= 0L || cachedProfileId != expectedProfileId) return null
+        if (maxAgeMs > 0L && System.currentTimeMillis() - cache.queryTimestamp >= maxAgeMs) return null
+        return cache
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal fun setCacheForTest(profileId: Long, info: LandingIpInfo) {
+        queryGeneration.incrementAndGet()
+        currentCache = info
+        cachedProfileId = profileId
+    }
 
     fun isCurrentlyQuerying(): Boolean = isQuerying
 
@@ -169,12 +274,7 @@ object LandingIpManager {
     private fun createHttpClient(): libcore.HTTPClient {
         return Libcore.newHttpClient().apply {
             modernTLS()
-            val mixedPort = DataStore.mixedPort
-            if (mixedPort > 0) {
-                trySocks5(mixedPort.toInt(), "", "")
-            } else {
-                tryProxyOutbound()
-            }
+            tryProxyOutbound()
         }
     }
 
@@ -302,12 +402,18 @@ object LandingIpManager {
             if (isProxy) hitTags.add("代理")
             val hitTagLabel = if (hitTags.isEmpty()) "无" else hitTags.joinToString(" / ")
 
-            val countryCode = json.optString("country_code", fallbackCc).uppercase()
-            val rawCountry = json.optString("country").ifBlank { countryCode }
+            val dbCc = json.optString("country_code").uppercase()
+            val countryCode = if (fallbackCc.isNotBlank() && fallbackCc.length == 2 && fallbackCc != "XX") {
+                fallbackCc
+            } else {
+                dbCc.ifBlank { fallbackCc }
+            }
+            val isCountryMatched = dbCc.equals(countryCode, ignoreCase = true)
+            val rawCountry = if (isCountryMatched) json.optString("country").ifBlank { countryCode } else countryCode
             val country = localizeCountry(countryCode, rawCountry)
             val flag = countryCodeToFlagEmoji(countryCode)
-            val city = json.optString("city").orEmpty()
-            val state = json.optString("subdivision").orEmpty()
+            val city = if (isCountryMatched) json.optString("city").orEmpty() else ""
+            val state = if (isCountryMatched) json.optString("subdivision").orEmpty() else ""
 
             val cost = System.currentTimeMillis() - startTime
 
@@ -378,12 +484,18 @@ object LandingIpManager {
                 val asRaw = json.optString("as").trim()
                 val asn = if (asRaw.startsWith("AS")) asRaw.split(" ").firstOrNull() ?: asRaw else asRaw
 
-                val countryCode = json.optString("countryCode", fallbackCc).uppercase()
-                val rawCountry = json.optString("country").ifBlank { countryCode }
+                val dbCc = json.optString("countryCode").uppercase()
+                val countryCode = if (fallbackCc.isNotBlank() && fallbackCc.length == 2 && fallbackCc != "XX") {
+                    fallbackCc
+                } else {
+                    dbCc.ifBlank { fallbackCc }
+                }
+                val isCountryMatched = dbCc.equals(countryCode, ignoreCase = true)
+                val rawCountry = if (isCountryMatched) json.optString("country").ifBlank { countryCode } else countryCode
                 val country = localizeCountry(countryCode, rawCountry)
                 val flag = countryCodeToFlagEmoji(countryCode)
-                val city = json.optString("city").orEmpty()
-                val state = json.optString("regionName").orEmpty()
+                val city = if (isCountryMatched) json.optString("city").orEmpty() else ""
+                val state = if (isCountryMatched) json.optString("regionName").orEmpty() else ""
 
                 val cost = System.currentTimeMillis() - startTime
 
@@ -439,12 +551,18 @@ object LandingIpManager {
             val org = ispObj?.optString("org", ispObj.optString("isp")).orEmpty().ifBlank { "未知" }
 
             val locObj = json.optJSONObject("location")
-            val countryCode = locObj?.optString("country_code", fallbackCc).orEmpty().uppercase()
-            val rawCountry = locObj?.optString("country").orEmpty()
+            val dbCc = locObj?.optString("country_code").orEmpty().uppercase()
+            val countryCode = if (fallbackCc.isNotBlank() && fallbackCc.length == 2 && fallbackCc != "XX") {
+                fallbackCc
+            } else {
+                dbCc.ifBlank { fallbackCc }
+            }
+            val isCountryMatched = dbCc.equals(countryCode, ignoreCase = true)
+            val rawCountry = if (isCountryMatched) locObj?.optString("country").orEmpty() else countryCode
             val country = localizeCountry(countryCode, rawCountry)
             val flag = countryCodeToFlagEmoji(countryCode)
-            val city = locObj?.optString("city").orEmpty()
-            val state = locObj?.optString("state").orEmpty()
+            val city = if (isCountryMatched) locObj?.optString("city").orEmpty() else ""
+            val state = if (isCountryMatched) locObj?.optString("state").orEmpty() else ""
 
             val riskObj = json.optJSONObject("risk")
             val isDatacenter = riskObj?.optBoolean("is_datacenter", false) ?: false
@@ -515,19 +633,21 @@ object LandingIpManager {
 
         val now = System.currentTimeMillis()
         if (forceRefresh) {
+            queryGeneration.incrementAndGet()
             currentCache = null
             cachedProfileId = -1L
         } else {
-            val cache = currentCache
-            if (cache != null && cachedProfileId == profileId && (now - cache.queryTimestamp < CACHE_TTL_MS)) {
+            val cache = getCachedInfo(expectedProfileId = profileId)
+            if (cache != null) {
                 return@withContext Result.success(cache)
+            }
+            if (isQuerying && activeQueryProfileId == profileId) {
+                return@withContext Result.failure(IllegalStateException("Landing IP query already in progress"))
             }
         }
 
-        if (isQuerying && !forceRefresh) {
-            currentCache?.let { return@withContext Result.success(it) }
-        }
-
+        val myGen = queryGeneration.incrementAndGet()
+        activeQueryProfileId = profileId
         isQuerying = true
         val startTime = System.currentTimeMillis()
         val ua = USER_AGENT.takeIf { it.isNotBlank() }
@@ -535,7 +655,10 @@ object LandingIpManager {
 
         try {
             // 第一步：先快速拿到真实出口 IP 字符串与国家（优先 Anycast 毫秒响应）
-            val ipPair = withTimeoutOrNull(2000L) { fetchRawEgressIp(ua) }
+            val ipPair = withTimeoutOrNull(3500L) { fetchRawEgressIp(ua) }
+            if (!isActive || queryGeneration.get() != myGen) {
+                return@withContext Result.failure(IllegalStateException("Landing IP query superseded"))
+            }
             val rawIp = ipPair?.first.orEmpty()
             val rawCc = ipPair?.second.orEmpty()
 
@@ -544,16 +667,22 @@ object LandingIpManager {
             }
 
             // 第二步：使用真实 IP 执行多梯队质量查询（优先 iplocate.io 对齐 FlClash，超时快速切入 ip-api.com）
-            var info = withTimeoutOrNull(1200L) { fetchFromIpLocate(rawIp, rawCc, ua, startTime) }
+            var info = withTimeoutOrNull(2000L) { fetchFromIpLocate(rawIp, rawCc, ua, startTime) }
+            if (!isActive || queryGeneration.get() != myGen) {
+                return@withContext Result.failure(IllegalStateException("Landing IP query superseded"))
+            }
 
             // 备用第二梯队：ip-api.com（毫秒级极速通道）
             if (info == null) {
-                info = withTimeoutOrNull(1500L) { fetchFromIpApiCom(rawIp, rawCc, ua, startTime) }
+                info = withTimeoutOrNull(2000L) { fetchFromIpApiCom(rawIp, rawCc, ua, startTime) }
+                if (!isActive || queryGeneration.get() != myGen) {
+                    return@withContext Result.failure(IllegalStateException("Landing IP query superseded"))
+                }
             }
 
             // 备用第三梯队：api.ipquery.io
             if (info == null) {
-                info = withTimeoutOrNull(1500L) { fetchFromIpQueryIo(rawIp, rawCc, ua, startTime) }
+                info = withTimeoutOrNull(2000L) { fetchFromIpQueryIo(rawIp, rawCc, ua, startTime) }
             }
 
             // 终极保护：如果所有第三方智库均因网络受阻，绝不硬编码假数据（如 Cloudflare, Inc.），仅返回已知真实 IP
@@ -583,14 +712,21 @@ object LandingIpManager {
                 )
             }
 
+            if (!isActive || queryGeneration.get() != myGen) {
+                return@withContext Result.failure(IllegalStateException("Landing IP query superseded"))
+            }
             currentCache = info
             cachedProfileId = profileId
             onUpdate?.invoke(info)
             Result.success(info)
         } catch (e: Throwable) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         } finally {
-            isQuerying = false
+            if (queryGeneration.get() == myGen) {
+                isQuerying = false
+                activeQueryProfileId = -1L
+            }
         }
     }
 }

@@ -245,6 +245,12 @@ class VpnService : BaseVpnService(),
 
             val added = mutableListOf<String>()
 
+            // Play Store delegates package downloads to Android's DownloadManager process.
+            // In allow-listed per-app VPN mode, that system UID must also enter the TUN.
+            if (proxyApps && !bypass && individual.contains("com.android.vending")) {
+                individual.add("com.android.providers.downloads")
+            }
+
             individual.apply {
                 // Allow Matsuri itself using VPN.
                 remove(packageName)
@@ -291,6 +297,8 @@ class VpnService : BaseVpnService(),
 
     override fun onDestroy() {
         DataStore.vpnService = null
+        runCatching { data.smartAutoStopController?.stop() }
+        data.smartAutoStopController = null
         super.onDestroy()
         data.binder.close()
         SagerNet.notification.cancel(ServiceNotification.notificationId)

@@ -3,23 +3,33 @@ package libcore
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"libcore/device"
+	"libcore/protocol/juicity"
+	"libcore/protocol/loadbalance"
+	"libcore/protocol/urltest"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/gofrs/uuid/v5"
+	"golang.org/x/net/http2"
+
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/trafficcontrol"
 	"github.com/sagernet/sing-box/experimental/v2rayapi"
 	"github.com/sagernet/sing-box/protocol/group"
 
@@ -28,15 +38,195 @@ import (
 	sblog "github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	E "github.com/sagernet/sing/common/exceptions"
+	F "github.com/sagernet/sing/common/format"
 	M "github.com/sagernet/sing/common/metadata"
 	"github.com/sagernet/sing/service"
 	"github.com/sagernet/sing/service/pause"
-	"golang.org/x/net/http2"
 )
 
 var mainInstance *BoxInstance
 var boxInstanceSequence atomic.Uint64
 var lastUrlTestGc atomic.Int64
+var tunStackRe = regexp.MustCompile(`(?i)"stack"\s*:\s*"(?:gvisor|mixed|system)"`)
+
+func sanitizeTunStack(cfg string) string {
+	return tunStackRe.ReplaceAllString(cfg, `"stack":"go"`)
+}
+
+func deduplicateTags(tags []string) []string {
+	if len(tags) == 0 {
+		return []string{"direct"}
+	}
+	seen := make(map[string]struct{}, len(tags))
+	result := make([]string, 0, len(tags))
+	for _, t := range tags {
+		trimmed := strings.TrimSpace(t)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; !ok {
+			seen[trimmed] = struct{}{}
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) == 0 {
+		return []string{"direct"}
+	}
+	return result
+}
+
+func sanitizeOutbounds(outbounds []option.Outbound) {
+	for i := range outbounds {
+		ob := &outbounds[i]
+
+		if dialerWrapper, ok := ob.Options.(option.DialerOptionsWrapper); ok {
+			dialerOpt := dialerWrapper.TakeDialerOptions()
+			changed := false
+			// 拨号策略冲突防护：bind_interface / inet*_bind_address 不得与 network_strategy 并存
+			if dialerOpt.BindInterface != "" || dialerOpt.Inet4BindAddress != nil || dialerOpt.Inet6BindAddress != nil {
+				if dialerOpt.NetworkStrategy != nil || len(dialerOpt.NetworkType) > 0 || len(dialerOpt.FallbackNetworkType) > 0 {
+					dialerOpt.NetworkStrategy = nil
+					dialerOpt.NetworkType = nil
+					dialerOpt.FallbackNetworkType = nil
+					changed = true
+				}
+			}
+			// QUIC / UDP 协议族：在双网络加速 (hybrid) / 并发拨号 (fallback) 下 UDP connect() 为 0-RTT 本地成功，
+			// 多接口竞速时备用蜂窝网可能抢跑并被 SO_BINDTOIFINDEX 绑定至无策略路由的黑洞网卡。
+			// 默认锁定 network_strategy="default" 走当前物理默认出口（用户显式指定绑卡/策略时尊重用户配置）。
+			switch ob.Type {
+			case constant.TypeHysteria2, constant.TypeHysteria, constant.TypeTUIC, juicity.TypeJuicity:
+				if dialerOpt.NetworkStrategy == nil && len(dialerOpt.NetworkType) == 0 && len(dialerOpt.FallbackNetworkType) == 0 &&
+					dialerOpt.BindInterface == "" && dialerOpt.Inet4BindAddress == nil && dialerOpt.Inet6BindAddress == nil {
+					dialerOpt.TCPFastOpen = false
+					defaultStrategy := option.NetworkStrategy(constant.NetworkStrategyDefault)
+					dialerOpt.NetworkStrategy = &defaultStrategy
+					changed = true
+				}
+			}
+			// anytls 协议不支持 TCP Fast Open (sing-box 官方内核在此处开启 TFO 时直接抛出致命错误)
+			if ob.Type == "anytls" && dialerOpt.TCPFastOpen {
+				dialerOpt.TCPFastOpen = false
+				changed = true
+			}
+			// 拨号策略冲突防护：network_strategy 与 tcp_fast_open 冲突
+			if dialerOpt.TCPFastOpen && (dialerOpt.NetworkStrategy != nil || len(dialerOpt.NetworkType) > 0) {
+				dialerOpt.TCPFastOpen = false
+				changed = true
+			}
+			if changed {
+				dialerWrapper.ReplaceDialerOptions(dialerOpt)
+			}
+		}
+
+		switch ob.Type {
+		case "direct":
+			if dirOpt, ok := ob.Options.(*option.DirectOutboundOptions); ok {
+				dirOpt.Detour = ""
+			}
+		case "anytls":
+			if anyOpt, ok := ob.Options.(*option.AnyTLSOutboundOptions); ok {
+				anyOpt.TCPFastOpen = false
+			}
+		case "shadowtls":
+			if stOpt, ok := ob.Options.(*option.ShadowTLSOutboundOptions); ok {
+				if stOpt.TLS == nil {
+					stOpt.TLS = &option.OutboundTLSOptions{
+						Enabled: true,
+					}
+				} else {
+					stOpt.TLS.Enabled = true
+				}
+				if stOpt.Version == 0 {
+					stOpt.Version = 3
+				}
+			}
+		case "juicity":
+			if jOpt, ok := ob.Options.(*juicity.JuicityOutboundOptions); ok {
+				if jOpt.TLS == nil {
+					jOpt.TLS = &option.OutboundTLSOptions{
+						Enabled: true,
+					}
+				} else {
+					jOpt.TLS.Enabled = true
+				}
+			}
+		case "hysteria2":
+			if hy2Opt, ok := ob.Options.(*option.Hysteria2OutboundOptions); ok {
+				if hy2Opt.Obfs != nil {
+					if hy2Opt.Obfs.Password == "" || (hy2Opt.Obfs.Type != "" && hy2Opt.Obfs.Type != "salamander") {
+						hy2Opt.Obfs = nil
+					}
+				}
+			}
+		case "tuic":
+			if tuicOpt, ok := ob.Options.(*option.TUICOutboundOptions); ok {
+				if tuicOpt.UDPOverStream && tuicOpt.UDPRelayMode != "" {
+					tuicOpt.UDPOverStream = false
+				}
+			}
+		case "wireguard":
+			if wgOpt, ok := ob.Options.(*option.WireGuardEndpointOptions); ok {
+				if wgOpt.Detour != "" && wgOpt.ListenPort != 0 {
+					wgOpt.ListenPort = 0
+				}
+			}
+		case "snell":
+			if snellOpt, ok := ob.Options.(*option.SnellOutboundOptions); ok {
+				if snellOpt.Version == 0 {
+					snellOpt.Version = 4
+				}
+			}
+		case "selector":
+			if selOpt, ok := ob.Options.(*option.SelectorOutboundOptions); ok {
+				selOpt.Outbounds = deduplicateTags(selOpt.Outbounds)
+				if selOpt.Default != "" {
+					found := false
+					for _, tag := range selOpt.Outbounds {
+						if tag == selOpt.Default {
+							found = true
+							break
+						}
+					}
+					if !found {
+						selOpt.Default = ""
+					}
+				}
+			}
+		case "urltest":
+			if urlOpt, ok := ob.Options.(*option.URLTestOutboundOptions); ok {
+				urlOpt.Outbounds = deduplicateTags(urlOpt.Outbounds)
+			}
+		case "loadbalance":
+			if lbOpt, ok := ob.Options.(*loadbalance.LoadBalanceOptions); ok {
+				lbOpt.Outbounds = deduplicateTags(lbOpt.Outbounds)
+			}
+		case "naive":
+			if naiveOpt, ok := ob.Options.(*option.NaiveOutboundOptions); ok {
+				naiveOpt.TCPFastOpen = false
+				if naiveOpt.TLS != nil {
+					naiveOpt.TLS.DisableSNI = false
+					naiveOpt.TLS.Insecure = false
+					naiveOpt.TLS.ALPN = nil
+					naiveOpt.TLS.MinVersion = ""
+					naiveOpt.TLS.MaxVersion = ""
+					naiveOpt.TLS.CipherSuites = nil
+					naiveOpt.TLS.CurvePreferences = nil
+					naiveOpt.TLS.ClientCertificate = nil
+					naiveOpt.TLS.ClientCertificatePath = ""
+					naiveOpt.TLS.ClientKey = nil
+					naiveOpt.TLS.ClientKeyPath = ""
+					naiveOpt.TLS.Fragment = false
+					naiveOpt.TLS.RecordFragment = false
+					naiveOpt.TLS.KernelTx = false
+					naiveOpt.TLS.KernelRx = false
+					naiveOpt.TLS.UTLS = nil
+					naiveOpt.TLS.Reality = nil
+				}
+			}
+		}
+	}
+}
 
 type boxLifecycleState uint8
 
@@ -119,9 +309,12 @@ type BoxInstance struct {
 	closeBox func() error
 	startErr error
 
-	v2api        *v2rayapi.StatsService
-	selector     *group.Selector
-	pauseManager pause.Manager
+	v2api           *v2rayapi.StatsService
+	selector        *group.Selector
+	pauseManager    pause.Manager
+	trafficManager  *trafficcontrol.Manager
+	dnsRouter       adapter.DNSRouter
+	platformWrapper *boxPlatformInterfaceWrapper
 
 	diagnosticID  uint64
 	diagnosticTag string
@@ -253,14 +446,17 @@ func newSingBoxInstance(config string, localTransport LocalDNSTransport, platfor
 	platformWrapper.diagnosticTag = diagnosticTag
 
 	b = &BoxInstance{
-		Box:           instance,
-		cancel:        cancel,
-		startBox:      instance.Start,
-		closeBox:      instance.Close,
-		pauseManager:  service.FromContext[pause.Manager](ctx),
-		diagnosticID:  diagnosticID,
-		diagnosticTag: diagnosticTag,
-		isURLTest:     !platformLog,
+		Box:             instance,
+		cancel:          cancel,
+		startBox:        instance.Start,
+		closeBox:        instance.Close,
+		pauseManager:    service.FromContext[pause.Manager](ctx),
+		trafficManager:  service.PtrFromContext[trafficcontrol.Manager](ctx),
+		dnsRouter:       service.FromContext[adapter.DNSRouter](ctx),
+		platformWrapper: platformWrapper,
+		diagnosticID:    diagnosticID,
+		diagnosticTag:   diagnosticTag,
+		isURLTest:       !platformLog,
 	}
 	b.urlTestTrace("create-box", "ok elapsed=%s", time.Since(createStarted))
 
@@ -303,6 +499,14 @@ func (b *BoxInstance) Start() (err error) {
 			b.lifecycleTrace("start", "failed state=%s elapsed=%s error=%v", b.state, time.Since(started), err)
 		} else {
 			b.state = boxStateStarted
+			if b.platformWrapper != nil && b.Box != nil {
+				if router := b.Box.Router(); router != nil {
+					b.platformWrapper.setRouterReset(func() {
+						router.ResetNetwork()
+						b.resetStatefulUDPTransports()
+					})
+				}
+			}
 			b.urlTestTrace("box-start", "ok elapsed=%s", time.Since(started))
 			b.lifecycleTrace("start", "success state=%s elapsed=%s", b.state, time.Since(started))
 		}
@@ -344,6 +548,10 @@ func (b *BoxInstance) Close() (err error) {
 		b.lifecycleTrace("close", "done state=%s previous=%s elapsed=%s error=%v", b.state, previousState, time.Since(started), err)
 	}()
 	defer device.DeferPanicToError("box.Close", func(err_ error) { err = err_ })
+
+	if b.platformWrapper != nil {
+		b.platformWrapper.setRouterReset(nil)
+	}
 
 	// clear main instance
 	if mainInstance == b {
@@ -456,10 +664,346 @@ func (b *BoxInstance) GetActiveOutboundTag(groupTag string) string {
 	if detour == nil {
 		return ""
 	}
-	return resolveRealTag(detour, "tcp")
+	return resolveRealTag(b.Outbound(), detour, "tcp")
 }
 
-func resolveRealTag(detour adapter.Outbound, network string) string {
+func (b *BoxInstance) resolveStrategyController(groupTag string) urltest.StrategyGroupController {
+	if b == nil || b.Box == nil {
+		return nil
+	}
+	outboundMgr := b.Outbound()
+	if outboundMgr == nil {
+		return nil
+	}
+	var detour adapter.Outbound
+	if groupTag != "" {
+		detour, _ = outboundMgr.Outbound(groupTag)
+	} else {
+		var ok bool
+		detour, ok = outboundMgr.Outbound("proxy")
+		if !ok {
+			detour = outboundMgr.Default()
+		}
+	}
+	if detour == nil {
+		return nil
+	}
+	if ctrl, ok := detour.(urltest.StrategyGroupController); ok {
+		return ctrl
+	}
+	return nil
+}
+
+func (b *BoxInstance) GetGroupSnapshotJSON(groupTag string) string {
+	ctrl := b.resolveStrategyController(groupTag)
+	if ctrl == nil {
+		return ""
+	}
+	snap := ctrl.GroupSnapshot()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func (b *BoxInstance) CheckGroupOutboundsJSON(groupTag string) string {
+	ctrl := b.resolveStrategyController(groupTag)
+	if ctrl == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	snap := ctrl.CheckAndSnapshot(ctx)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func (b *BoxInstance) PinGroupOutbound(groupTag, memberTag string) bool {
+	ctrl := b.resolveStrategyController(groupTag)
+	if ctrl == nil {
+		return false
+	}
+	return ctrl.PinOutbound(memberTag)
+}
+
+func (b *BoxInstance) resetStatefulUDPTransports() {
+	if b == nil || b.Box == nil {
+		return
+	}
+	ctx := context.Background()
+	if outboundManager := b.Box.Outbound(); outboundManager != nil {
+		for _, ob := range outboundManager.Outbounds() {
+			switch ob.Type() {
+			case constant.TypeHysteria2, constant.TypeHysteria, constant.TypeTUIC, juicity.TypeJuicity:
+				if listener, ok := ob.(adapter.InterfaceUpdateListener); ok {
+					listener.InterfaceUpdated(ctx)
+				}
+			}
+		}
+	}
+	if endpointManager := b.Box.Endpoint(); endpointManager != nil {
+		for _, ep := range endpointManager.Endpoints() {
+			if ep.Type() == constant.TypeWireGuard {
+				if listener, ok := ep.(adapter.InterfaceUpdateListener); ok {
+					listener.InterfaceUpdated(ctx)
+				}
+			}
+		}
+	}
+}
+
+type activeConnectionItem struct {
+	ID            string   `json:"id"`
+	Network       string   `json:"network"`
+	Protocol      string   `json:"protocol"`
+	Host          string   `json:"host"`
+	Port          int      `json:"port"`
+	Inbound       string   `json:"inbound"`
+	InboundType   string   `json:"inboundType"`
+	SourceIP      string   `json:"sourceIP"`
+	SourcePort    int      `json:"sourcePort"`
+	DestinationIP string   `json:"destinationIP"`
+	IpVersion     string   `json:"ipVersion"`
+	PackageName   string   `json:"packageName"`
+	ProcessPath   string   `json:"processPath"`
+	Uid           int32    `json:"uid"`
+	Rule          string   `json:"rule"`
+	Chains        []string `json:"chains"`
+	Outbound      string   `json:"outbound"`
+	OutboundType  string   `json:"outboundType"`
+	Upload        int64    `json:"upload"`
+	Download      int64    `json:"download"`
+	StartMs       int64    `json:"startMs"`
+	ClosedMs      int64    `json:"closedMs"`
+	Active        bool     `json:"active"`
+}
+
+func buildConnectionItem(m *trafficcontrol.TrackerMetadata, active bool) activeConnectionItem {
+	network := strings.ToUpper(strings.TrimSpace(m.Metadata.Network))
+	if network == "" {
+		network = "TCP"
+	}
+	host := m.Metadata.Domain
+	if host == "" {
+		host = m.Metadata.Destination.Fqdn
+	}
+	if host == "" && m.Metadata.Destination.Addr.IsValid() {
+		host = m.Metadata.Destination.Addr.String()
+	}
+	inbound := m.Metadata.Inbound
+	if inbound == "" {
+		inbound = m.Metadata.InboundType
+	}
+	inboundFull := inbound
+	if m.Metadata.InboundType != "" && m.Metadata.Inbound != "" {
+		inboundFull = m.Metadata.InboundType + "/" + m.Metadata.Inbound
+	} else if m.Metadata.InboundType != "" {
+		inboundFull = m.Metadata.InboundType
+	}
+
+	sourceIP := ""
+	if m.Metadata.Source.Addr.IsValid() {
+		sourceIP = m.Metadata.Source.Addr.String()
+	}
+	destIP := ""
+	ipVersion := ""
+	if m.Metadata.Destination.Addr.IsValid() {
+		destIP = m.Metadata.Destination.Addr.String()
+		if m.Metadata.Destination.Addr.Is6() {
+			ipVersion = "IPv6"
+		} else {
+			ipVersion = "IPv4"
+		}
+	}
+
+	pkg := ""
+	var uid int32 = -1
+	processPath := ""
+	if m.Metadata.ProcessInfo != nil {
+		uid = m.Metadata.ProcessInfo.UserId
+		for _, p := range m.Metadata.ProcessInfo.PackageNames {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				pkg = trimmed
+				break
+			}
+		}
+		if pkg == "" {
+			for _, p := range m.Metadata.ProcessInfo.ProcessPaths {
+				if trimmed := strings.TrimSpace(p); trimmed != "" {
+					pkg = trimmed
+					break
+				}
+			}
+		}
+		if pkg != "" && uid != -1 {
+			processPath = fmt.Sprintf("%s (%d)", pkg, uid)
+		} else if pkg != "" {
+			processPath = pkg
+		} else if uid != -1 {
+			processPath = fmt.Sprintf("%d", uid)
+		}
+	}
+
+	rule := "final"
+	if m.Rule != nil {
+		rule = F.ToString(m.Rule, " => ", m.Rule.Action())
+	}
+
+	chains := make([]string, 0, len(m.Chain))
+	for i := len(m.Chain) - 1; i >= 0; i-- {
+		if tag := strings.TrimSpace(m.Chain[i]); tag != "" {
+			chains = append(chains, tag)
+		}
+	}
+	if len(chains) == 0 && m.Outbound != "" {
+		chains = append(chains, m.Outbound)
+	}
+
+	var up, down int64
+	if m.Upload != nil {
+		up = m.Upload.Load()
+	}
+	if m.Download != nil {
+		down = m.Download.Load()
+	}
+	var closedMs int64
+	if !active && !m.ClosedAt.IsZero() {
+		closedMs = m.ClosedAt.UnixMilli()
+	}
+
+	return activeConnectionItem{
+		ID:            m.ID.String(),
+		Network:       network,
+		Protocol:      strings.TrimSpace(m.Metadata.Protocol),
+		Host:          host,
+		Port:          int(m.Metadata.Destination.Port),
+		Inbound:       inbound,
+		InboundType:   inboundFull,
+		SourceIP:      sourceIP,
+		SourcePort:    int(m.Metadata.Source.Port),
+		DestinationIP: destIP,
+		IpVersion:     ipVersion,
+		PackageName:   pkg,
+		ProcessPath:   processPath,
+		Uid:           uid,
+		Rule:          rule,
+		Chains:        chains,
+		Outbound:      m.Outbound,
+		OutboundType:  m.OutboundType,
+		Upload:        up,
+		Download:      down,
+		StartMs:       m.CreatedAt.UnixMilli(),
+		ClosedMs:      closedMs,
+		Active:        active,
+	}
+}
+
+func (b *BoxInstance) GetConnectionsJSON() string {
+	if b == nil || b.trafficManager == nil {
+		return ""
+	}
+	conns := b.trafficManager.Connections()
+	closedConns := b.trafficManager.ClosedConnections()
+	upTotal, downTotal := b.trafficManager.Total()
+
+	filtered := make([]*trafficcontrol.TrackerMetadata, 0, len(conns))
+	for _, m := range conns {
+		if m == nil || m.OutboundType == constant.TypeDNS {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if !filtered[i].CreatedAt.Equal(filtered[j].CreatedAt) {
+			return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
+		}
+		return filtered[i].ID.String() < filtered[j].ID.String()
+	})
+
+	items := make([]activeConnectionItem, 0, len(filtered))
+	for _, m := range filtered {
+		items = append(items, buildConnectionItem(m, true))
+	}
+
+	closedFiltered := make([]*trafficcontrol.TrackerMetadata, 0, len(closedConns))
+	for _, m := range closedConns {
+		if m == nil || m.OutboundType == constant.TypeDNS {
+			continue
+		}
+		closedFiltered = append(closedFiltered, m)
+	}
+	sort.Slice(closedFiltered, func(i, j int) bool {
+		if !closedFiltered[i].ClosedAt.Equal(closedFiltered[j].ClosedAt) {
+			return closedFiltered[i].ClosedAt.After(closedFiltered[j].ClosedAt)
+		}
+		if !closedFiltered[i].CreatedAt.Equal(closedFiltered[j].CreatedAt) {
+			return closedFiltered[i].CreatedAt.After(closedFiltered[j].CreatedAt)
+		}
+		return closedFiltered[i].ID.String() < closedFiltered[j].ID.String()
+	})
+	const maxClosedConnections = 300
+	if len(closedFiltered) > maxClosedConnections {
+		closedFiltered = closedFiltered[:maxClosedConnections]
+	}
+
+	closedItems := make([]activeConnectionItem, 0, len(closedFiltered))
+	for _, m := range closedFiltered {
+		closedItems = append(closedItems, buildConnectionItem(m, false))
+	}
+
+	payload := struct {
+		UploadTotal       int64                  `json:"uploadTotal"`
+		DownloadTotal     int64                  `json:"downloadTotal"`
+		Connections       []activeConnectionItem `json:"connections"`
+		ClosedConnections []activeConnectionItem `json:"closedConnections"`
+	}{
+		UploadTotal:       upTotal,
+		DownloadTotal:     downTotal,
+		Connections:       items,
+		ClosedConnections: closedItems,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func (b *BoxInstance) CloseConnection(id string) bool {
+	if b == nil || b.trafficManager == nil || strings.TrimSpace(id) == "" {
+		return false
+	}
+	uid, err := uuid.FromString(strings.TrimSpace(id))
+	if err != nil {
+		return false
+	}
+	tracker := b.trafficManager.Connection(uid)
+	if tracker == nil {
+		return false
+	}
+	_ = tracker.Close()
+	return true
+}
+
+func (b *BoxInstance) CloseAllConnections() {
+	if b == nil || b.trafficManager == nil {
+		return
+	}
+	b.trafficManager.CloseAllConnections()
+}
+
+func (b *BoxInstance) ClearClosedConnections() {
+	if b == nil || b.trafficManager == nil {
+		return
+	}
+	b.trafficManager.Clear()
+}
+
+func resolveRealTag(outboundMgr adapter.OutboundManager, detour adapter.Outbound, network string) string {
 	visited := make(map[string]bool)
 	for detour != nil {
 		tag := detour.Tag()
@@ -467,15 +1011,30 @@ func resolveRealTag(detour adapter.Outbound, network string) string {
 			return tag
 		}
 		visited[tag] = true
-		group, isGroup := detour.(adapter.OutboundGroup)
-		if !isGroup {
-			return tag
+		if group, isGroup := detour.(adapter.OutboundGroup); isGroup {
+			selected := group.Selected(network)
+			if selected == nil {
+				return tag
+			}
+			detour = selected
+			continue
 		}
-		selected := group.Selected(network)
-		if selected == nil {
-			return tag
+		if nowGroup, hasNow := detour.(interface{ Now() string }); hasNow {
+			activeTag := nowGroup.Now()
+			if activeTag == "" || activeTag == tag {
+				return tag
+			}
+			if outboundMgr == nil {
+				return activeTag
+			}
+			next, loaded := outboundMgr.Outbound(activeTag)
+			if !loaded || next == nil {
+				return activeTag
+			}
+			detour = next
+			continue
 		}
-		detour = selected
+		return tag
 	}
 	return ""
 }

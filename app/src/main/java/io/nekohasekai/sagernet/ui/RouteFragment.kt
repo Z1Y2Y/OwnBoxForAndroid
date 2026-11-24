@@ -25,6 +25,30 @@ import io.nekohasekai.sagernet.ktx.*
 import io.nekohasekai.sagernet.widget.ListListener
 import io.nekohasekai.sagernet.widget.UndoSnackbarManager
 
+internal fun reorderRuleItems(ruleList: MutableList<RuleEntity>, from: Int, to: Int): List<RuleEntity> {
+    if (from == to || from <= 0 || to <= 0) return emptyList()
+    val fromIdx = from - 1
+    val toIdx = to - 1
+    if (fromIdx !in ruleList.indices || toIdx !in ruleList.indices) return emptyList()
+
+    val first = ruleList[fromIdx]
+    var previousOrder = first.userOrder
+    val (step, range) = if (from < to) Pair(1, fromIdx until toIdx) else Pair(-1, fromIdx downTo to)
+    val changed = ArrayList<RuleEntity>(kotlin.math.abs(to - from) + 1)
+    for (i in range) {
+        val next = ruleList[i + step]
+        val order = next.userOrder
+        next.userOrder = previousOrder
+        previousOrder = order
+        ruleList[i] = next
+        changed.add(next)
+    }
+    first.userOrder = previousOrder
+    ruleList[toIdx] = first
+    changed.add(first)
+    return changed
+}
+
 class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItemClickListener {
 
     companion object {
@@ -66,6 +90,9 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
     lateinit var ruleListView: RecyclerView
     lateinit var ruleAdapter: RuleAdapter
     lateinit var undoManager: UndoSnackbarManager<RuleEntity>
+    private var modeBanner: View? = null
+    private var modeBannerText: android.widget.TextView? = null
+    private var modeBannerAction: View? = null
 
     fun autoReloadServiceIfStarted() {
         if (DataStore.serviceState.started) {
@@ -79,6 +106,29 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         }
     }
 
+    private fun updateModeBanner() {
+        val banner = modeBanner ?: return
+        val text = modeBannerText ?: return
+        when {
+            DataStore.globalMode -> {
+                banner.visibility = View.VISIBLE
+                text.setText(R.string.route_banner_global_mode)
+            }
+            DataStore.smartMode -> {
+                banner.visibility = View.VISIBLE
+                text.setText(R.string.route_banner_smart_mode)
+            }
+            else -> {
+                banner.visibility = View.GONE
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateModeBanner()
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
@@ -88,6 +138,18 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
         toolbar.setTitle(R.string.menu_route)
         toolbar.inflateMenu(R.menu.add_route_menu)
         toolbar.setOnMenuItemClickListener(this)
+
+        modeBanner = view.findViewById(R.id.route_mode_banner)
+        modeBannerText = view.findViewById(R.id.route_mode_banner_text)
+        modeBannerAction = view.findViewById(R.id.route_mode_banner_action)
+        modeBannerAction?.setOnClickListener {
+            DataStore.smartMode = false
+            DataStore.globalMode = false
+            activity.refreshProxyModeCard()
+            updateModeBanner()
+            autoReloadServiceIfStarted()
+        }
+        updateModeBanner()
 
         ruleListView = view.findViewById(R.id.route_list)
         updateBottomPadding()
@@ -318,20 +380,8 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
 
         private val updated = HashSet<RuleEntity>()
         fun move(from: Int, to: Int) {
-            val first = ruleList[from - 1]
-            var previousOrder = first.userOrder
-            val (step, range) = if (from < to) Pair(1, from - 1 until to - 1) else Pair(-1, to downTo from - 1)
-            for (i in range) {
-                val next = ruleList[i + step]
-                val order = next.userOrder
-                next.userOrder = previousOrder
-                previousOrder = order
-                ruleList[i] = next
-                updated.add(next)
-            }
-            first.userOrder = previousOrder
-            ruleList[to - 1] = first
-            updated.add(first)
+            if (from == to) return
+            updated.addAll(reorderRuleItems(ruleList, from, to))
             notifyItemMoved(from, to)
         }
 
@@ -437,7 +487,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
                     rule.outbound == -2L -> R.color.color_route_block   // 屏蔽：红色
                     rule.outbound == -1L -> R.color.color_route_direct  // 直连：绿色
                     rule.outbound == 0L -> R.color.color_route_proxy    // 代理：蓝色
-                    else -> R.color.color_route_config // 配置：紫色
+                    else -> R.color.color_route_config                  // 配置：紫色
                 }
                 routeOutbound.setTextColor(ContextCompat.getColor(itemView.context, colorRes))
 

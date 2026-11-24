@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="@string/mode_and_inbound_settings">
+
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:defaultValue="vpn"
+            app:entries="@array/service_modes"
+            app:entryValues="@array/service_mode_values"
+            app:icon="@drawable/ic_device_developer_mode"
+            app:key="serviceMode"
+            app:title="@string/service_mode"
+            app:useSimpleSummaryProvider="true" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:icon="@drawable/solar_forbidden_circle_linear"
+            app:key="disableMixedInbound"
+            app:summary="@string/disable_mixed_inbound_sum"
+            app:title="@string/disable_mixed_inbound" />
+
+        <EditTextPreference
+            app:icon="@drawable/solar_hashtag_circle_linear"
+            app:key="mixedPort"
+            app:title="@string/port_proxy"
+            app:useSimpleSummaryProvider="true" />
+
+        <Preference
+            app:icon="@drawable/solar_lock_keyhole_linear"
+            app:key="mixedAuthConfig"
+            app:title="@string/mixed_auth_config" />
+
+        <EditTextPreference
+            app:defaultValue=""
+            app:dialogMessage="@string/http_proxy_bypass_dialog_message"
+            app:icon="@drawable/solar_checklist_minimalistic_linear"
+            app:key="httpProxyBypass"
+            app:title="@string/http_proxy_bypass"
+            app:useSimpleSummaryProvider="true" />
+
+        <Preference
+            app:icon="@drawable/solar_wi_fi_router_linear"
+            app:key="lanSharing"
+            app:title="@string/lan_sharing" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

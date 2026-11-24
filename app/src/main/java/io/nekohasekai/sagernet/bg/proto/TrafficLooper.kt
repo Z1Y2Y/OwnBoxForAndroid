@@ -13,6 +13,7 @@ import io.nekohasekai.sagernet.fmt.TAG_BYPASS
 import io.nekohasekai.sagernet.fmt.TAG_DIRECT
 import io.nekohasekai.sagernet.fmt.TAG_PROXY
 import io.nekohasekai.sagernet.ktx.Logs
+import io.nekohasekai.sagernet.utils.LandingIpManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import libcore.Libcore
@@ -326,9 +327,10 @@ class TrafficLooper
                     }
                 }
                 if (ActiveOutboundTracker.checkAndUpdate(data)) {
+                    LandingIpManager.clearCache()
                     val newTitle = ActiveOutboundTracker.formatNotificationTitle(proxy.profile)
                     proxy.displayProfileName = newTitle
-                    data.notification?.postNotificationTitle(newTitle)
+                    data.notification?.refresh(newTitle)
                     data.binder.broadcast { cb ->
                         cb.cbSelectorUpdate(proxy.profile.id)
                     }

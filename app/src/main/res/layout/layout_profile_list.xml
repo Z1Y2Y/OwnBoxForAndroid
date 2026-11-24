@@ -112,15 +112,59 @@
                     android:id="@+id/tv_last_updated"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:singleLine="true"
+                    android:ellipsize="end"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="11sp"
                     tools:text="更新于: 10分钟前" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_card_update"
+                    style="?attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    app:icon="@drawable/solar_cloud_download_linear"
+                    app:iconSize="14dp"
+                    app:iconPadding="3dp"
+                    app:iconGravity="textStart"
+                    app:iconTint="?android:attr/textColorSecondary"
+                    android:text="@string/group_update"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="11sp" />
+
             </LinearLayout>
 
         </LinearLayout>
 
     </com.google.android.material.card.MaterialCardView>
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_save_reorder"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
+        android:visibility="gone"
+        android:text="@string/reorder_save"
+        app:icon="@drawable/ic_baseline_check_circle_24"
+        app:iconGravity="textStart" />
     <com.simplecityapps.recyclerview_fastscroll.views.FastScrollRecyclerView
         android:id="@+id/configuration_list"
         android:layout_width="match_parent"

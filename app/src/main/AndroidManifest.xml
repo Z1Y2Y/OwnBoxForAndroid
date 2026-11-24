@@ -55,6 +55,7 @@
         android:autoRevokePermissions="allowed"
         android:banner="@mipmap/ic_launcher"
         android:dataExtractionRules="@xml/backup_rules"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_descriptor"
         android:fullBackupOnly="true"
         android:hardwareAccelerated="true"
@@ -320,7 +321,8 @@
             android:taskAffinity="" />
         <activity
             android:name="io.nekohasekai.sagernet.ui.profile.ConfigEditActivity"
-            android:configChanges="uiMode" />
+            android:configChanges="uiMode"
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name="io.nekohasekai.sagernet.ui.profile.SocksSettingsActivity"
             android:configChanges="uiMode" />
@@ -373,6 +375,9 @@
             android:name="io.nekohasekai.sagernet.ui.profile.BalancerSettingsActivity"
             android:configChanges="uiMode" />
         <activity
+            android:name="io.nekohasekai.sagernet.ui.profile.BalancerNodeOrderActivity"
+            android:configChanges="uiMode" />
+        <activity
             android:name="moe.matsuri.nb4a.proxy.shadowtls.ShadowTLSSettingsActivity"
             android:configChanges="uiMode" />
         <activity
@@ -383,6 +388,9 @@
             android:configChanges="uiMode" />
         <activity
             android:name="io.nekohasekai.sagernet.ui.GroupSettingsActivity"
+            android:configChanges="uiMode" />
+        <activity
+            android:name="io.nekohasekai.sagernet.ui.StrategyStatsActivity"
             android:configChanges="uiMode" />
         <activity
             android:name="io.nekohasekai.sagernet.ui.RouteSettingsActivity"
@@ -560,7 +568,7 @@
         <receiver
             android:name="io.nekohasekai.sagernet.widget.OwnBoxWidget1x1"
             android:exported="true"
-            android:label="MyBox 1×1 (水滴微球)">
+            android:label="@string/widget_1x1_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -572,7 +580,7 @@
         <receiver
             android:name="io.nekohasekai.sagernet.widget.OwnBoxWidget2x2"
             android:exported="true"
-            android:label="MyBox 2×2 (紧凑状态)">
+            android:label="@string/widget_2x2_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -584,7 +592,7 @@
         <receiver
             android:name="io.nekohasekai.sagernet.widget.OwnBoxWidget4x1"
             android:exported="true"
-            android:label="MyBox 4×1 (胶囊操作栏)">
+            android:label="@string/widget_4x1_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -596,7 +604,7 @@
         <receiver
             android:name="io.nekohasekai.sagernet.widget.OwnBoxWidget4x2"
             android:exported="true"
-            android:label="MyBox 4×2 (全景仪表板)">
+            android:label="@string/widget_4x2_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

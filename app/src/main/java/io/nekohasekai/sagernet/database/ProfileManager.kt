@@ -2,12 +2,15 @@ package io.nekohasekai.sagernet.database
 
 import android.database.sqlite.SQLiteCantOpenDatabaseException
 import io.nekohasekai.sagernet.aidl.TrafficData
+import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.fmt.AbstractBean
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.applyDefaultValues
 import java.io.IOException
 import java.sql.SQLException
 import java.util.ArrayList
+import java.util.Locale
 
 
 object ProfileManager {
@@ -190,6 +193,143 @@ object ProfileManager {
         }
     }
 
-    suspend fun getRules(): List<RuleEntity> = SagerDatabase.rulesDao.allRules()
+    suspend fun getRules(): List<RuleEntity> {
+        var rules = SagerDatabase.rulesDao.allRules()
+        if (rules.isEmpty() && !DataStore.rulesFirstCreate) {
+            DataStore.rulesFirstCreate = true
+            createRule(
+                RuleEntity(
+                    name = app.getString(R.string.route_opt_block_quic),
+                    network = "udp",
+                    protocol = "quic",
+                    outbound = -2
+                )
+            )
+            createRule(
+                RuleEntity(
+                    name = app.getString(R.string.route_opt_block_ads),
+                    ruleset = "geosite-category-ads-all",
+                    outbound = -2
+                )
+            )
+            val fuckedCountry = mutableListOf("cn:中国")
+            if (Locale.getDefault().country != Locale.CHINA.country) {
+                // 非中文用户
+                fuckedCountry += "ir:Iran"
+                fuckedCountry += "ru:Russia"
+            }
+            for (c in fuckedCountry) {
+                val country = c.substringBefore(":")
+                val displayCountry = c.substringAfter(":")
+                //
+                if (country == "cn") createRule(
+                    RuleEntity(
+                        name = app.getString(R.string.route_play_store, displayCountry),
+                        domains = listOf(
+                            "geosite:google-play",
+                            "geosite:google@cn",
+                            "domain:googleapis.cn",
+                            "domain:gvt1.com",
+                            "domain:gvt2.com",
+                            "domain:gvt3.com",
+                            "domain:gvt5.com",
+                            "domain:gvt6.com",
+                            "domain:gvt7.com",
+                            "domain:gvt9.com",
+                            "domain:gvt1-cn.com",
+                            "domain:gvt2-cn.com",
+                            "domain:googleusercontent.com",
+                            "domain:play.googleapis.com",
+                            "domain:android.clients.google.com",
+                            "domain:playstoregatewayadapter-pa.googleapis.com",
+                            "domain:firebaselogging-pa.googleapis.com",
+                            "domain:ggpht.com",
+                            "domain:xn--ngstr-lra8j.com",
+                            "domain:xn--ngstr-cn-8za9o.com"
+                        ).joinToString("\n"),
+                        packages = setOf(
+                            "com.android.vending",
+                            "com.google.android.gms",
+                            "com.google.android.gsf",
+                        )
+                    ), true
+                )
+                createRule(
+                    RuleEntity(
+                        name = app.getString(R.string.route_bypass_domain, displayCountry),
+                        domains = "geosite:$country",
+                        outbound = -1
+                    ), false
+                )
+                createRule(
+                    RuleEntity(
+                        name = app.getString(R.string.route_bypass_ip, displayCountry),
+                        ip = "geoip:$country",
+                        outbound = -1
+                    ), false
+                )
+            }
+            rules = SagerDatabase.rulesDao.allRules()
+        } else if (rules.isNotEmpty()) {
+            // Auto-enrich existing Play Store rules for existing users without resetting DB
+            var needReload = false
+            rules.forEach { rule ->
+                val isPlayStoreRule = rule.domains.contains("googleapis.cn") || rule.packages.contains("com.android.vending")
+                if (isPlayStoreRule) {
+                    var changed = false
+                    if (!rule.domains.contains("playstoregatewayadapter-pa.googleapis.com") || !rule.packages.contains("com.google.android.gsf")) {
+                        val currentDomains = rule.domains.split("\n").map { it.trim() }.filter { it.isNotBlank() }
+                        val newDomains = listOf(
+                            "geosite:google-play",
+                            "geosite:google@cn",
+                            "domain:googleapis.cn",
+                            "domain:gvt1.com",
+                            "domain:gvt2.com",
+                            "domain:gvt3.com",
+                            "domain:gvt5.com",
+                            "domain:gvt6.com",
+                            "domain:gvt7.com",
+                            "domain:gvt9.com",
+                            "domain:gvt1-cn.com",
+                            "domain:gvt2-cn.com",
+                            "domain:googleusercontent.com",
+                            "domain:play.googleapis.com",
+                            "domain:android.clients.google.com",
+                            "domain:playstoregatewayadapter-pa.googleapis.com",
+                            "domain:firebaselogging-pa.googleapis.com",
+                            "domain:ggpht.com",
+                            "domain:xn--ngstr-lra8j.com",
+                            "domain:xn--ngstr-cn-8za9o.com"
+                        )
+                        rule.domains = (currentDomains + newDomains).distinct().joinToString("\n")
+                        rule.packages = rule.packages + setOf(
+                            "com.android.vending",
+                            "com.google.android.gms",
+                            "com.google.android.gsf",
+                        )
+                        changed = true
+                    }
+                    // Strip legacy injected system download manager packages so domestic DownloadManager downloads are not hijacked
+                    if (rule.domains.contains("googleapis.cn") &&
+                        (rule.packages.contains("com.android.providers.downloads") || rule.packages.contains("com.android.providers.downloads.ui"))
+                    ) {
+                        rule.packages = rule.packages - setOf(
+                            "com.android.providers.downloads",
+                            "com.android.providers.downloads.ui",
+                        )
+                        changed = true
+                    }
+                    if (changed) {
+                        SagerDatabase.rulesDao.updateRule(rule)
+                        needReload = true
+                    }
+                }
+            }
+            if (needReload) {
+                rules = SagerDatabase.rulesDao.allRules()
+            }
+        }
+        return rules
+    }
 
 }

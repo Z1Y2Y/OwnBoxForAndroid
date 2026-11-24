@@ -9,6 +9,7 @@ import android.app.ActivityManager
 import android.widget.Toast
 import io.nekohasekai.sagernet.Action
 import io.nekohasekai.sagernet.BootReceiver
+import io.nekohasekai.sagernet.IPv6Mode
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.aidl.ISagerNetService
@@ -21,6 +22,7 @@ import androidx.core.app.NotificationManagerCompat
 import io.nekohasekai.sagernet.plugin.PluginManager
 import io.nekohasekai.sagernet.utils.DefaultNetworkListener
 import io.nekohasekai.sagernet.utils.LandingIpManager
+import io.nekohasekai.sagernet.utils.NetworkIPv6Detector
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,7 +43,7 @@ class BaseService {
         /**
          * Idle state is only used by UI and will never be returned by BaseService.
          */
-        Idle, Connecting(true, true, false), Connected(true, true, true), Stopping, Stopped,
+        Idle, Connecting(true, true, false), Connected(true, true, true), Stopping, Stopped, Suspended(true, false, false),
     }
 
     interface ExpectedException
@@ -52,6 +54,9 @@ class BaseService {
         var notification: ServiceNotification? = null
         var cacheRecoveryAttempts = 0
         var networkSwitchRetryAttempts = 0
+        @Volatile var isSmartStopped = false
+        @Volatile var smartStopReason: String? = null
+        var smartAutoStopController: SmartAutoStopController? = null
 
         var lastScreenOffTime = 0L
 
@@ -70,6 +75,12 @@ class BaseService {
                     runOnDefaultDispatcher {
                         notification?.refreshLiveUpdate()
                     }
+                }
+                Action.REFRESH_SMART_AUTO_STOP -> {
+                    smartAutoStopController?.refreshConfig(initialStart = false)
+                }
+                Action.SMART_RESUME -> {
+                    service.smartResume(manual = true)
                 }
                 // Action.SWITCH_WAKE_LOCK -> runOnDefaultDispatcher { service.switchWakeLock() }
                 PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
@@ -164,7 +175,7 @@ class BaseService {
                     NotificationManagerCompat.from(SagerNet.application).cancel(ServiceNotification.notificationId)
                     SagerNet.notification.cancel(ServiceNotification.notificationId)
                 }
-            } else {
+            } else if (s != State.Suspended) {
                 runOnDefaultDispatcher {
                     notification?.postStateUpdate(s)
                 }
@@ -273,6 +284,54 @@ class BaseService {
             }
         }
 
+        override fun getActiveStrategySnapshotJson(): String {
+            val currentData = data ?: return ""
+            if (currentData.state != State.Connected) return ""
+            val proxy = currentData.proxy ?: return ""
+            return StrategySnapshotHelper.getOrCheckSnapshotJson(proxy, forceCheck = false)
+        }
+
+        override fun checkActiveStrategyNowJson(): String {
+            val currentData = data ?: return ""
+            if (currentData.state != State.Connected) return ""
+            val proxy = currentData.proxy ?: return ""
+            return StrategySnapshotHelper.getOrCheckSnapshotJson(proxy, forceCheck = true)
+        }
+
+        override fun pinActiveStrategyMember(memberProfileId: Long): String {
+            val currentData = data ?: return ""
+            if (currentData.state != State.Connected) return ""
+            return StrategySnapshotHelper.pinMemberAndSnapshotJson(currentData, memberProfileId)
+        }
+
+        override fun getActiveConnectionsJson(): String {
+            val currentData = data ?: return ""
+            if (currentData.state != State.Connected) return ""
+            val box = currentData.proxy?.box ?: return ""
+            return runCatching { box.getConnectionsJSON() }.getOrDefault("")
+        }
+
+        override fun closeActiveConnection(id: String): Boolean {
+            val currentData = data ?: return false
+            if (currentData.state != State.Connected) return false
+            val box = currentData.proxy?.box ?: return false
+            return runCatching { box.closeConnection(id) }.getOrDefault(false)
+        }
+
+        override fun closeAllActiveConnections() {
+            val currentData = data ?: return
+            if (currentData.state != State.Connected) return
+            val box = currentData.proxy?.box ?: return
+            runCatching { box.closeAllConnections() }
+        }
+
+        override fun clearClosedConnections() {
+            val currentData = data ?: return
+            if (currentData.state != State.Connected) return
+            val box = currentData.proxy?.box ?: return
+            runCatching { box.clearClosedConnections() }
+        }
+
         fun stateChanged(s: State, msg: String?) = launch {
             val profileName = profileName
             broadcast { it.stateChanged(s.ordinal, profileName, msg) }
@@ -302,7 +361,7 @@ class BaseService {
         fun switchProfile(id: Long) {
             if (id <= 0L) return
             DataStore.selectedProxy = id
-            reload()
+            reload(allowSelector = true)
         }
 
         fun switchRelative(step: Int) {
@@ -311,12 +370,12 @@ class BaseService {
             switchProfile(target.id)
         }
 
-        fun reload() {
+        fun reload(allowSelector: Boolean = false) {
             if (DataStore.selectedProxy == 0L) {
                 stopRunner(false, (this as Context).getString(R.string.profile_empty))
                 return
             }
-            if (canReloadSelector()) {
+            if (allowSelector && canReloadSelector()) {
                 val proxy = data.proxy ?: return
                 val box = runCatching { proxy.box }.getOrNull()
                 val tag = proxy.config.profileTagMap[DataStore.selectedProxy] ?: ""
@@ -329,12 +388,14 @@ class BaseService {
                             proxy.profile = newProfile
                             proxy.config.mainEntId = newProfileId
                             DataStore.currentProfile = newProfileId
+                            runCatching { StrategySnapshotHelper.applyPersistedPin(proxy) }
                             ActiveOutboundTracker.onProfileSwitched(newProfile)
+                            LandingIpManager.clearCache()
                             val newTitle = ActiveOutboundTracker.formatNotificationTitle(newProfile)
                             proxy.displayProfileName = newTitle
                             runOnDefaultDispatcher {
                                 proxy.looper?.selectMain(newProfileId)
-                                data.notification?.postNotificationTitle(newTitle)
+                                data.notification?.refresh(newTitle)
                                 data.binder.broadcast { cb ->
                                     cb.cbSelectorUpdate(newProfileId)
                                 }
@@ -348,6 +409,9 @@ class BaseService {
             }
             val s = data.state
             when {
+                s == State.Suspended -> {
+                    Logs.d("BaseService: ignore reload while suspended by Smart Auto-Stop")
+                }
                 s == State.Stopped -> startRunner()
                 s.canStop -> stopRunner(true)
                 else -> {
@@ -472,12 +536,17 @@ class BaseService {
         }
 
         fun stopRunner(restart: Boolean = false, msg: String? = null) {
+            LandingIpManager.clearCache()
             DataStore.baseService = null
             DataStore.vpnService = null
             DataStore.mixedInboundAuthed = false
             if (!restart) {
                 data.cacheRecoveryAttempts = 0
                 data.networkSwitchRetryAttempts = 0
+                data.isSmartStopped = false
+                data.smartStopReason = null
+                runCatching { data.smartAutoStopController?.stop() }
+                data.smartAutoStopController = null
             }
 
             val serviceId = Integer.toHexString(System.identityHashCode(data))
@@ -592,6 +661,65 @@ class BaseService {
             // TODO NEW save app stats?
         }
 
+        fun smartSuspend(matchedLabel: String) {
+            if (data.state != State.Connecting && data.state != State.Connected) return
+            this as Service
+            data.isSmartStopped = true
+            data.smartStopReason = matchedLabel
+            val fallbackTitle = (data.proxy?.profile ?: SagerDatabase.proxyDao.getById(DataStore.selectedProxy))
+                ?.let { ActiveOutboundTracker.formatNotificationTitle(it) }
+                ?: getString(R.string.app_name)
+            runOnMainDispatcher {
+                try {
+                    data.connectingJob?.cancelAndJoin()
+                } catch (e: Throwable) {
+                    Logs.w("SmartAutoStop: connectingJob cancel error", e)
+                } finally {
+                    data.connectingJob = null
+                }
+                ActiveOutboundTracker.reset()
+                if (data.notification == null) {
+                    data.notification = createNotification(fallbackTitle)
+                }
+                data.notification?.listenPostSpeed = false
+                try {
+                    killProcesses()
+                } catch (e: Throwable) {
+                    Logs.w("SmartAutoStop: killProcesses error", e)
+                } finally {
+                    data.proxy = null
+                }
+                data.changeState(State.Suspended)
+                data.notification?.postSuspendedState(matchedLabel)
+            }
+        }
+
+        fun smartResume(manual: Boolean) {
+            if (data.state != State.Suspended && !data.isSmartStopped) return
+            this as Context
+            if (manual) {
+                data.smartAutoStopController?.onManualOverride()
+            }
+            data.isSmartStopped = false
+            data.smartStopReason = null
+            if (this is VpnService && android.net.VpnService.prepare(this) != null) {
+                if (manual) {
+                    startActivity(
+                        Intent(this, io.nekohasekai.sagernet.ui.VpnRequestActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    stopRunner(false, null)
+                } else {
+                    stopRunner(false, getString(R.string.vpn_permission_denied))
+                }
+                return
+            }
+            runCatching { data.notification?.detachWithoutCancel() }
+            data.notification = null
+            data.state = State.Stopped
+            startRunner()
+        }
+
         // networks
         var upstreamInterfaceName: String?
 
@@ -601,11 +729,22 @@ class BaseService {
             } catch (e: Throwable) {
                 Logs.w(e)
             }
-            if (SagerNet.underlyingNetwork == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                SagerNet.connectivity.activeNetwork?.let { active ->
-                    SagerNet.underlyingNetwork = active
-                    upstreamInterfaceName = SagerNet.connectivity.getLinkProperties(active)?.interfaceName
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val active = SagerNet.underlyingNetwork ?: SagerNet.connectivity.activeNetwork
+                if (active != null) {
+                    if (SagerNet.underlyingNetwork == null) {
+                        SagerNet.underlyingNetwork = active
+                    }
+                    val activeLink = SagerNet.connectivity.getLinkProperties(active)
+                    if (upstreamInterfaceName == null) {
+                        upstreamInterfaceName = activeLink?.interfaceName
+                    }
+                    NetworkIPv6Detector.syncToCore(activeLink)
+                } else {
+                    NetworkIPv6Detector.syncToCore(null)
                 }
+            } else {
+                NetworkIPv6Detector.syncToCore(null)
             }
             // 只负责 underlyingNetwork / 网卡名跟踪，供 VpnService.setUnderlyingNetworks。
             // 「网络变化时重置出站」由 DataStore.networkChangeResetConnections 控制，
@@ -618,24 +757,29 @@ class BaseService {
                     SagerNet.underlyingNetwork = null
                     upstreamInterfaceName = null
                     NativeInterface.clearInterfaceCache()
+                    NetworkIPv6Detector.syncToCore(null)
                     DataStore.vpnService?.updateUnderlyingNetwork()
                     return@start
                 }
                 val link = SagerNet.connectivity.getLinkProperties(network)
                 val oldNetwork = SagerNet.underlyingNetwork
                 SagerNet.underlyingNetwork = network
+                NetworkIPv6Detector.syncToCore(link)
                 DataStore.vpnService?.updateUnderlyingNetwork()
                 val oldName = upstreamInterfaceName
                 val newName = link?.interfaceName
-                if (newName != null && (oldName != newName || oldNetwork != network)) {
-                    Logs.d("Network changed: $oldName -> $newName (network $oldNetwork -> $network)")
-                    try {
-                        Libcore.setNetworkChangeResetConnections(DataStore.networkChangeResetConnections)
-                    } catch (e: Throwable) {
-                        Logs.w(e)
-                    }
+                if (newName != null) {
+                    val isRealNetworkSwitch =
+                        (oldName != null && oldName != newName) || (oldNetwork != null && oldNetwork != network)
                     upstreamInterfaceName = newName
-                    NativeInterface.clearInterfaceCache()
+                    if (isRealNetworkSwitch) {
+                        Logs.d("Network changed: $oldName -> $newName (network $oldNetwork -> $network)")
+                        try {
+                            Libcore.setNetworkChangeResetConnections(DataStore.networkChangeResetConnections)
+                        } catch (e: Throwable) {
+                            Logs.w(e)
+                        }
+                        NativeInterface.clearInterfaceCache()
                         if (data.state == State.Connecting) {
                             Logs.i("Network changed during Connecting state: cancelling old handshake and retrying on new network")
                             data.connectingJob?.cancel()
@@ -651,6 +795,7 @@ class BaseService {
                             }
                         }
                     }
+                }
             }
         }
 
@@ -702,6 +847,8 @@ class BaseService {
                     addAction(Action.SWITCH_PREVIOUS)
                     addAction(Action.SWITCH_PROFILE)
                     addAction(Action.REFRESH_NOTIFICATION)
+                    addAction(Action.REFRESH_SMART_AUTO_STOP)
+                    addAction(Action.SMART_RESUME)
                     // addAction(Action.SWITCH_WAKE_LOCK)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
@@ -731,8 +878,13 @@ class BaseService {
                 data.closeReceiverRegistered = true
             }
 
+            if (data.smartAutoStopController == null) {
+                data.smartAutoStopController = SmartAutoStopController(this)
+            }
+            data.smartAutoStopController?.start()
+
             data.changeState(State.Connecting)
-            runOnMainDispatcher {
+            data.connectingJob = runOnMainDispatcher {
                 try {
                     data.notification = createNotification(ActiveOutboundTracker.formatNotificationTitle(profile))
 
@@ -747,11 +899,25 @@ class BaseService {
                     }
 
                     startProcesses()
+                    if (data.isSmartStopped) {
+                        killProcesses()
+                        data.proxy = null
+                        return@runOnMainDispatcher
+                    }
                     data.changeState(State.Connected)
                     data.cacheRecoveryAttempts = 0
                     data.networkSwitchRetryAttempts = 0
 
                     DataStore.vpnService?.updateUnderlyingNetwork()
+                    if (DataStore.ipv6Mode == IPv6Mode.ONLY &&
+                        !NetworkIPv6Detector.inspectDefaultPhysicalNetwork().hasPublicIPv6
+                    ) {
+                        Toast.makeText(
+                            this@Interface,
+                            R.string.ipv6_only_no_public_ipv6_warning,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                     lateInit()
                 } catch (_: CancellationException) { // if the job was cancelled, it is canceller's responsibility to call stopRunner
                 } catch (_: UnknownHostException) {

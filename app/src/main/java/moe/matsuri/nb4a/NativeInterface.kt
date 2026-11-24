@@ -21,6 +21,8 @@ import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import io.nekohasekai.sagernet.utils.DefaultNetworkListener
+import io.nekohasekai.sagernet.utils.LandingIpManager
+import io.nekohasekai.sagernet.utils.NetworkIPv6Detector
 import io.nekohasekai.sagernet.utils.PackageCache
 import kotlinx.coroutines.runBlocking
 import libcore.BoxPlatformInterface
@@ -234,6 +236,7 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
             state.network = network
             state.suppressed = 0
             clearInterfaceCache()
+            NetworkIPv6Detector.syncToCore(linkProperties)
             listener.updateDefaultInterface(linkProperties.interfaceName, interfaceIndex)
             return
         }
@@ -260,10 +263,29 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
         }
         @Suppress("DEPRECATION") val networks = SagerNet.connectivity.allNetworks
         val networkInterfaces = NetworkInterface.getNetworkInterfaces().toList()
+        val activeUnderlying = SagerNet.underlyingNetwork
+        val candidates = networks.mapNotNull { network ->
+            val linkProperties = SagerNet.connectivity.getLinkProperties(network) ?: return@mapNotNull null
+            val networkCapabilities = SagerNet.connectivity.getNetworkCapabilities(network) ?: return@mapNotNull null
+            if (networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                return@mapNotNull null
+            }
+            Triple(network, linkProperties, networkCapabilities)
+        }
+        val hasValidatedInternet = candidates.any { (_, _, caps) ->
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+        val filteredCandidates = if (hasValidatedInternet) {
+            candidates.filter { (network, _, caps) ->
+                network == activeUnderlying || caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            }
+        } else {
+            candidates
+        }.sortedByDescending { it.first == activeUnderlying }
+
         val interfaces = mutableListOf<LibcoreNetworkInterface>()
-        for (network in networks) {
-            val linkProperties = SagerNet.connectivity.getLinkProperties(network) ?: continue
-            val networkCapabilities = SagerNet.connectivity.getNetworkCapabilities(network) ?: continue
+        for ((_, linkProperties, networkCapabilities) in filteredCandidates) {
             val boxInterface = LibcoreNetworkInterface()
             boxInterface.name = linkProperties.interfaceName
             val networkInterface = networkInterfaces.find { it.name == boxInterface.name } ?: continue
@@ -328,20 +350,15 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
 
                 val activeProfile = data.proxy?.profile
                 val isBalancer = activeProfile?.type == ProxyEntity.TYPE_BALANCER
-                val group = if (activeProfile != null) runCatching { SagerDatabase.groupDao.getById(activeProfile.groupId) }.getOrNull() else null
-                val isGroupStrategy = group != null && (
-                    runCatching { DataStore.isGroupUrlTest(group.id) }.getOrDefault(false) ||
-                    runCatching { DataStore.isGroupLoadBalance(group.id) }.getOrDefault(false)
-                )
 
-                if (isBalancer || isGroupStrategy) {
-                    val memberMap = runCatching { data.proxy?.safeConfig?.balancerMemberMap?.get(activeProfile?.id) }.getOrNull()
-                        ?: if (isGroupStrategy) runCatching { SagerDatabase.proxyDao.getByGroup(group!!.id).map { it.id } }.getOrNull() else null
+                if (isBalancer) {
+                    val memberMap = runCatching { data.proxy?.safeConfig?.balancerMemberMap?.get(activeProfile.id) }.getOrNull()
                     if (memberMap != null && id in memberMap) {
                         ActiveOutboundTracker.updateActiveLeaf(id, ent.displayName())
+                        LandingIpManager.clearCache()
                         val newTitle = ActiveOutboundTracker.formatNotificationTitle(activeProfile!!)
                         data.proxy?.displayProfileName = newTitle
-                        data.notification?.postNotificationTitle(newTitle)
+                        data.notification?.refresh(newTitle)
                         ProfileManager.postUpdate(id, true)
                         activeProfile.let { ProfileManager.postUpdate(it.id, true) }
                         data.binder.broadcast { b ->
@@ -352,11 +369,12 @@ class NativeInterface : BoxPlatformInterface, NB4AInterface {
                 }
 
                 // traffic & title
+                LandingIpManager.clearCache()
                 data.proxy?.apply {
                     profile = ent
                     looper?.selectMain(id)
                     displayProfileName = ActiveOutboundTracker.formatNotificationTitle(ent)
-                    data.notification?.postNotificationTitle(displayProfileName)
+                    data.notification?.refresh(displayProfileName)
                 }
                 DataStore.currentProfile = id
                 // post binder
