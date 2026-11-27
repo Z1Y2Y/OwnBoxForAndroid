@@ -48,12 +48,10 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
                     android:textColor="?android:attr/textColorPrimary"
-                    android:textSize="13.5sp"
+                    android:textSize="14sp"
                     android:textStyle="bold"
-                    tools:text="Google Chrome" />
+                    tools:text="Google Play 商店" />
 
                 <TextView
                     android:id="@+id/conn_network"
@@ -66,99 +64,45 @@
                     android:textColor="?attr/primaryOrTextPrimary"
                     android:textSize="10sp"
                     android:textStyle="bold"
-                    tools:text="tun/tun-in | TCP" />
-
-                <TextView
-                    android:id="@+id/conn_time"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="10.5sp"
-                    tools:text="几秒前" />
+                    tools:text="TCP" />
 
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/conn_package"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="11sp"
+                tools:text="com.google.android.gms" />
 
             <TextView
                 android:id="@+id/conn_host"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:ellipsize="middle"
-                android:maxLines="1"
+                android:maxLines="2"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textSize="13sp"
-                tools:text="api.github.com:443" />
+                tools:text="android.apis.google.com:443" />
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/conn_traffic"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="3dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:textSize="11sp"
+                tools:text="▲ 0 B/s · ▼ 0 B/s · 累计 ▲ 2.6 kB · ▼ 5.5 kB" />
 
-                <TextView
-                    android:id="@+id/conn_rule"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="11sp"
-                    tools:text="rule_set=geoip:cn => route(bypass)" />
-
-                <TextView
-                    android:id="@+id/conn_download"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:textColor="#10B981"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    tools:text="▼ 6.25 KB" />
-
-                <TextView
-                    android:id="@+id/conn_upload"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:textColor="#3B82F6"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    tools:text="▲ 1.28 KB" />
-
-            </LinearLayout>
-
-            <LinearLayout
+            <TextView
+                android:id="@+id/conn_chains"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/conn_chains"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:textColor="?attr/primaryOrTextPrimary"
-                    android:textSize="11sp"
-                    tools:text="新加坡策略组 » Singapore 04" />
-
-                <TextView
-                    android:id="@+id/conn_speed"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:textColor="#10B981"
-                    android:textSize="10.5sp"
-                    android:textStyle="bold"
-                    android:visibility="gone"
-                    tools:text="▼ 12 KB/s"
-                    tools:visibility="visible" />
-
-            </LinearLayout>
+                android:textColor="?attr/primaryOrTextPrimary"
+                android:textSize="11sp"
+                tools:text="代理链：Play商店 → 🇨🇦加拿大01" />
 
         </LinearLayout>
 

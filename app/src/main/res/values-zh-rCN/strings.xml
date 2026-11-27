@@ -1615,7 +1615,7 @@
     <string name="connections_closed">已发送关闭连接请求</string>
     <string name="connections_close_failed">关闭失败，请检查本地控制器。</string>
     <string name="connections_state_closed">已关闭</string>
-    <string name="connections_item_traffic">↑ %1$s/s · ↓ %2$s/s · 累计 ↑ %3$s · ↓ %4$s</string>
+    <string name="connections_item_traffic">▲ %1$s/s · ▼ %2$s/s · 累计 ▲ %3$s · ▼ %4$s</string>
     <string name="connections_detail_network">网络：%1$s</string>
     <string name="connections_detail_process">进程：%1$s</string>
     <string name="connections_detail_source">来源：%1$s</string>

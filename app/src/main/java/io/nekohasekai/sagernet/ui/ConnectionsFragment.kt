@@ -163,7 +163,8 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
     private lateinit var tvEmpty: TextView
 
     private val adapter = ConnectionsAdapter()
-    private val appInfoCache = ConcurrentHashMap<String, Pair<String, Drawable?>>()
+    private val appInfoCache = ConcurrentHashMap<String, Triple<String, Drawable?, Int>>()
+    private val packagesByUidCache = ConcurrentHashMap<Int, List<String>>()
 
     @Volatile
     private var prevTrafficSnapshot: Map<String, Triple<Long, Long, Long>> = emptyMap()
@@ -510,31 +511,95 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
         }
     }
 
+    private fun packagesForUidCached(pm: PackageManager, uid: Int): List<String> {
+        if (uid < 0) return emptyList()
+        return packagesByUidCache.getOrPut(uid) {
+            runCatching { pm.getPackagesForUid(uid)?.toList().orEmpty() }.getOrNull().orEmpty()
+        }
+    }
+
     private fun resolveAppDisplay(
         pm: PackageManager,
         rawPackageName: String,
         uid: Int,
+        processHint: String = "",
     ): Triple<String, String, Drawable?> {
-        var pkg = rawPackageName.trim()
-        if (pkg.isEmpty() && uid >= 0) {
-            pkg = runCatching { pm.getPackagesForUid(uid)?.firstOrNull() }.getOrNull().orEmpty()
-        }
-        if (pkg.isEmpty()) {
-            val fallbackName = if (uid >= 0) "UID $uid" else "系统 / 本机内核"
+        val rawPkg = rawPackageName.trim()
+        val packagesForUid = packagesForUidCached(pm, uid)
+        // The process that opened the connection names its owner most precisely;
+        // it outranks libcore's packageName, which is only the first package for
+        // a shared UID and may be a sibling (e.g. YouTube vs YouTube Music).
+        // explicitPackageName is deliberately NOT passed: it would short-circuit
+        // the hint match above and re-introduce the first-pick sibling error.
+        val selected = ConnectionPackageResolver.selectPackage(
+            hints = listOf(processHint, rawPkg),
+            packagesForUid = packagesForUid,
+            connectionUid = uid.takeIf { it >= 0 },
+        ) ?: rawPkg.takeIf { packagesForUid.isEmpty() }
+        if (selected.isNullOrEmpty()) {
+            val fallbackName = rawPkg.ifBlank { if (uid >= 0) "UID $uid" else "系统 / 本机内核" }
             return Triple(fallbackName, "", null)
         }
-        appInfoCache[pkg]?.let { cached ->
-            return Triple(cached.first, pkg, cached.second)
+        appInfoCache[selected]?.let { cached ->
+            if (uid < 0 || cached.third == uid) {
+                return Triple(cached.first, selected, cached.second)
+            }
+            // Same package cached under another UID: re-verify below instead
+            // of serving a sibling app's icon.
+        }
+        val info = runCatching { pm.getApplicationInfo(selected, 0) }.getOrNull()
+            ?: return Triple(selected, selected, null)
+        if (uid >= 0 && info.uid != uid) {
+            // The selected package does not own this connection's UID: never
+            // show a sibling app's icon/label for it.
+            val fallbackName = rawPkg.ifBlank { "UID $uid" }
+            return Triple(fallbackName, "", null)
         }
         val label = runCatching {
-            val info = pm.getApplicationInfo(pkg, 0)
             pm.getApplicationLabel(info).toString()
-        }.getOrDefault(pkg)
+        }.getOrDefault(selected)
         val icon = runCatching {
-            pm.getApplicationIcon(pkg)
+            pm.getApplicationIcon(selected)
         }.getOrNull()
-        appInfoCache[pkg] = label to icon
-        return Triple(label, pkg, icon)
+        appInfoCache[selected] = Triple(label, icon, info.uid)
+        return Triple(label, selected, icon)
+    }
+
+    // Traffic line: rate + cumulative, triangles only (▲ upload blue, ▼ download green).
+    // formatShortFileSize needs API 26; .85 calls it unguarded, test3 falls back
+    // to formatFileSize below 26 (minSdk is 21) instead of crashing there.
+    private fun formatShortSize(ctx: android.content.Context, bytes: Long): String {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            Formatter.formatShortFileSize(ctx, bytes)
+        } else {
+            Formatter.formatFileSize(ctx, bytes)
+        }
+    }
+
+    private fun buildTrafficText(ctx: android.content.Context, item: ConnectionItem): CharSequence {
+        val upRate = "${formatShortSize(ctx, item.uploadSpeed)}/s"
+        val downRate = "${formatShortSize(ctx, item.downloadSpeed)}/s"
+        val upTotal = formatShortSize(ctx, item.upload)
+        val downTotal = formatShortSize(ctx, item.download)
+        val raw = ctx.getString(R.string.connections_item_traffic, upRate, downRate, upTotal, downTotal)
+        val sb = SpannableStringBuilder(raw)
+        var i = 0
+        while (i < sb.length) {
+            val ch = sb[i]
+            if (ch == '▲' || ch == '▼') {
+                val start = i
+                var end = i + 1
+                while (end < sb.length && sb[end] != '·' && sb[end] != '▲' && sb[end] != '▼') end++
+                sb.setSpan(
+                    ForegroundColorSpan(if (ch == '▲') COLOR_BLUE else COLOR_GREEN),
+                    start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                i = end
+            } else {
+                i++
+            }
+        }
+        return sb
     }
 
     private fun parseChainsList(arr: JSONArray?, reverse: Boolean, fallback: String): List<String> {
@@ -615,8 +680,9 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             }
             val rawPkg = obj.optString("packageName", "")
             val uid = obj.optInt("uid", -1)
-            val (appName, pkg, icon) = resolveAppDisplay(pm, rawPkg, uid)
-            val processPath = obj.optString("processPath").trim().ifBlank {
+            val rawProcessPath = obj.optString("processPath").trim()
+            val (appName, pkg, icon) = resolveAppDisplay(pm, rawPkg, uid, rawProcessPath)
+            val processPath = rawProcessPath.ifBlank {
                 when {
                     pkg.isNotBlank() && uid >= 0 -> "$pkg ($uid)"
                     pkg.isNotBlank() -> pkg
@@ -727,6 +793,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
 
         val snap = withContext(Dispatchers.IO) {
             val nextMap = HashMap<String, Triple<Long, Long, Long>>()
+            packagesByUidCache.clear()
             var activeList = emptyList<ConnectionItem>()
             var closedList = emptyList<ConnectionItem>()
             var upTotal = 0L
@@ -794,7 +861,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
                             val rawProcess = meta?.optString("processPath")?.takeIf { it.isNotBlank() }
                                 ?: meta?.optString("process").orEmpty()
                             val (rawPkg, parsedUid) = stripProcessSuffix(rawProcess)
-                            val (appName, pkg, icon) = resolveAppDisplay(pm, rawPkg, parsedUid)
+                            val (appName, pkg, icon) = resolveAppDisplay(pm, rawPkg, parsedUid, rawProcess)
 
                             val rule = obj.optString("rule").trim()
                             val payload = obj.optString("rulePayload").trim()
@@ -1428,39 +1495,20 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
         val appIcon: ImageView = itemView.findViewById(R.id.conn_app_icon)
         val appName: TextView = itemView.findViewById(R.id.conn_app_name)
         val network: TextView = itemView.findViewById(R.id.conn_network)
-        val time: TextView = itemView.findViewById(R.id.conn_time)
+        val packageName: TextView = itemView.findViewById(R.id.conn_package)
         val host: TextView = itemView.findViewById(R.id.conn_host)
-        val rule: TextView = itemView.findViewById(R.id.conn_rule)
-        val download: TextView = itemView.findViewById(R.id.conn_download)
-        val upload: TextView = itemView.findViewById(R.id.conn_upload)
+        val traffic: TextView = itemView.findViewById(R.id.conn_traffic)
         val chains: TextView = itemView.findViewById(R.id.conn_chains)
-        val speed: TextView = itemView.findViewById(R.id.conn_speed)
         val closeBtn: ImageView = itemView.findViewById(R.id.conn_close_btn)
 
         fun bind(item: ConnectionItem) {
             appName.text = item.appName
-            network.text = "${item.inboundType} | ${item.network}"
-            time.text = formatRelativeTime(item)
+            network.text = item.network
+            packageName.text = item.packageName
+            packageName.isVisible = item.packageName.isNotBlank()
             host.text = item.host
-            rule.text = item.rule
+            traffic.text = buildTrafficText(itemView.context, item)
             chains.text = itemView.context.getString(R.string.connections_detail_chain, item.chainsDisplay)
-
-            val ctx = itemView.context
-            download.text = "▼ ${Formatter.formatFileSize(ctx, item.download)}"
-            upload.text = "▲ ${Formatter.formatFileSize(ctx, item.upload)}"
-
-            if (item.active && (item.downloadSpeed > 0L || item.uploadSpeed > 0L)) {
-                val mainSpd = if (item.downloadSpeed >= item.uploadSpeed) {
-                    "▼ ${Formatter.formatFileSize(ctx, item.downloadSpeed)}/s"
-                } else {
-                    "▲ ${Formatter.formatFileSize(ctx, item.uploadSpeed)}/s"
-                }
-                speed.text = mainSpd
-                speed.setTextColor(if (item.downloadSpeed >= item.uploadSpeed) COLOR_GREEN else COLOR_BLUE)
-                speed.isVisible = true
-            } else {
-                speed.isVisible = false
-            }
 
             if (item.icon != null) {
                 appIcon.setImageDrawable(item.icon)

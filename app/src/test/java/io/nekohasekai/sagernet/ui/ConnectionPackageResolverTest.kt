@@ -128,6 +128,28 @@ class ConnectionPackageResolverTest {
     }
 
     @Test
+    fun processHintBeatsLibcoreFirstPickPackage() {
+        // YouTube Music case: libcore's packageName is the first package for the
+        // shared UID (YouTube), but the process that opened the connection is
+        // YouTube Music. The fragment passes the process path first, so the
+        // music package wins and its icon is shown, not YouTube's.
+        assertEquals(
+            "com.google.android.apps.youtube.music",
+            ConnectionPackageResolver.selectPackage(
+                hints = listOf(
+                    "com.google.android.apps.youtube.music (10377)",
+                    "com.google.android.youtube",
+                ),
+                packagesForUid = listOf(
+                    "com.google.android.youtube",
+                    "com.google.android.apps.youtube.music",
+                ),
+                connectionUid = 10377,
+            ),
+        )
+    }
+
+    @Test
     fun mapsAmbiguousCoreSystemUidToAndroidPackage() {
         assertEquals(
             "android",

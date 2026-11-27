@@ -1695,7 +1695,7 @@
     <string name="connections_closed">Connection close requested.</string>
     <string name="connections_close_failed">Could not close the connection. Check the local controller.</string>
     <string name="connections_state_closed">Closed</string>
-    <string name="connections_item_traffic">↑ %1$s/s · ↓ %2$s/s · Total ↑ %3$s · ↓ %4$s</string>
+    <string name="connections_item_traffic">▲ %1$s/s · ▼ %2$s/s · Total ▲ %3$s · ▼ %4$s</string>
     <string name="connections_detail_network">Network: %1$s</string>
     <string name="connections_detail_process">Process: %1$s</string>
     <string name="connections_detail_source">Source: %1$s</string>
