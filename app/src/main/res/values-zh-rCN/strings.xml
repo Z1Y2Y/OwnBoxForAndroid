@@ -1053,10 +1053,10 @@
     <string name="balancer_strategy_failover">故障转移 (failover)</string>
     <string name="balancer_strategy_stable">最稳定 (stable)</string>
     <string name="balancer_strategy_consistent_hash">一致性哈希 (consistentHash)</string>
-    <string name="balancer_sticky_by_app">同一应用固定用一个节点</string>
-    <string name="balancer_sticky_by_app_sum">同一个应用一直用上次连成功的节点，不用来回换。节点连不上时自动换一个；连上之后如果播放卡了、应用自己报错，不会换节点。</string>
-    <string name="balancer_persist_sticky_by_app">重启后仍记住应用的节点</string>
-    <string name="balancer_persist_sticky_by_app_sum">重启代理服务后，上面记住的节点还在，不用重新选。节点坏了还是会换别的。</string>
+    <string name="balancer_sticky_by_app">同一应用固定用一个代理</string>
+    <string name="balancer_sticky_by_app_sum">同一个应用一直用上次连成功的代理，不用来回换。代理连不上时自动换一个；连上之后如果播放卡了、应用自己报错，不会换代理。</string>
+    <string name="balancer_persist_sticky_by_app">重启后仍记住应用的代理</string>
+    <string name="balancer_persist_sticky_by_app_sum">重启代理服务后，上面记住的代理还在，不用重新选。代理坏了还是会换别的。</string>
     <string name="balancer_custom_url">自定义测速 URL</string>
     <string name="balancer_custom_url_sum">策略组单独使用的连通性测速地址（留空使用全局默认）</string>
     <string name="balancer_interval">探测间隔 (秒)</string>
