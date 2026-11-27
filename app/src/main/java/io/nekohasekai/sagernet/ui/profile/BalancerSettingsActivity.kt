@@ -754,11 +754,21 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             "$effective · ${getString(R.string.balancer_fallback_max_fails_summary)}"
         }
 
+        // test4: the .24 traffic-distribution cluster (the "distribute traffic
+        // among best configs" switch + load-balance mode/interval) only exists
+        // while no .85 strategy is chosen. With a legacy choice the dropdown
+        // owns traffic distribution (leastLoad/random/roundRobin/consistentHash
+        // ARE the distribution strategies) and the switch listener would
+        // re-derive the dropdown from the .24 fields; without a choice
+        // (blank legacy, e.g. test2-era beans) the autoselect path still
+        // reads these fields, so the controls stay.
+        fun noLegacyChoice(): Boolean = DataStore.balancerLegacyStrategy.isBlank()
+
         fun applyCategoryVisibility(balanceOn: Boolean) {
             catUseWhich?.isVisible = advancedExpanded
             catHealth?.isVisible = advancedExpanded
             catChain?.isVisible = advancedExpanded
-            catLoadBalance?.isVisible = advancedExpanded && balanceOn
+            catLoadBalance?.isVisible = advancedExpanded && balanceOn && noLegacyChoice()
         }
 
         fun applyAdvancedExpanded(expanded: Boolean, balanceEnabledOverride: Boolean? = null) {
@@ -808,7 +818,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
 
             fallbackAutoRevertPref?.isVisible = isFallback
             fallbackMaxFailsPref?.isVisible = isFallback
-            balanceSwitchPref?.isVisible = !isFallback
+            balanceSwitchPref?.isVisible = !isFallback && noLegacyChoice()
 
             tolerancePref?.isVisible = !isFallback && probeSettingsVisible()
             tolerancePref?.setTitle(R.string.balancer_tolerance_title)
@@ -834,8 +844,8 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             }
 
             applyCategoryVisibility(balanceOn && !isFallback)
-            balanceModePref?.isEnabled = balanceOn && !isFallback
-            balanceIntervalPref?.isVisible = balanceOn && !isFallback && balMode != BalancerBean.BALANCE_PER_CONNECTION
+            balanceModePref?.isEnabled = balanceOn && !isFallback && noLegacyChoice()
+            balanceIntervalPref?.isVisible = balanceOn && !isFallback && balMode != BalancerBean.BALANCE_PER_CONNECTION && noLegacyChoice()
         }
 
         // test3: legacy dropdown listener (restored from 4a70a4b5) — a new legacy

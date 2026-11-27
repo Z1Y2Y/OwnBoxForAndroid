@@ -471,18 +471,30 @@ class BalancerBeanMigrationTest {
         // test4: the .24 selection-mode row is hidden, so picking a legacy
         // strategy must rescue a stored priority/fallback bean instead of
         // being swallowed by it (the old early return did exactly that).
-        val bean = BalancerBean().apply {
-            initializeDefaultValues()
-            selectionMode = BalancerBean.SELECTION_PRIORITY
-            balanceEnabled = false
-            balanceMode = BalancerBean.BALANCE_TIMED_ROTATION
-            legacyStrategy = BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+        // All five strategies force latency; the .24 fields they map to
+        // stay distinct (leastPing: no balance; leastLoad/random/roundRobin:
+        // per-connection balance; consistentHash: timed balance).
+        val cases = listOf(
+            Triple(BalancerBean.STRATEGY_LEAST_PING, false, BalancerBean.BALANCE_TIMED_ROTATION),
+            Triple(BalancerBean.STRATEGY_LEAST_LOAD, true, BalancerBean.BALANCE_PER_CONNECTION),
+            Triple(BalancerBean.STRATEGY_RANDOM, true, BalancerBean.BALANCE_PER_CONNECTION),
+            Triple(BalancerBean.STRATEGY_ROUND_ROBIN, true, BalancerBean.BALANCE_PER_CONNECTION),
+            Triple(BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL, true, BalancerBean.BALANCE_TIMED_ROTATION),
+        )
+        for ((strategy, balanceEnabled, balanceMode) in cases) {
+            val bean = BalancerBean().apply {
+                initializeDefaultValues()
+                selectionMode = BalancerBean.SELECTION_PRIORITY
+                this.balanceEnabled = false
+                this.balanceMode = BalancerBean.BALANCE_TIMED_ROTATION
+                legacyStrategy = strategy
+            }
+            bean.applyLegacyChoiceForSave()
+            assertEquals(BalancerBean.SELECTION_LATENCY, bean.selectionMode)
+            assertEquals(strategy, bean.legacyStrategy)
+            assertEquals(balanceEnabled, bean.balanceEnabled)
+            assertEquals(balanceMode, bean.balanceMode)
         }
-        bean.applyLegacyChoiceForSave()
-        assertEquals(BalancerBean.SELECTION_LATENCY, bean.selectionMode)
-        assertEquals(BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL, bean.legacyStrategy)
-        assertTrue(bean.balanceEnabled)
-        assertEquals(BalancerBean.BALANCE_TIMED_ROTATION, bean.balanceMode)
 
         val fallbackBean = BalancerBean().apply {
             initializeDefaultValues()
