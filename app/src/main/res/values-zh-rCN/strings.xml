@@ -1432,6 +1432,7 @@
     <string name="balancer_preview_summary">所选分组 %1$d 个配置中有 %2$d 个可用；已全部纳入 %3$d 个。</string>
     <string name="balancer_preview_summary_list">已选列表 %1$d 个配置中有 %2$d 个可用；已全部纳入 %3$d 个。</string>
     <string name="balancer_preview_summary_mixed">混搭池 %1$d 个配置中有 %2$d 个可用；已全部纳入 %3$d 个。</string>
+    <string name="balancer_preview_summary_mixed_extra">其中分组 %1$d 个，额外散装 %2$d 个。</string>
     <string name="balancer_advanced_title">高级</string>
     <string name="balancer_advanced_show">显示高级选项</string>
     <string name="balancer_advanced_hide">隐藏高级选项</string>

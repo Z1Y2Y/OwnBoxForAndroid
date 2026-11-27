@@ -1005,12 +1005,21 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         val base = if (res.matchedCandidateCount <= 0) {
             getString(R.string.balancer_match_summary_empty)
         } else {
-            getString(
+            val text = getString(
                 resId,
                 res.matchedCandidateCount,
                 res.availableCount,
                 res.totalCount,
             )
+            if (type == BalancerBean.TYPE_MIXED) {
+                text + getString(
+                    R.string.balancer_preview_summary_mixed_extra,
+                    res.groupMatchedCount,
+                    res.extraAddedCount,
+                )
+            } else {
+                text
+            }
         }
         return if (res.hasRegexError) {
             getString(R.string.balancer_match_summary_regex_error, base)

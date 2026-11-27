@@ -1512,6 +1512,7 @@
     <string name="balancer_preview_summary">%2$d of %1$d profiles in group available; all %3$d will be included.</string>
     <string name="balancer_preview_summary_list">%2$d of %1$d selected profiles available; all %3$d will be included.</string>
     <string name="balancer_preview_summary_mixed">%2$d of %1$d mixed profiles available; all %3$d will be included.</string>
+    <string name="balancer_preview_summary_mixed_extra"> Group: %1$d, extra loose nodes: %2$d.</string>
     <string name="balancer_advanced_title">Advanced</string>
     <string name="balancer_advanced_show">Show advanced options</string>
     <string name="balancer_advanced_hide">Hide advanced options</string>

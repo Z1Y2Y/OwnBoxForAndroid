@@ -266,16 +266,19 @@ class BalancerBeanMigrationTest {
         balanceEnabled: Boolean = false,
         balanceMode: String = BalancerBean.BALANCE_TIMED_ROTATION,
         name: String = "Test Balancer",
+        balancerType: Int = BalancerBean.TYPE_MIXED,
+        proxies: List<Long> = emptyList(),
     ): ByteArray {
         val baos = ByteArrayOutputStream()
         val out = baos.byteBuffer()
         out.writeInt(version)
-        out.writeInt(BalancerBean.TYPE_MIXED)
+        out.writeInt(balancerType)
         out.writeLong(12L)
         out.writeString(selectionMode)
         out.writeString("https://example.com/204")
         out.writeInt(180)
-        out.writeInt(0) // proxies
+        out.writeInt(proxies.size) // proxies
+        proxies.forEach { out.writeLong(it) }
         out.writeInt(1) // targetGroupIds
         out.writeLong(12L)
         out.writeInt(50) // tolerance
@@ -312,6 +315,21 @@ class BalancerBeanMigrationTest {
         out.flush()
         out.close()
         return baos.toByteArray()
+    }
+
+    @Test
+    fun `v10 test2-era TYPE_LIST blob keeps explicit node list`() {
+        val bean = KryoConverters.deserialize(
+            BalancerBean(),
+            buildV10Blob(
+                version = 10,
+                balancerType = BalancerBean.TYPE_LIST,
+                proxies = listOf(201L, 202L, 203L),
+            ),
+        )
+        assertEquals(BalancerBean.TYPE_LIST, bean.balancerType)
+        assertEquals(listOf(201L, 202L, 203L), bean.proxies)
+        assertEquals("", bean.legacyStrategy)
     }
 
     @Test
@@ -446,6 +464,24 @@ class BalancerBeanMigrationTest {
             balanceMode = BalancerBean.BALANCE_PER_CONNECTION
         }
         assertEquals(null, latencyPerConn.deriveLegacyStrategy())
+    }
+
+    @Test
+    fun `v6 mybox-85-format TYPE_GROUP blob keeps group and proxies`() {
+        val bean = KryoConverters.deserialize(
+            BalancerBean(),
+            buildLegacyBlob(
+                version = 6,
+                balancerType = BalancerBean.TYPE_GROUP,
+                targetGroupId = 99L,
+                targetGroupIds = listOf(99L),
+                proxies = listOf(11L, 22L),
+                strategy = BalancerBean.STRATEGY_LEAST_PING,
+            ),
+        )
+        assertEquals(BalancerBean.TYPE_GROUP, bean.balancerType)
+        assertEquals(listOf(99L), bean.targetGroupIds)
+        assertEquals(listOf(11L, 22L), bean.proxies)
     }
 
     @Test
