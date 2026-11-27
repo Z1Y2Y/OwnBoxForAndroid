@@ -47,6 +47,20 @@ jobs:
       - name: Run versioned sing-box patch regression tests
         if: steps.cache.outputs.cache-hit != 'true'
         run: bash buildScript/lib/core/test_patches.sh
+      - name: Resolve LibCore Go dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: libcore
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if go mod tidy; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
       - name: Run libcore Go tests
         if: steps.cache.outputs.cache-hit != 'true'
         working-directory: libcore
