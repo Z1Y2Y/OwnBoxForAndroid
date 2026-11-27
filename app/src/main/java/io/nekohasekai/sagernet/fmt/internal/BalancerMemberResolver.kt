@@ -46,6 +46,30 @@ object BalancerMemberResolver {
         val regex: Regex?,
     )
 
+    /**
+     * test3 (mybox-85): health tags for the _hack_config_map health hint.
+     * Available = probed OK (status 1) with a positive ping; unavailable = failed
+     * or errored (status 2..3). Unknown (never probed) is neither.
+     */
+    fun healthTags(members: List<ProxyEntity>): Pair<List<String>, List<String>> {
+        val healthy = members.filter { it.status == 1 && it.ping > 0 }.map { it.displayName() }
+        val unavailable = members.filter { it.status in 2..3 }.map { it.displayName() }
+        return healthy to unavailable
+    }
+
+    /**
+     * test3 (mybox-85 shouldEnableStickyByApp, extended to TYPE_MIXED): sticky
+     * applies to list/group sources. mybox has no mixed type; excluding MIXED
+     * here would silently disable sticky for mixed groups, contradicting the
+     * mixed-retention requirement, so MIXED is included.
+     */
+    fun shouldEnableStickyByApp(bean: BalancerBean): Boolean {
+        return bean.stickyByApp &&
+            (bean.balancerType == BalancerBean.TYPE_LIST ||
+                bean.balancerType == BalancerBean.TYPE_GROUP ||
+                bean.balancerType == BalancerBean.TYPE_MIXED)
+    }
+
     fun assignTierIndices(
         entities: List<ProxyEntity>,
         tiers: List<BalancerBean.PriorityTier>,

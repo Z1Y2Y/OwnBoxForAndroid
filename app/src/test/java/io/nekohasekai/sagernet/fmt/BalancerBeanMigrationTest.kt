@@ -251,6 +251,203 @@ class BalancerBeanMigrationTest {
         assertEquals("HK|SG", parsed[1].nameFilter)
     }
 
+    // test3: v10/v11 blob builder. Layout = v1 fields + v2 groups + v3 tolerance
+    // + v8+ fields (name filters, front/landing ids, .24 selection/balance fields,
+    // tiers, v9 fallback fields, v10 legacy string, v11 four bools) + AbstractBean
+    // extras. The v6 legacy fields (runTopN etc.) are NOT read on the v8+ path.
+    private fun buildV10Blob(
+        version: Int,
+        legacyStrategy: String = "",
+        stickyByApp: Boolean = false,
+        persistStickyByApp: Boolean = false,
+        useFrontProxy: Boolean = false,
+        useLandingProxy: Boolean = false,
+        selectionMode: String = BalancerBean.SELECTION_LATENCY,
+        balanceEnabled: Boolean = false,
+        balanceMode: String = BalancerBean.BALANCE_TIMED_ROTATION,
+        name: String = "Test Balancer",
+    ): ByteArray {
+        val baos = ByteArrayOutputStream()
+        val out = baos.byteBuffer()
+        out.writeInt(version)
+        out.writeInt(BalancerBean.TYPE_MIXED)
+        out.writeLong(12L)
+        out.writeString(selectionMode)
+        out.writeString("https://example.com/204")
+        out.writeInt(180)
+        out.writeInt(0) // proxies
+        out.writeInt(1) // targetGroupIds
+        out.writeLong(12L)
+        out.writeInt(50) // tolerance
+        out.writeString("ms") // toleranceUnit
+        // v8+
+        out.writeString("") // nameExclude
+        out.writeString("") // nameInclude
+        out.writeLong(-1L) // frontProxy
+        out.writeLong(-1L) // landingProxy
+        out.writeString(selectionMode)
+        out.writeBoolean(balanceEnabled)
+        out.writeString(balanceMode)
+        out.writeInt(30) // balanceIntervalSec
+        out.writeString("") // countryFilter
+        out.writeBoolean(false) // interruptOnSwitch
+        out.writeBoolean(true) // learnFromConnections
+        out.writeInt(0) // tiers
+        // v9
+        out.writeBoolean(true) // fallbackAutoRevert
+        out.writeInt(2) // fallbackMaxFails
+        // v10
+        out.writeString(legacyStrategy)
+        if (version >= 11) {
+            out.writeBoolean(stickyByApp)
+            out.writeBoolean(persistStickyByApp)
+            out.writeBoolean(useFrontProxy)
+            out.writeBoolean(useLandingProxy)
+        }
+        // AbstractBean extras
+        out.writeInt(1)
+        out.writeString(name)
+        out.writeString("")
+        out.writeString("")
+        out.flush()
+        out.close()
+        return baos.toByteArray()
+    }
+
+    @Test
+    fun `v10 test2-era blob with empty legacy string keeps empty legacy and sticky off`() {
+        val bean = KryoConverters.deserialize(BalancerBean(), buildV10Blob(version = 10))
+        assertEquals("", bean.legacyStrategy)
+        assertFalse(bean.stickyByApp)
+        assertFalse(bean.persistStickyByApp)
+        assertFalse(bean.useFrontProxy)
+        assertFalse(bean.useLandingProxy)
+        assertEquals(BalancerBean.SELECTION_LATENCY, bean.selectionMode)
+        assertFalse(bean.balanceEnabled)
+        // Blank legacy keeps the .24 wording (never forced back to leastPing).
+        assertTrue(bean.displayAddress().contains("最快最稳"))
+    }
+
+    @Test
+    fun `v10 blob with stored legacy random reads it back with sticky off`() {
+        val bean = KryoConverters.deserialize(
+            BalancerBean(),
+            buildV10Blob(version = 10, legacyStrategy = BalancerBean.STRATEGY_RANDOM),
+        )
+        assertEquals(BalancerBean.STRATEGY_RANDOM, bean.legacyStrategy)
+        assertFalse(bean.stickyByApp)
+        assertFalse(bean.persistStickyByApp)
+        assertTrue(bean.displayAddress().contains("随机"))
+    }
+
+    @Test
+    fun `v11 blob reads all four tail booleans`() {
+        val bean = KryoConverters.deserialize(
+            BalancerBean(),
+            buildV10Blob(
+                version = 11,
+                legacyStrategy = BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL,
+                stickyByApp = true,
+                persistStickyByApp = true,
+                useFrontProxy = true,
+                useLandingProxy = false,
+            ),
+        )
+        assertEquals(BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL, bean.legacyStrategy)
+        assertTrue(bean.stickyByApp)
+        assertTrue(bean.persistStickyByApp)
+        assertTrue(bean.useFrontProxy)
+        assertFalse(bean.useLandingProxy)
+        assertTrue(bean.displayAddress().contains("一致性哈希"))
+    }
+
+    @Test
+    fun `v11 round trip preserves legacy strategy sticky persist and front landing`() {
+        val original = BalancerBean().apply {
+            initializeDefaultValues()
+            legacyStrategy = BalancerBean.STRATEGY_LEAST_LOAD
+            stickyByApp = true
+            persistStickyByApp = true
+            useFrontProxy = true
+            useLandingProxy = true
+        }
+        val cloned = original.clone()
+        assertEquals(BalancerBean.STRATEGY_LEAST_LOAD, cloned.legacyStrategy)
+        assertTrue(cloned.stickyByApp)
+        assertTrue(cloned.persistStickyByApp)
+        assertTrue(cloned.useFrontProxy)
+        assertTrue(cloned.useLandingProxy)
+        assertTrue(cloned.displayAddress().contains("最低负载"))
+    }
+
+    @Test
+    fun `legacy strategy mapping helpers cover all five strategies and unknown values`() {
+        assertEquals("leastPing", BalancerBean.legacyLoadBalanceStrategy(BalancerBean.STRATEGY_LEAST_PING))
+        assertEquals("leastLoad", BalancerBean.legacyLoadBalanceStrategy(BalancerBean.STRATEGY_LEAST_LOAD))
+        assertEquals("random", BalancerBean.legacyLoadBalanceStrategy(BalancerBean.STRATEGY_RANDOM))
+        assertEquals("round_robin", BalancerBean.legacyLoadBalanceStrategy(BalancerBean.STRATEGY_ROUND_ROBIN))
+        assertEquals("round_robin", BalancerBean.legacyLoadBalanceStrategy(BalancerBean.STRATEGY_ROUND_ROBIN_LEGACY))
+        assertEquals("consistent_hash", BalancerBean.legacyLoadBalanceStrategy(BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL))
+        assertEquals("consistent_hash", BalancerBean.legacyLoadBalanceStrategy(BalancerBean.STRATEGY_CONSISTENT_HASH))
+        assertEquals("leastPing", BalancerBean.legacyLoadBalanceStrategy(""))
+        assertEquals("leastPing", BalancerBean.legacyLoadBalanceStrategy("bogus"))
+
+        assertEquals("最低延迟", BalancerBean.legacyDisplayName(BalancerBean.STRATEGY_LEAST_PING))
+        assertEquals("最低负载", BalancerBean.legacyDisplayName(BalancerBean.STRATEGY_LEAST_LOAD))
+        assertEquals("随机", BalancerBean.legacyDisplayName(BalancerBean.STRATEGY_RANDOM))
+        assertEquals("轮询", BalancerBean.legacyDisplayName(BalancerBean.STRATEGY_ROUND_ROBIN))
+        assertEquals("一致性哈希", BalancerBean.legacyDisplayName(BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL))
+        assertEquals("最快最稳", BalancerBean.legacyDisplayName(""))
+    }
+
+    @Test
+    fun `applyLegacyStrategy defaults unknown to leastPing and mapping only is a safe no-op for blank`() {
+        val bean = BalancerBean().apply {
+            initializeDefaultValues()
+            selectionMode = BalancerBean.SELECTION_PRIORITY
+            balanceEnabled = true
+            balanceMode = BalancerBean.BALANCE_PER_CONNECTION
+        }
+        bean.applyLegacyStrategy("bogus")
+        assertEquals(BalancerBean.STRATEGY_LEAST_PING, bean.legacyStrategy)
+        assertEquals(BalancerBean.SELECTION_LATENCY, bean.selectionMode)
+        assertFalse(bean.balanceEnabled)
+
+        // Blank/unknown legacy must not touch the .24 fields.
+        val untouched = BalancerBean().apply {
+            initializeDefaultValues()
+            selectionMode = BalancerBean.SELECTION_PRIORITY
+            balanceEnabled = true
+            balanceMode = BalancerBean.BALANCE_PER_CONNECTION
+            legacyStrategy = ""
+        }
+        untouched.applyLegacyMappingOnly()
+        assertEquals(BalancerBean.SELECTION_PRIORITY, untouched.selectionMode)
+        assertTrue(untouched.balanceEnabled)
+        assertEquals(BalancerBean.BALANCE_PER_CONNECTION, untouched.balanceMode)
+
+        // derive: priority/fallback -> null; latency without balance -> leastPing;
+        // latency + timed balance -> consistentHash; latency + per-connection -> null.
+        assertEquals(null, untouched.deriveLegacyStrategy())
+        val latencyPlain = BalancerBean().apply {
+            selectionMode = BalancerBean.SELECTION_LATENCY
+            balanceEnabled = false
+        }
+        assertEquals(BalancerBean.STRATEGY_LEAST_PING, latencyPlain.deriveLegacyStrategy())
+        val latencyTimed = BalancerBean().apply {
+            selectionMode = BalancerBean.SELECTION_LATENCY
+            balanceEnabled = true
+            balanceMode = BalancerBean.BALANCE_TIMED_ROTATION
+        }
+        assertEquals(BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL, latencyTimed.deriveLegacyStrategy())
+        val latencyPerConn = BalancerBean().apply {
+            selectionMode = BalancerBean.SELECTION_LATENCY
+            balanceEnabled = true
+            balanceMode = BalancerBean.BALANCE_PER_CONNECTION
+        }
+        assertEquals(null, latencyPerConn.deriveLegacyStrategy())
+    }
+
     @Test
     fun `legacy v6 and v7 binary blobs deserialize safely and upgrade cleanly to v8`() {
         val v6Blob = buildLegacyBlob(

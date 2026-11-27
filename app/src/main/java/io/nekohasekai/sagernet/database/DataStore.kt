@@ -500,6 +500,11 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var balancerTargetGroup by profileCacheStore.stringToLong("balancerTargetGroup") { 0L }
     var balancerTargetGroups by profileCacheStore.string("balancerTargetGroups") { "" }
     var balancerStrategy by profileCacheStore.string("balancerStrategy") { "latency" }
+    var balancerLegacyStrategy by profileCacheStore.string("balancerLegacyStrategy") { "" }
+    var balancerStickyByApp by profileCacheStore.boolean("balancerStickyByApp") { false }
+    var balancerPersistStickyByApp by profileCacheStore.boolean("balancerPersistStickyByApp") { false }
+    var balancerUseFrontProxy by profileCacheStore.boolean("balancerUseFrontProxy") { false }
+    var balancerUseLandingProxy by profileCacheStore.boolean("balancerUseLandingProxy") { false }
     var balancerSelectionMode by profileCacheStore.string("balancerSelectionMode") { "latency" }
     var balancerTiers by profileCacheStore.string("balancerTiers") { "" }
     var balancerBalanceEnabled by profileCacheStore.boolean("balancerBalanceEnabled") { false }

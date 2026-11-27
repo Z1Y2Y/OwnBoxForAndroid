@@ -77,15 +77,115 @@ class ConfigBuilderLoadBalanceTest {
 
         bean.selectionMode = io.nekohasekai.sagernet.fmt.internal.BalancerBean.SELECTION_LATENCY
         bean.balanceEnabled = false
-        assertEquals("节点 3 · 最快最稳", bean.displayAddress())
+        // test3: fresh beans default legacyStrategy to leastPing, so the display
+        // shows the legacy strategy name instead of the generic .24 wording.
+        assertEquals("节点 3 · 最低延迟", bean.displayAddress())
         assertEquals("节点 3 · 日本 02", bean.displayWithNodeName("日本 02"))
+
+        // Blank legacy (test2-era beans) keeps the .24 wording.
+        bean.legacyStrategy = ""
+        assertEquals("节点 3 · 最快最稳", bean.displayAddress())
 
         bean.selectionMode = io.nekohasekai.sagernet.fmt.internal.BalancerBean.SELECTION_PRIORITY
         assertEquals("节点 3 · 按优先级", bean.displayAddress())
 
         bean.selectionMode = io.nekohasekai.sagernet.fmt.internal.BalancerBean.SELECTION_LATENCY
         bean.balanceEnabled = true
-        assertEquals("节点 3 · 最快最稳 · 流量分配", bean.displayAddress())
+        bean.legacyStrategy = io.nekohasekai.sagernet.fmt.internal.BalancerBean.STRATEGY_RANDOM
+        assertEquals("节点 3 · 随机 · 流量分配", bean.displayAddress())
+    }
+
+    @Test
+    fun buildUrlTestOutboundEnforcesThirtyMinuteIdleFloorAndNeverInterrupts() {
+        val members = listOf("n1", "n2")
+        val floored = buildUrlTestOutbound(
+            memberTags = members,
+            intervalSec = 120,
+            toleranceMs = 150,
+            idleTimeoutStr = "120s",
+            interruptExist = true,
+            customTag = "ut-group",
+        )
+        assertEquals("urltest", floored.type)
+        assertEquals("ut-group", floored.tag)
+        assertEquals("30m", floored.idle_timeout)
+        assertEquals(false, floored.interrupt_exist_connections)
+
+        val kept = buildUrlTestOutbound(
+            memberTags = members,
+            idleTimeoutStr = "45m",
+            customTag = "ut-group-2",
+        )
+        assertEquals("45m", kept.idle_timeout)
+        assertEquals(false, kept.interrupt_exist_connections)
+
+        val defaulted = buildUrlTestOutbound(memberTags = members)
+        assertEquals("30m", defaulted.idle_timeout)
+    }
+
+    @Test
+    fun buildLeastPingBalancerOutboundRoutesStickyToLoadBalanceAndPlainToUrlTest() {
+        val members = listOf("n1", "n2")
+        val plain = buildLeastPingBalancerOutbound(
+            memberTags = members,
+            testUrl = null,
+            intervalSec = 300,
+            toleranceMs = 30,
+            customTag = "lp-group",
+            stickyByApp = false,
+        )
+        assertEquals("urltest", plain.asMap()["type"])
+        assertEquals("30m", plain.asMap()["idle_timeout"])
+
+        val sticky = buildLeastPingBalancerOutbound(
+            memberTags = members,
+            testUrl = null,
+            intervalSec = 300,
+            toleranceMs = 30,
+            customTag = "lp-group",
+            stickyByApp = true,
+        )
+        val stickyMap = sticky.asMap()
+        assertEquals("loadbalance", stickyMap["type"])
+        assertEquals("leastPing", stickyMap["strategy"])
+        assertEquals("30m", stickyMap["idle_timeout"])
+        assertEquals(true, stickyMap["sticky_by_app"])
+    }
+
+    @Test
+    fun buildLoadBalanceOutboundStickyHackEmitsStorePathAndPersistFlags() {
+        val members = listOf("n1", "n2")
+        val enabled = buildLoadBalanceOutbound(
+            memberTags = members,
+            strategy = "leastPing",
+            stickyByApp = true,
+            stickyStorePath = "/private/no_backup/strategy-sticky-21.json",
+            persistStickyByApp = true,
+        ).asMap()
+        assertEquals(true, enabled["sticky_by_app"])
+        assertEquals("/private/no_backup/strategy-sticky-21.json", enabled["sticky_store_path"])
+        assertEquals(true, enabled["persist_sticky_by_app"])
+
+        val noPersist = buildLoadBalanceOutbound(
+            memberTags = members,
+            strategy = "leastPing",
+            stickyByApp = true,
+            stickyStorePath = "/private/no_backup/strategy-sticky-21.json",
+            persistStickyByApp = false,
+        ).asMap()
+        assertEquals(true, noPersist["sticky_by_app"])
+        assertFalse(noPersist.containsKey("persist_sticky_by_app"))
+
+        // A store path alone (sticky off) does not enable stickiness or persist.
+        val disabled = buildLoadBalanceOutbound(
+            memberTags = members,
+            strategy = "random",
+            stickyStorePath = "/private/no_backup/strategy-sticky-22.json",
+            persistStickyByApp = true,
+        ).asMap()
+        assertEquals("/private/no_backup/strategy-sticky-22.json", disabled["sticky_store_path"])
+        assertFalse(disabled.containsKey("sticky_by_app"))
+        assertFalse(disabled.containsKey("persist_sticky_by_app"))
     }
 
     @Test

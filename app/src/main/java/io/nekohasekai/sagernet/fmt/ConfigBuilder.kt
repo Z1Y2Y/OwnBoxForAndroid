@@ -244,7 +244,13 @@ internal fun buildLoadBalanceOutbound(
     toleranceMs: Int? = null,
     idleTimeoutStr: String? = null,
     interruptExist: Boolean? = null,
-    customTag: String? = null
+    customTag: String? = null,
+    stickyByApp: Boolean = false,
+    stickyDiagnostic: Boolean = false,
+    healthyTags: List<String> = emptyList(),
+    unavailableTags: List<String> = emptyList(),
+    stickyStorePath: String? = null,
+    persistStickyByApp: Boolean = false,
 ) =
     Outbound_SelectorOptions().apply {
         type = "loadbalance"
@@ -260,7 +266,115 @@ internal fun buildLoadBalanceOutbound(
         tolerance = toleranceMs?.takeIf { it >= 0 } ?: 50
         idle_timeout = idleTimeoutStr?.takeIf { it.isNotBlank() } ?: "${iv}s"
         interrupt_exist_connections = interruptExist ?: false
+        if (stickyByApp) _hack_config_map["sticky_by_app"] = true
+        stickyStorePath?.takeIf { it.isNotBlank() }?.let { path ->
+            _hack_config_map["sticky_store_path"] = path
+            if (stickyByApp && persistStickyByApp) _hack_config_map["persist_sticky_by_app"] = true
+        }
+        if (stickyDiagnostic) _hack_config_map["sticky_diagnostic"] = true
+        if (healthyTags.isNotEmpty()) _hack_config_map["healthy_outbounds"] = healthyTags
+        if (unavailableTags.isNotEmpty()) _hack_config_map["unavailable_outbounds"] = unavailableTags
     }
+
+// test3 (mybox-85, verbatim): urltest outbound with a forced minimum 30m
+// idle_timeout. base/test1 had no buildUrlTestOutbound; this is the non-sticky
+// leastPing path used by buildLeastPingBalancerOutbound.
+internal fun buildUrlTestOutbound(
+    memberTags: List<String>,
+    testUrl: String? = null,
+    intervalSec: Long? = null,
+    toleranceMs: Int? = null,
+    idleTimeoutStr: String? = null,
+    interruptExist: Boolean? = null,
+    customTag: String? = null,
+    healthyTags: List<String> = emptyList(),
+    unavailableTags: List<String> = emptyList()
+) =
+    Outbound_URLTestOptions().apply {
+        type = "urltest"
+        tag = customTag?.takeIf { it.isNotBlank() } ?: TAG_PROXY
+        outbounds = memberTags
+        url = testUrl?.takeIf { it.isNotBlank() }
+            ?: runCatching { DataStore.connectionTestURL }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: "https://cp.cloudflare.com/generate_204"
+        val iv = (intervalSec?.takeIf { it > 0 } ?: 60L).coerceAtLeast(10L)
+        interval = "${iv}s"
+        tolerance = toleranceMs?.takeIf { it >= 0 } ?: 50
+        // Enforce minimum 10-minute idle_timeout regardless of memory mode.
+        // This guarantees Telegram file uploads (which can take many minutes) are never
+        // interrupted by the kernel reclaiming an "idle" leastPing connection pool.
+        // DO NOT lower this threshold for any memory optimization — violates stability contract.
+        val rawIdleTimeout = idleTimeoutStr?.takeIf { it.isNotBlank() }
+        if (rawIdleTimeout != null) {
+            val parsed = if (rawIdleTimeout.all { c -> c.isDigit() }) "${rawIdleTimeout}s" else rawIdleTimeout
+            // Parse minutes from string like "3m", "5m", "10m", "30m"; enforce minimum 30m
+            val minSecs = 30 * 60
+            val parsedSecs = when {
+                parsed.endsWith("m") -> (parsed.dropLast(1).toLongOrNull() ?: 0L) * 60
+                parsed.endsWith("s") -> parsed.dropLast(1).toLongOrNull() ?: 0L
+                else -> 0L
+            }
+            idle_timeout = if (parsedSecs < minSecs) "30m" else parsed
+        } else {
+            idle_timeout = "30m"
+        }
+        // CRITICAL: Never interrupt active connections on node switch.
+        // interrupt_exist_connections=true would instantly kill Telegram upload streams on any
+        // 5ms latency fluctuation. This must always be false — it is NOT overridden by memory mode.
+        interrupt_exist_connections = false
+        if (healthyTags.isNotEmpty()) _hack_config_map["healthy_outbounds"] = healthyTags
+        if (unavailableTags.isNotEmpty()) _hack_config_map["unavailable_outbounds"] = unavailableTags
+    }
+
+// test3 (mybox-85, verbatim): leastPing balancer — sticky goes to loadbalance
+// (strategy leastPing, idle 30m), non-sticky goes to urltest.
+internal fun buildLeastPingBalancerOutbound(
+    memberTags: List<String>,
+    testUrl: String?,
+    intervalSec: Long,
+    toleranceMs: Int,
+    customTag: String,
+    stickyByApp: Boolean,
+    stickyDiagnostic: Boolean = false,
+    healthyTags: List<String> = emptyList(),
+    unavailableTags: List<String> = emptyList()
+): SingBoxOption {
+    val interval = intervalSec.coerceAtLeast(10L)
+    return if (stickyByApp) {
+        buildLoadBalanceOutbound(
+            memberTags = memberTags,
+            strategy = "leastPing",
+            testUrl = testUrl,
+            intervalSec = interval,
+            toleranceMs = toleranceMs,
+            idleTimeoutStr = "30m",
+            interruptExist = false,
+            customTag = customTag,
+            stickyByApp = true,
+            stickyDiagnostic = stickyDiagnostic,
+            healthyTags = healthyTags,
+            unavailableTags = unavailableTags
+        )
+    } else {
+        buildUrlTestOutbound(
+            memberTags = memberTags,
+            testUrl = testUrl,
+            intervalSec = interval,
+            toleranceMs = toleranceMs,
+            idleTimeoutStr = "${interval}s",
+            interruptExist = false,
+            customTag = customTag,
+            healthyTags = healthyTags,
+            unavailableTags = unavailableTags
+        )
+    }
+}
+
+// test3: sticky diagnostics are only built for the dedicated diag app id, which
+// test1 never uses — always false here, but the flag is threaded through so the
+// libcore keys stay aligned with mybox-85 / 2bbd9787.
+private fun isStickyDiagnosticBuild(): Boolean =
+    SagerNet.isInitialized() && SagerNet.application.packageName == "com.ownbox.fork.diag"
 
 internal fun buildAutoSelectOutbound(
     balancer: BalancerBean,
@@ -268,6 +382,7 @@ internal fun buildAutoSelectOutbound(
     memberTags: List<String>,
     customTag: String? = null,
     defaultTestUrl: String? = null,
+    stickyStorePath: String? = null,
 ): Outbound_AutoSelectOptions = Outbound_AutoSelectOptions().apply {
     type = "autoselect"
     tag = customTag?.takeIf { it.isNotBlank() } ?: TAG_PROXY
@@ -318,6 +433,19 @@ internal fun buildAutoSelectOutbound(
         probe_timeout_ms = if (rawTimeoutMs >= 500L) rawTimeoutMs.coerceAtMost(30000L).toInt() else 3000
     }
 
+    // test3 (2bbd9787): app-sticky hack — sticky_by_app is emitted whenever the
+    // bean enables it (even when the sticky loadbalance branch is not taken, so
+    // autoselect can pin the member per app); the store path + persist flag only
+    // ride along when a path was computed for this balancer.
+    val stickyEnabled = BalancerMemberResolver.shouldEnableStickyByApp(balancer)
+    if (stickyEnabled) _hack_config_map["sticky_by_app"] = true
+    stickyStorePath?.takeIf { it.isNotBlank() }?.let { path ->
+        _hack_config_map["sticky_store_path"] = path
+        if (stickyEnabled && balancer.persistStickyByApp) {
+            _hack_config_map["persist_sticky_by_app"] = true
+        }
+    }
+
     if (balancer.isPriorityMode() && !balancer.tiers.isNullOrEmpty() && memberEntities.size == memberTags.size) {
         val (tierMap, _) = BalancerMemberResolver.assignTierIndices(memberEntities, balancer.tiers)
         val tierCount = balancer.tiers.size
@@ -352,6 +480,7 @@ internal fun assembleChainGraphForTest(
 ): ChainGraphTestResult {
     val ctx = ChainGraphContext(
         forTest = false,
+        forExport = true,
         ipv6Mode = IPv6Mode.ENABLE,
         defaultServerDomainStrategy = "",
         outbounds = mutableListOf(),
@@ -398,6 +527,7 @@ internal fun assembleChainGraphForTest(
 
 internal class ChainGraphContext(
     private val forTest: Boolean,
+    private val forExport: Boolean = false,
     private val ipv6Mode: Int,
     private val defaultServerDomainStrategy: String,
     val outbounds: MutableList<SingBoxOption>,
@@ -499,10 +629,17 @@ internal class ChainGraphContext(
             }
 
             val balancerBean = entity.balancerBean ?: (entity.requireBean() as? BalancerBean) ?: BalancerBean()
-            val balancerFrontEntity = if (balancerBean.frontProxy > 0L && balancerBean.frontProxy != entity.id) {
+            // test3 (.85): front/landing proxies are only honoured for TYPE_GROUP
+            // balancers whose switches are on; MIXED/LIST balancers and switched-off
+            // groups keep the .24 behaviour (no front/landing detour).
+            val useGroupFrontProxy = balancerBean.useFrontProxy &&
+                balancerBean.balancerType == BalancerBean.TYPE_GROUP
+            val useGroupLandingProxy = balancerBean.useLandingProxy &&
+                balancerBean.balancerType == BalancerBean.TYPE_GROUP
+            val balancerFrontEntity = if (useGroupFrontProxy && balancerBean.frontProxy > 0L && balancerBean.frontProxy != entity.id) {
                 getById(balancerBean.frontProxy)
             } else null
-            val balancerLandingEntity = if (balancerBean.landingProxy > 0L && balancerBean.landingProxy != entity.id) {
+            val balancerLandingEntity = if (useGroupLandingProxy && balancerBean.landingProxy > 0L && balancerBean.landingProxy != entity.id) {
                 getById(balancerBean.landingProxy)
             } else null
 
@@ -567,18 +704,96 @@ internal class ChainGraphContext(
             }.ifEmpty { listOf(TAG_DIRECT) }
 
             val balancerTag = readableTag(entity.displayName())
-            // NOTE (e): the legacy dropdown writes the .24 fields (selectionMode/
-            // balanceEnabled/balanceMode) via BalancerSettingsActivity; buildAutoSelectOutbound
-            // consumes those fields directly. No re-application of the legacy mapping here:
-            // a stale/default legacyStrategy must never override a balancer whose .24
-            // balance fields were set explicitly (e.g. a v9 bean with per-connection
-            // balance, whose legacy value is ambiguous and stored blank).
-            val balancerOutbound = buildAutoSelectOutbound(
-                balancer = balancerBean,
-                memberEntities = memberEntities,
-                memberTags = memberTags,
-                customTag = balancerTag,
-            )
+            // test3 routing (A路 (A) direct passthrough — the legacy dropdown value
+            // goes straight to loadbalance; NEVER derive it back from the .24
+            // fields, which would fold leastLoad/random/roundRobin into round_robin
+            // and make the five strategies indistinguishable again):
+            //  (1) stickyByApp && latency mode → loadbalance, strategy = dropdown
+            //      passthrough, idle 30m, interrupt off, sticky hack + health tags;
+            //  (2) legacy leastPing && latency mode → buildLeastPingBalancerOutbound
+            //      (urltest, non-sticky; idle forced ≥30m inside);
+            //  (3) legacy leastLoad/random/roundRobin/consistentHash && latency mode
+            //      → loadbalance with the dropdown strategy;
+            //  (4) everything else (blank legacy = test2-era beans, priority,
+            //      fallback) → buildAutoSelectOutbound, which keeps the .24
+            //      selection/balance semantics and the sticky hack line.
+            // NOTE: a blank legacyStrategy must never be forced to leastPing here:
+            // test2 wrote "" for every bean, and forcing leastPing would silently
+            // flip those balancers from autoselect to urltest routing in test3.
+            val memberHealth = BalancerMemberResolver.healthTags(memberEntities)
+            val stickyByApp = BalancerMemberResolver.shouldEnableStickyByApp(balancerBean)
+            // Keep persisted affinity private to this stable balancer ID; never emit
+            // it in test/export configs, and skip one-member/direct groups where
+            // affinity is moot. (2bbd9787)
+            val stickyStorePath = if (
+                !forTest && !forExport && SagerNet.isInitialized() && entity.id > 0L &&
+                memberTags.distinct().size > 1
+            ) {
+                java.io.File(
+                    SagerNet.application.noBackupFilesDir,
+                    "strategy-sticky-${entity.id}.json",
+                ).absolutePath
+            } else null
+            val legacyRaw = balancerBean.legacyStrategy?.trim().orEmpty()
+            val legacyNorm = when (legacyRaw) {
+                BalancerBean.STRATEGY_ROUND_ROBIN_LEGACY -> BalancerBean.STRATEGY_ROUND_ROBIN
+                BalancerBean.STRATEGY_CONSISTENT_HASH -> BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+                else -> legacyRaw
+            }
+            val isLatencyMode = !balancerBean.isPriorityMode() && !balancerBean.isFallbackMode()
+            val toleranceMs = balancerBean.calculateToleranceMs().coerceIn(0L, 65535L).toInt()
+            val balancerOutbound: SingBoxOption = when {
+                stickyByApp && isLatencyMode -> buildLoadBalanceOutbound(
+                    memberTags = memberTags,
+                    strategy = BalancerBean.legacyLoadBalanceStrategy(legacyNorm),
+                    testUrl = balancerBean.testUrl,
+                    intervalSec = balancerBean.interval,
+                    toleranceMs = toleranceMs,
+                    idleTimeoutStr = "30m",
+                    interruptExist = false,
+                    customTag = balancerTag,
+                    stickyByApp = true,
+                    stickyDiagnostic = isStickyDiagnosticBuild(),
+                    healthyTags = memberHealth.first,
+                    unavailableTags = memberHealth.second,
+                    stickyStorePath = stickyStorePath,
+                    persistStickyByApp = balancerBean.persistStickyByApp,
+                )
+                isLatencyMode && legacyNorm == BalancerBean.STRATEGY_LEAST_PING -> buildLeastPingBalancerOutbound(
+                    memberTags = memberTags,
+                    testUrl = balancerBean.testUrl,
+                    intervalSec = balancerBean.interval,
+                    toleranceMs = toleranceMs,
+                    customTag = balancerTag,
+                    stickyByApp = false,
+                    stickyDiagnostic = isStickyDiagnosticBuild(),
+                    healthyTags = memberHealth.first,
+                    unavailableTags = memberHealth.second,
+                )
+                isLatencyMode && legacyNorm in setOf(
+                    BalancerBean.STRATEGY_LEAST_LOAD,
+                    BalancerBean.STRATEGY_RANDOM,
+                    BalancerBean.STRATEGY_ROUND_ROBIN,
+                    BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL,
+                ) -> buildLoadBalanceOutbound(
+                    memberTags = memberTags,
+                    strategy = BalancerBean.legacyLoadBalanceStrategy(legacyNorm),
+                    testUrl = balancerBean.testUrl,
+                    intervalSec = balancerBean.interval,
+                    toleranceMs = toleranceMs,
+                    interruptExist = balancerBean.interruptOnSwitch,
+                    customTag = balancerTag,
+                    healthyTags = memberHealth.first,
+                    unavailableTags = memberHealth.second,
+                )
+                else -> buildAutoSelectOutbound(
+                    balancer = balancerBean,
+                    memberEntities = memberEntities,
+                    memberTags = memberTags,
+                    customTag = balancerTag,
+                    stickyStorePath = stickyStorePath,
+                )
+            }
             outbounds.add(balancerOutbound)
             trafficMap[balancerTag] = listOf(entity)
             balancerMemberMap[entity.id] = memberEntities.map { it.id }
@@ -1601,6 +1816,7 @@ fun buildConfig(
         }
         val chainCtx = ChainGraphContext(
             forTest = forTest,
+            forExport = forExport,
             ipv6Mode = ipv6Mode,
             defaultServerDomainStrategy = defaultServerDomainStrategy,
             outbounds = outbounds,

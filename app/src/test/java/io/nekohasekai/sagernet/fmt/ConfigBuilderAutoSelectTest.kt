@@ -154,6 +154,159 @@ class ConfigBuilderAutoSelectTest {
     }
 
     @Test
+    fun `app sticky persistence path is group specific and persistence defaults off`() {
+        val members = listOf(socksEntity(1L, "SG 01"), socksEntity(2L, "SG 02"))
+        val tags = listOf("tag-sg-1", "tag-sg-2")
+        val groupAPath = "/private/no_backup/strategy-sticky-21.json"
+        val groupBPath = "/private/no_backup/strategy-sticky-22.json"
+
+        val enabled = buildAutoSelectOutbound(
+            balancer = BalancerBean().apply {
+                stickyByApp = true
+                persistStickyByApp = true
+            },
+            memberEntities = members,
+            memberTags = tags,
+            stickyStorePath = groupAPath,
+        ).asMap()
+        assertEquals(groupAPath, enabled["sticky_store_path"])
+        assertEquals(true, enabled["sticky_by_app"])
+        assertEquals(true, enabled["persist_sticky_by_app"])
+
+        val disabled = buildAutoSelectOutbound(
+            balancer = BalancerBean(),
+            memberEntities = members,
+            memberTags = tags,
+            stickyStorePath = groupBPath,
+        ).asMap()
+        assertEquals(groupBPath, disabled["sticky_store_path"])
+        assertFalse(disabled.containsKey("sticky_by_app"))
+        assertFalse(disabled.containsKey("persist_sticky_by_app"))
+        assertTrue(groupAPath != groupBPath)
+    }
+
+    // test3: the five legacy strategies must route to genuinely distinct outbound
+    // configs (not all folded back into autoselect/round_robin).
+    private fun balancerOutboundForLegacy(
+        legacy: String,
+        sticky: Boolean = false,
+        selectionMode: String = BalancerBean.SELECTION_LATENCY,
+    ): Map<String, Any?> {
+        val m1 = socksEntity(10L, "SG 01", status = 1, ping = 42)
+        val m2 = socksEntity(11L, "SG 02", status = 1, ping = 88)
+        val balancer = ProxyEntity(
+            id = 2L,
+            groupId = 10L,
+            type = ProxyEntity.TYPE_BALANCER,
+            balancerBean = BalancerBean().apply {
+                name = "Strategy-Pool"
+                balancerType = BalancerBean.TYPE_LIST
+                proxies = mutableListOf(10L, 11L)
+                this.selectionMode = selectionMode
+                legacyStrategy = legacy
+                stickyByApp = sticky
+                testUrl = "https://cp.cloudflare.com/generate_204"
+            },
+        )
+        val result = assembleChainGraphForTest(
+            root = balancer,
+            entitiesById = mapOf(balancer.id to balancer, m1.id to m1, m2.id to m2),
+        )
+        assertEquals(2L, result.activeStrategyId)
+        return result.outbounds.first { it["tag"] == "Strategy-Pool" }
+    }
+
+    @Test
+    fun fiveLegacyStrategiesRouteToDistinctOutboundTypes() {
+        val leastPing = balancerOutboundForLegacy(BalancerBean.STRATEGY_LEAST_PING)
+        assertEquals("urltest", leastPing["type"])
+        assertEquals("30m", leastPing["idle_timeout"])
+        assertFalse(leastPing.containsKey("sticky_by_app"))
+
+        val leastLoad = balancerOutboundForLegacy(BalancerBean.STRATEGY_LEAST_LOAD)
+        assertEquals("loadbalance", leastLoad["type"])
+        assertEquals("leastLoad", leastLoad["strategy"])
+
+        val random = balancerOutboundForLegacy(BalancerBean.STRATEGY_RANDOM)
+        assertEquals("loadbalance", random["type"])
+        assertEquals("random", random["strategy"])
+
+        val roundRobin = balancerOutboundForLegacy(BalancerBean.STRATEGY_ROUND_ROBIN)
+        assertEquals("loadbalance", roundRobin["type"])
+        assertEquals("round_robin", roundRobin["strategy"])
+
+        val consistentHash = balancerOutboundForLegacy(BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL)
+        assertEquals("loadbalance", consistentHash["type"])
+        assertEquals("consistent_hash", consistentHash["strategy"])
+
+        // Blank legacy (test2-era beans) keeps the .24 autoselect routing.
+        val blank = balancerOutboundForLegacy("")
+        assertEquals("autoselect", blank["type"])
+
+        // Priority mode keeps autoselect even with a legacy choice.
+        val priority = balancerOutboundForLegacy(
+            BalancerBean.STRATEGY_RANDOM,
+            selectionMode = BalancerBean.SELECTION_PRIORITY,
+        )
+        assertEquals("autoselect", priority["type"])
+        assertEquals("priority", priority["selection_mode"])
+    }
+
+    @Test
+    fun stickyLeastPingRoutesToLoadBalanceWithStickyHackAndNoStorePathInTests() {
+        val out = balancerOutboundForLegacy(BalancerBean.STRATEGY_LEAST_PING, sticky = true)
+        assertEquals("loadbalance", out["type"])
+        assertEquals("leastPing", out["strategy"])
+        assertEquals("30m", out["idle_timeout"])
+        assertEquals(true, out["sticky_by_app"])
+        // assembleChainGraphForTest is a test/export config: no store path is emitted.
+        assertFalse(out.containsKey("sticky_store_path"))
+        assertFalse(out.containsKey("persist_sticky_by_app"))
+    }
+
+    @Test
+    fun mixedModeGeneratedConfigIsSingleOutboundWithGroupFirstOrderAndNoDuplicateTags() {
+        val g1 = socksEntity(10L, "JP Tokyo 01", status = 1, ping = 50).apply { groupId = 100L }
+        val g2 = socksEntity(11L, "HK Premium 01", status = 1, ping = 80).apply { groupId = 100L }
+        val extra = socksEntity(12L, "Custom Direct SG", status = 1, ping = 60).apply { groupId = 200L }
+        val balancer = ProxyEntity(
+            id = 2L,
+            groupId = 999L,
+            type = ProxyEntity.TYPE_BALANCER,
+            balancerBean = BalancerBean().apply {
+                name = "Mixed-Pool"
+                balancerType = BalancerBean.TYPE_MIXED
+                targetGroupIds = mutableListOf(100L)
+                proxies = mutableListOf(12L, 10L) // explicit list incl. a duplicate of a group node
+                selectionMode = BalancerBean.SELECTION_PRIORITY
+                legacyStrategy = ""
+                testUrl = "https://cp.cloudflare.com/generate_204"
+            },
+        )
+        val result = assembleChainGraphForTest(
+            root = balancer,
+            entitiesById = mapOf(
+                balancer.id to balancer,
+                g1.id to g1,
+                g2.id to g2,
+                extra.id to extra,
+            ),
+            groupsById = mapOf(100L to ProxyGroup(id = 100L)),
+            groupProfiles = mapOf(100L to listOf(g1, g2)),
+        )
+        // A single balancer outbound (no duplicate balancer tags).
+        val balancerOuts = result.outbounds.filter { it["tag"] == "Mixed-Pool" }
+        assertEquals(1, balancerOuts.size)
+        @Suppress("UNCHECKED_CAST")
+        val memberTags = balancerOuts[0]["outbounds"] as List<String>
+        assertEquals(3, memberTags.size)
+        assertEquals(memberTags.size, memberTags.distinct().size)
+        // Priority mode preserves resolve order: group members first, then specified.
+        assertEquals(listOf(10L, 11L, 12L), memberTags.map { result.outboundTagProfileMap[it] })
+        assertEquals(listOf(10L, 11L, 12L), result.balancerMemberMap[2L])
+    }
+
+    @Test
     fun chainWithMiddleBalancerBuildsValidDetourTopologyAndPreservesPriorityOrder() {
         val front = socksEntity(1L, "Front-Relay")
         val b1 = socksEntity(10L, "Mid-Slow", status = 1, ping = 200)

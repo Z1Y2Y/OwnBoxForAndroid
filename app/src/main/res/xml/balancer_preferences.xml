@@ -19,6 +19,23 @@
         app:title="@string/balancer_source_type"
         app:useSimpleSummaryProvider="true" />
 
+    <SwitchPreferenceCompat
+        android:order="1500"
+        app:defaultValue="false"
+        app:icon="@drawable/ic_baseline_compare_arrows_24"
+        app:key="balancerStickyByApp"
+        app:summary="@string/balancer_sticky_by_app_sum"
+        app:title="@string/balancer_sticky_by_app" />
+
+    <SwitchPreferenceCompat
+        android:order="1501"
+        app:defaultValue="false"
+        app:dependency="balancerStickyByApp"
+        app:icon="@drawable/ic_baseline_compare_arrows_24"
+        app:key="balancerPersistStickyByApp"
+        app:summary="@string/balancer_persist_sticky_by_app_sum"
+        app:title="@string/balancer_persist_sticky_by_app" />
+
     <Preference
         android:order="2000"
         app:icon="@drawable/ic_baseline_layers_24"
@@ -38,6 +55,19 @@
         app:icon="@drawable/ic_baseline_filter_list_24"
         app:key="balancerNameInclude"
         app:title="@string/balancer_name_include" />
+
+    <!-- test3: MyBox .85 5-item strategy dropdown. Independent key
+         balancerLegacyStrategy: never reuse "balancerStrategy", which DataStore
+         uses for the normalized .24 selectionMode. -->
+    <moe.matsuri.nb4a.ui.SimpleMenuPreference
+        android:order="4500"
+        app:defaultValue=""
+        app:entries="@array/balancer_strategy_entries"
+        app:entryValues="@array/balancer_strategy_values"
+        app:icon="@drawable/ic_baseline_compare_arrows_24"
+        app:key="balancerLegacyStrategy"
+        app:title="@string/balancer_strategy"
+        app:useSimpleSummaryProvider="true" />
 
     <moe.matsuri.nb4a.ui.SimpleMenuPreference
         android:order="5000"
@@ -203,6 +233,20 @@
             app:key="balancerLandingProxy"
             app:title="@string/landing_proxy"
             app:useSimpleSummaryProvider="true" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:iconSpaceReserved="false"
+            app:key="balancerUseFrontProxy"
+            app:summary="@string/balancer_use_front_proxy_sum"
+            app:title="@string/balancer_use_front_proxy" />
+
+        <SwitchPreferenceCompat
+            app:defaultValue="false"
+            app:iconSpaceReserved="false"
+            app:key="balancerUseLandingProxy"
+            app:summary="@string/balancer_use_landing_proxy_sum"
+            app:title="@string/balancer_use_landing_proxy" />
 
     </PreferenceCategory>
 

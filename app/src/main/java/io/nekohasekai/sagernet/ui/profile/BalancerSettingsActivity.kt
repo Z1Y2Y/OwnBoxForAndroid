@@ -126,6 +126,15 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         DataStore.balancerSelectionMode = normalizedSelectionMode
         DataStore.balancerStrategy = normalizedSelectionMode
 
+        // test3 legacy dropdown seed: stored choice, else derive from the .24
+        // fields, else "" (no legacy choice; the .24 fields govern).
+        DataStore.balancerLegacyStrategy = legacyStrategy?.takeIf { it.isNotBlank() }
+            ?: deriveLegacyStrategy() ?: ""
+        DataStore.balancerStickyByApp = stickyByApp
+        DataStore.balancerPersistStickyByApp = stickyByApp && persistStickyByApp
+        DataStore.balancerUseFrontProxy = useFrontProxy
+        DataStore.balancerUseLandingProxy = useLandingProxy
+
         DataStore.balancerBalanceEnabled = balanceEnabled
         DataStore.balancerBalanceMode = if (balanceMode == BalancerBean.BALANCE_PER_CONNECTION) {
             BalancerBean.BALANCE_PER_CONNECTION
@@ -174,14 +183,34 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         }
         strategy = selectionMode
 
-        // test2: the legacy strategy dropdown was removed; the .24 selectionMode /
-        // balance fields are the single source of truth.
-        balanceEnabled = DataStore.balancerBalanceEnabled
-        balanceMode = if (DataStore.balancerBalanceMode == BalancerBean.BALANCE_PER_CONNECTION) {
-            BalancerBean.BALANCE_PER_CONNECTION
-        } else {
-            BalancerBean.BALANCE_TIMED_ROTATION
+        // test3: the legacy dropdown is authoritative in latency mode: re-assert
+        // its mapping on the bean. Priority/fallback keep their .24 fields.
+        legacyStrategy = when (DataStore.balancerLegacyStrategy) {
+            BalancerBean.STRATEGY_LEAST_PING, BalancerBean.STRATEGY_LEAST_LOAD,
+            BalancerBean.STRATEGY_RANDOM, BalancerBean.STRATEGY_ROUND_ROBIN,
+            BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL -> DataStore.balancerLegacyStrategy
+            BalancerBean.STRATEGY_ROUND_ROBIN_LEGACY -> BalancerBean.STRATEGY_ROUND_ROBIN
+            BalancerBean.STRATEGY_CONSISTENT_HASH -> BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+            else -> "" // no legacy choice; the .24 fields govern (see BalancerBean)
         }
+        if (selectionMode == BalancerBean.SELECTION_LATENCY && legacyStrategy.isNotBlank()) {
+            applyLegacyMappingOnly()
+        } else {
+            balanceEnabled = DataStore.balancerBalanceEnabled
+            balanceMode = if (DataStore.balancerBalanceMode == BalancerBean.BALANCE_PER_CONNECTION) {
+                BalancerBean.BALANCE_PER_CONNECTION
+            } else {
+                BalancerBean.BALANCE_TIMED_ROTATION
+            }
+        }
+        // (In latency mode with a legacy choice, balanceEnabled/balanceMode keep the
+        // dropdown-mapped values from applyLegacyMappingOnly(); otherwise they are
+        // re-read from DataStore in the else branch above.)
+        stickyByApp = DataStore.balancerStickyByApp
+        persistStickyByApp = stickyByApp && DataStore.balancerPersistStickyByApp
+        useFrontProxy = DataStore.balancerUseFrontProxy
+        useLandingProxy = DataStore.balancerUseLandingProxy
+
         balanceIntervalSec = DataStore.balancerBalanceIntervalSec
 
         countryFilter = DataStore.balancerCountryFilter.trim()
@@ -271,6 +300,8 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         val groupPref = findPreference<Preference>("balancerTargetGroup")
         val explicitNodesPref = findPreference<Preference>("balancerExplicitNodes")
         val localNodeListPref = findPreference<Preference>("balancerNodeList")
+        val useFrontProxyPref = findPreference<SwitchPreferenceCompat>("balancerUseFrontProxy")
+        val useLandingProxyPref = findPreference<SwitchPreferenceCompat>("balancerUseLandingProxy")
         val allGroups = runCatching { SagerDatabase.groupDao.allGroups() }.getOrDefault(emptyList())
         groupNameMap.clear()
         allGroups.filter { !it.ungrouped }.forEach { groupNameMap[it.id] = it.displayName() }
@@ -652,6 +683,10 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             nameIncludePref?.isVisible = hasGroup
             nameExcludePref?.isVisible = hasGroup
             explicitNodesPref?.isVisible = hasList
+            // test3: front/landing switches only make sense for group-sourced
+            // members; the .24 node list / explicit nodes UI is untouched.
+            useFrontProxyPref?.isVisible = type == BalancerBean.TYPE_GROUP
+            useLandingProxyPref?.isVisible = type == BalancerBean.TYPE_GROUP
             syncNodeListUi(type, DataStore.balancerSelectionMode)
             refreshMatchSummary()
         }
@@ -695,8 +730,9 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         val catChain = findPreference<PreferenceCategory>("balancerCatChain")
         val advancedTogglePref = findPreference<Preference>("balancerAdvancedToggle")
 
-        bindIntPref("balancerInterval", 300, 5, R.string.balancer_unit_seconds)
+        val intervalPref = bindIntPref("balancerInterval", 300, 5, R.string.balancer_unit_seconds)
         val tolerancePref = bindIntPref("balancerTolerance", 30, 0, R.string.balancer_unit_ms)
+        val testUrlPref = findPreference<EditTextPreference>("balancerTestUrl")
         val toleranceSummaryProvider = Preference.SummaryProvider<EditTextPreference> { current ->
             val parsed = current.text?.trim()?.toIntOrNull()
             val effective = if (parsed != null && parsed >= 0) parsed else 30
@@ -737,6 +773,20 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             true
         }
 
+        // test3: .85 strategy visibility — only leastPing uses the probe settings
+        // (tolerance / test URL / interval). Blank legacy ("no legacy choice",
+        // e.g. test2-era beans) keeps them visible: the .24 path still probes.
+        fun probeSettingsVisible(legacy: String = DataStore.balancerLegacyStrategy): Boolean =
+            legacy.isBlank() || legacy == BalancerBean.STRATEGY_LEAST_PING
+
+        fun updateStrategyVisibility(legacy: String = DataStore.balancerLegacyStrategy) {
+            val visible = probeSettingsVisible(legacy)
+            val notFallback = DataStore.balancerSelectionMode != BalancerBean.SELECTION_FALLBACK
+            tolerancePref?.isVisible = visible && notFallback
+            testUrlPref?.isVisible = visible
+            intervalPref?.isVisible = visible
+        }
+
         fun updateSelectionAndBalanceUi(
             selectionOverride: String? = null,
             balanceEnabledOverride: Boolean? = null,
@@ -758,7 +808,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             fallbackMaxFailsPref?.isVisible = isFallback
             balanceSwitchPref?.isVisible = !isFallback
 
-            tolerancePref?.isVisible = !isFallback
+            tolerancePref?.isVisible = !isFallback && probeSettingsVisible()
             tolerancePref?.setTitle(R.string.balancer_tolerance_title)
             tolerancePref?.summaryProvider = toleranceSummaryProvider
 
@@ -786,10 +836,55 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             balanceIntervalPref?.isVisible = balanceOn && !isFallback && balMode != BalancerBean.BALANCE_PER_CONNECTION
         }
 
+        // test3: legacy dropdown listener (restored from 4a70a4b5) — a new legacy
+        // choice maps onto the .24 fields and refreshes the UI.
+        val legacyPref = findPreference<SimpleMenuPreference>("balancerLegacyStrategy")
+
+        // test3 (from 4a70a4b5): map a legacy dropdown choice onto the .24 fields.
+        // Only in latency mode; priority/fallback keep their own fields.
+        fun applyLegacyMappingToDataStore(rawStrategy: String) {
+            DataStore.balancerLegacyStrategy = rawStrategy
+            if (DataStore.balancerSelectionMode != BalancerBean.SELECTION_LATENCY) return
+            val legacyBean = BalancerBean()
+            legacyBean.applyLegacyStrategy(rawStrategy)
+            DataStore.balancerSelectionMode = legacyBean.selectionMode
+            DataStore.balancerBalanceEnabled = legacyBean.balanceEnabled
+            DataStore.balancerBalanceMode = legacyBean.balanceMode
+        }
+
+        // test3 (from 4a70a4b5): when the .24 fields change, re-derive the dropdown
+        // value so it never shows a stale choice. Ambiguous combos (leastLoad /
+        // random / roundRobin all map to latency + per-connection) derive to "".
+        fun syncLegacyFromDataStore() {
+            if (DataStore.balancerSelectionMode != BalancerBean.SELECTION_LATENCY) {
+                DataStore.balancerLegacyStrategy = ""
+                legacyPref?.value = ""
+                return
+            }
+            val bean = BalancerBean()
+            bean.selectionMode = DataStore.balancerSelectionMode
+            bean.balanceEnabled = DataStore.balancerBalanceEnabled
+            bean.balanceMode = DataStore.balancerBalanceMode
+            val derived = bean.deriveLegacyStrategy()
+            DataStore.balancerLegacyStrategy = derived ?: ""
+            legacyPref?.value = derived ?: ""
+        }
+
+        legacyPref?.setOnPreferenceChangeListener { _, newValue ->
+            val raw = newValue?.toString() ?: ""
+            applyLegacyMappingToDataStore(raw)
+            updateStrategyVisibility(DataStore.balancerLegacyStrategy)
+            updateSelectionAndBalanceUi()
+            refreshMatchSummary()
+            true
+        }
+
         selectionModePref?.setOnPreferenceChangeListener { _, newValue ->
             val mode = (newValue as? String) ?: BalancerBean.SELECTION_LATENCY
             DataStore.balancerSelectionMode = mode
             DataStore.balancerStrategy = mode
+            syncLegacyFromDataStore()
+            updateStrategyVisibility()
             updateSelectionAndBalanceUi(selectionOverride = mode)
             refreshMatchSummary(PreviewOverrides(selectionMode = mode))
             true
@@ -797,17 +892,33 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
 
         balanceSwitchPref?.setOnPreferenceChangeListener { _, newValue ->
             val enabled = newValue as? Boolean ?: false
+            syncLegacyFromDataStore()
             updateSelectionAndBalanceUi(balanceEnabledOverride = enabled)
             true
         }
 
         balanceModePref?.setOnPreferenceChangeListener { _, newValue ->
             val mode = (newValue as? String) ?: BalancerBean.BALANCE_TIMED_ROTATION
+            syncLegacyFromDataStore()
             updateSelectionAndBalanceUi(balanceModeOverride = mode)
             true
         }
 
-        val testUrlPref = findPreference<EditTextPreference>("balancerTestUrl")
+        // test3: sticky + persist linkage (2bbd9787): turning sticky off disables
+        // persist; persist only takes effect while sticky is on.
+        val stickyPref = findPreference<SwitchPreferenceCompat>("balancerStickyByApp")
+        val persistStickyPref = findPreference<SwitchPreferenceCompat>("balancerPersistStickyByApp")
+        stickyPref?.setOnPreferenceChangeListener { _, newValue ->
+            val enabled = newValue as? Boolean ?: false
+            if (!enabled) {
+                persistStickyPref?.isChecked = false
+                DataStore.balancerPersistStickyByApp = false
+            }
+            persistStickyPref?.isEnabled = enabled
+            true
+        }
+        persistStickyPref?.isEnabled = DataStore.balancerStickyByApp
+
         testUrlPref?.summaryProvider = Preference.SummaryProvider<EditTextPreference> { pref ->
             val custom = pref.text?.trim().orEmpty()
             if (custom.isBlank()) {
@@ -818,6 +929,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         }
 
         updateSelectionAndBalanceUi()
+        updateStrategyVisibility()
         updateTypeVisibility(DataStore.balancerType)
     }
 

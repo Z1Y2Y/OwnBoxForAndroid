@@ -103,7 +103,9 @@ class BalancerMemberResolverTest {
         assertEquals(30, bean.tolerance)
         assertEquals(30L, bean.calculateToleranceMs())
         assertEquals("混合 1+3", bean.displayNodeOnly())
-        assertEquals("混合 1+3 · 最快最稳", bean.displayAddress())
+        // test3: fresh beans default legacyStrategy to leastPing, so the display
+        // shows the legacy strategy name instead of the generic .24 wording.
+        assertEquals("混合 1+3 · 最低延迟", bean.displayAddress())
         assertEquals("混合 1+3 · Tokyo 01", bean.displayWithNodeName("Tokyo 01"))
     }
 
@@ -341,5 +343,82 @@ class BalancerMemberResolverTest {
         )
         assertEquals(8, uncapped.members.size)
         assertEquals(listOf(4, 4, 0), uncapped.tierCounts)
+    }
+
+    @Test
+    fun healthTagsSplitsAvailableAndUnavailableMembers() {
+        val healthy = socksEntity(1L, 10L, "SG 01").apply { status = 1; ping = 40 }
+        val healthyNoPing = socksEntity(2L, 10L, "SG 02").apply { status = 1; ping = 0 }
+        val failed = socksEntity(3L, 10L, "SG 03").apply { status = 3; ping = 0 }
+        val errored = socksEntity(4L, 10L, "SG 04").apply { status = 2; ping = 0 }
+        val untested = socksEntity(5L, 10L, "SG 05").apply { status = 0; ping = 0 }
+
+        val (available, unavailable) = BalancerMemberResolver.healthTags(
+            listOf(healthy, healthyNoPing, failed, errored, untested)
+        )
+        // Available = probed OK with a positive ping; untested (status 0) and
+        // probed-OK-without-ping are neither available nor unavailable.
+        assertEquals(listOf("SG 01"), available)
+        assertEquals(listOf("SG 03", "SG 04"), unavailable)
+    }
+
+    @Test
+    fun shouldEnableStickyByAppRequiresSwitchAndCoversListGroupMixed() {
+        val listBean = BalancerBean().apply {
+            stickyByApp = true
+            balancerType = BalancerBean.TYPE_LIST
+        }
+        assertTrue(BalancerMemberResolver.shouldEnableStickyByApp(listBean))
+        val groupBean = BalancerBean().apply {
+            stickyByApp = true
+            balancerType = BalancerBean.TYPE_GROUP
+        }
+        assertTrue(BalancerMemberResolver.shouldEnableStickyByApp(groupBean))
+        // test3: MIXED is included (mybox-85 has no mixed type; excluding it
+        // would silently disable sticky for mixed groups).
+        val mixedBean = BalancerBean().apply {
+            stickyByApp = true
+            balancerType = BalancerBean.TYPE_MIXED
+        }
+        assertTrue(BalancerMemberResolver.shouldEnableStickyByApp(mixedBean))
+        val offBean = BalancerBean().apply {
+            stickyByApp = false
+            balancerType = BalancerBean.TYPE_GROUP
+        }
+        assertFalse(BalancerMemberResolver.shouldEnableStickyByApp(offBean))
+    }
+
+    @Test
+    fun mixedModeSpecifiedNodesIgnoreNameFiltersAndKeepGroupFirstOrder() {
+        val groupNodes = listOf(
+            socksEntity(1L, 10L, "JP Tokyo 01"),
+            socksEntity(2L, 10L, "HK Premium 01"),
+            socksEntity(3L, 10L, "Expired Traffic Notice"),
+        )
+        val extraNodes = listOf(
+            // Matches the exclude regex but is explicitly specified: still included.
+            socksEntity(6L, 20L, "Expired Traffic Notice"),
+            // Matches neither the include regex nor any group: still included.
+            socksEntity(7L, 30L, "Custom Direct SG"),
+        )
+        val allById = (groupNodes + extraNodes).associateBy { it.id }
+        val result = BalancerMemberResolver.resolve(
+            spec = BalancerMemberResolver.FilterSpec(
+                balancerType = BalancerBean.TYPE_MIXED,
+                targetGroupIds = listOf(10L),
+                explicitProxyIds = listOf(6L, 7L),
+                nameExclude = "Expired|Notice",
+                nameInclude = "Tokyo|HK",
+                selfId = 99L,
+                selectionMode = BalancerBean.SELECTION_PRIORITY,
+            ),
+            groupProfilesProvider = { gid -> if (gid == 10L) groupNodes else emptyList() },
+            entitiesByIdsProvider = { ids -> ids.mapNotNull { allById[it] } },
+            isGroupDisabled = { false },
+        )
+        // Group side is filtered (Expired node excluded); specified side is not.
+        assertEquals(2, result.groupMatchedCount)
+        assertEquals(2, result.extraAddedCount)
+        assertEquals(listOf(1L, 2L, 6L, 7L), result.members.map { it.id })
     }
 }

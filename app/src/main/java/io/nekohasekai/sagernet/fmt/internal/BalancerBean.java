@@ -54,6 +54,20 @@ public class BalancerBean extends InternalBean {
     // v5 fields
     public long frontProxy = -1L;
     public long landingProxy = -1L;
+    // v4 front/landing switches (test3: persisted in the v11 tail; v10 and older
+    // beans default to false, matching the previous always-off behaviour).
+    public boolean useFrontProxy = false;
+    public boolean useLandingProxy = false;
+    // MyBox legacy strategy dropdown choice (leastPing/leastLoad/random/roundRobin/
+    // consistentHash); persisted as v10 field. The .24 fields (selectionMode,
+    // balanceEnabled, balanceMode) remain the source of truth at build time and are
+    // (re)derived from this value in latency mode — see applyLegacyStrategy().
+    public String legacyStrategy = STRATEGY_LEAST_PING;
+    // v11 sticky fields (test3): per-app affinity switch + cross-restart persistence.
+    // v10 and older beans default to false, so already-installed test1/test2 users
+    // never get stickiness silently switched on.
+    public boolean stickyByApp = false;
+    public boolean persistStickyByApp = false;
     // v6 unified auto-select fields
     public String selectionMode = SELECTION_LATENCY;
     public boolean balanceEnabled = false;
@@ -161,7 +175,12 @@ public class BalancerBean extends InternalBean {
     @Override
     public String displayAddress() {
         StringBuilder stratBuilder = new StringBuilder();
-        if (isFallbackMode()) {
+        // test3: a stored legacy choice is shown by its old .85 name in latency
+        // mode; priority/fallback and blank legacy fall back to the .24 wording.
+        if (legacyStrategy != null && !legacyStrategy.trim().isEmpty()
+                && !isFallbackMode() && !isPriorityMode()) {
+            stratBuilder.append(legacyDisplayName(legacyStrategy));
+        } else if (isFallbackMode()) {
             stratBuilder.append("故障转移");
         } else if (isPriorityMode()) {
             stratBuilder.append("按优先级");
@@ -238,9 +257,109 @@ public class BalancerBean extends InternalBean {
         fallbackMaxFails = 2;
     }
 
+    /** Chinese display name for a legacy strategy value. */
+    public static String legacyDisplayName(String rawStrategy) {
+        String norm = rawStrategy != null ? rawStrategy.trim() : "";
+        if (STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)) norm = STRATEGY_ROUND_ROBIN;
+        if (STRATEGY_CONSISTENT_HASH.equals(norm)) norm = STRATEGY_CONSISTENT_HASH_CAMEL;
+        if (STRATEGY_LEAST_PING.equals(norm)) return "最低延迟";
+        if (STRATEGY_LEAST_LOAD.equals(norm)) return "最低负载";
+        if (STRATEGY_RANDOM.equals(norm)) return "随机";
+        if (STRATEGY_ROUND_ROBIN.equals(norm)) return "轮询";
+        if (STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) return "一致性哈希";
+        return "最快最稳";
+    }
+
+    /**
+     * sing-box loadbalance strategy string for a legacy dropdown value.
+     * Unknown/blank falls back to leastPing (4a70a4b5's default for unknown
+     * values); the .24 fields are never consulted here — this is the (A)
+     * direct passthrough route.
+     */
+    public static String legacyLoadBalanceStrategy(String rawStrategy) {
+        String norm = rawStrategy != null ? rawStrategy.trim() : "";
+        if (STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)) norm = STRATEGY_ROUND_ROBIN;
+        if (STRATEGY_CONSISTENT_HASH.equals(norm)) norm = STRATEGY_CONSISTENT_HASH_CAMEL;
+        if (STRATEGY_LEAST_PING.equals(norm)) return "leastPing";
+        if (STRATEGY_LEAST_LOAD.equals(norm)) return "leastLoad";
+        if (STRATEGY_RANDOM.equals(norm)) return "random";
+        if (STRATEGY_ROUND_ROBIN.equals(norm)) return "round_robin";
+        if (STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) return "consistent_hash";
+        return "leastPing";
+    }
+
+    /** Apply a MyBox legacy strategy: remember the choice and map it onto the .24 model. */
+    public void applyLegacyStrategy(String rawStrategy) {
+        String norm = rawStrategy != null ? rawStrategy.trim() : "";
+        if (STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)) {
+            legacyStrategy = STRATEGY_ROUND_ROBIN;
+        } else if (STRATEGY_CONSISTENT_HASH.equals(norm)) {
+            legacyStrategy = STRATEGY_CONSISTENT_HASH_CAMEL;
+        } else if (STRATEGY_LEAST_PING.equals(norm) || STRATEGY_LEAST_LOAD.equals(norm)
+                || STRATEGY_RANDOM.equals(norm) || STRATEGY_ROUND_ROBIN.equals(norm)
+                || STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) {
+            legacyStrategy = norm;
+        } else {
+            legacyStrategy = STRATEGY_LEAST_PING;
+        }
+        migrateLegacyStrategy(legacyStrategy);
+    }
+
+    /**
+     * Narrow legacy mapping: only selectionMode/balance fields; country filter, tiers,
+     * interrupt/fallback settings etc. are left untouched (unlike migrateLegacyStrategy,
+     * which resets all .24 defaults and is only for old-bean migration).
+     */
+    public void applyLegacyMappingOnly() {
+        String norm = legacyStrategy != null ? legacyStrategy.trim() : "";
+        if (STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)) norm = STRATEGY_ROUND_ROBIN;
+        if (STRATEGY_CONSISTENT_HASH.equals(norm)) norm = STRATEGY_CONSISTENT_HASH_CAMEL;
+        if (STRATEGY_LEAST_PING.equals(norm)) {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = false;
+            balanceMode = BALANCE_TIMED_ROTATION;
+        } else if (STRATEGY_LEAST_LOAD.equals(norm) || STRATEGY_RANDOM.equals(norm)
+                || STRATEGY_ROUND_ROBIN.equals(norm)) {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = true;
+            balanceMode = BALANCE_PER_CONNECTION;
+        } else if (STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = true;
+            balanceMode = BALANCE_TIMED_ROTATION;
+            learnFromConnections = true;
+        } else {
+            // Unknown/blank: no legacy choice; leave the .24 fields untouched.
+            return;
+        }
+        strategy = selectionMode;
+    }
+
+    /**
+     * Inverse of the mapping for canonical combos; null when ambiguous
+     * (leastLoad/random/roundRobin all map to latency + per-connection balance)
+     * or when the mode is priority/fallback (no legacy equivalent).
+     */
+    public String deriveLegacyStrategy() {
+        if (isPriorityMode() || isFallbackMode()) return null;
+        if (!balanceEnabled) return STRATEGY_LEAST_PING;
+        if (BALANCE_TIMED_ROTATION.equals(balanceMode)) return STRATEGY_CONSISTENT_HASH_CAMEL;
+        return null;
+    }
+
     private void migrateLegacyStrategy(String rawStrategy) {
         resetActiveStrategyDefaults();
         String norm = rawStrategy != null ? rawStrategy.trim() : "";
+        if (STRATEGY_LEAST_PING.equals(norm) || STRATEGY_LEAST_LOAD.equals(norm)
+                || STRATEGY_RANDOM.equals(norm) || STRATEGY_ROUND_ROBIN.equals(norm)
+                || STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)
+                || STRATEGY_CONSISTENT_HASH.equals(norm)
+                || STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) {
+            legacyStrategy = STRATEGY_ROUND_ROBIN_LEGACY.equals(norm) ? STRATEGY_ROUND_ROBIN
+                    : (STRATEGY_CONSISTENT_HASH.equals(norm) ? STRATEGY_CONSISTENT_HASH_CAMEL : norm);
+        } else {
+            legacyStrategy = STRATEGY_LEAST_PING;
+        }
         if (STRATEGY_FAILOVER.equals(norm) || SELECTION_PRIORITY.equals(norm)) {
             selectionMode = SELECTION_PRIORITY;
             balanceEnabled = false;
@@ -285,6 +404,14 @@ public class BalancerBean extends InternalBean {
             selectionMode = SELECTION_LATENCY;
         }
         strategy = selectionMode;
+        // test3: do NOT derive legacyStrategy here (unlike 4a70a4b5). This runs on
+        // every KryoConverters.deserialize, i.e. every database load; deriving
+        // would rewrite test2 beans' stored "" to leastPing and silently flip
+        // their latency balancers from autoselect to urltest routing. The stored
+        // value stays authoritative; the settings UI derives for display only.
+        if (legacyStrategy == null) {
+            legacyStrategy = "";
+        }
         if (balanceMode == null || (!BALANCE_TIMED_ROTATION.equals(balanceMode) && !BALANCE_PER_CONNECTION.equals(balanceMode))) {
             balanceMode = BALANCE_TIMED_ROTATION;
         }
@@ -308,7 +435,7 @@ public class BalancerBean extends InternalBean {
                 : (SELECTION_PRIORITY.equals(selectionMode) ? SELECTION_PRIORITY : SELECTION_LATENCY);
         strategy = effectiveSelection;
 
-        output.writeInt(10); // version
+        output.writeInt(11); // version
         output.writeInt(balancerType);
         output.writeLong(targetGroupId);
         output.writeString(strategy);
@@ -354,13 +481,17 @@ public class BalancerBean extends InternalBean {
         }
         output.writeBoolean(fallbackAutoRevert);
         output.writeInt(fallbackMaxFails > 0 ? fallbackMaxFails : 2);
-        // v10 trailing field (test1 legacy-strategy string, removed in test2).
-        // Still written so the v10 layout is unchanged; the value is always "" and
-        // is read-and-discarded in deserialize(). Previous upstream v1-v9 layouts
-        // remain readable.
-        // NOTE: test1 v10 layout (trailing string) differs from merge a280d1fb
-        // v10 (stickyByApp boolean); the two trees never share a database.
-        output.writeString("");
+        // v11 test3 tail: v10 legacy-strategy string, then stickyByApp,
+        // persistStickyByApp, useFrontProxy, useLandingProxy booleans.
+        // NOTE: test1/test2 v10 layout is the trailing string only; v10 beans
+        // read the string and default all four booleans to false (never silently
+        // enable stickiness for existing users). This differs from merge
+        // a280d1fb v10 (stickyByApp boolean); the trees never share a database.
+        output.writeString(legacyStrategy != null ? legacyStrategy : STRATEGY_LEAST_PING);
+        output.writeBoolean(stickyByApp);
+        output.writeBoolean(persistStickyByApp);
+        output.writeBoolean(useFrontProxy);
+        output.writeBoolean(useLandingProxy);
     }
 
     @Override
@@ -431,10 +562,30 @@ public class BalancerBean extends InternalBean {
                     fallbackMaxFails = 2;
                 }
                 if (version >= 10) {
-                    // test1 v10 beans carry a trailing legacy-strategy string (the
-                    // removed dropdown's stored value). Read and discard it so the
-                    // stream stays aligned; the .24 fields above are authoritative.
-                    input.readString();
+                    legacyStrategy = input.readString();
+                    if (legacyStrategy == null) {
+                        legacyStrategy = "";
+                    }
+                    // test1/test2 v10 beans carry only the trailing string; the
+                    // four v11 booleans default to false. A stored "" stays ""
+                    // (never forced back to leastPing): test2 wrote "" for every
+                    // bean, and forcing leastPing would silently flip those
+                    // balancers from autoselect to urltest routing in test3.
+                    stickyByApp = false;
+                    persistStickyByApp = false;
+                    useFrontProxy = false;
+                    useLandingProxy = false;
+                    if (version >= 11) {
+                        stickyByApp = input.readBoolean();
+                        persistStickyByApp = input.readBoolean();
+                        useFrontProxy = input.readBoolean();
+                        useLandingProxy = input.readBoolean();
+                    }
+                } else {
+                    // v8/v9 beans predate the legacy field: no stored choice, so
+                    // keep "" (autoselect routing) rather than deriving leastPing
+                    // — same reason as the v10 branch above.
+                    legacyStrategy = "";
                 }
                 return;
             }
@@ -463,7 +614,7 @@ public class BalancerBean extends InternalBean {
                 // string whose Kryo-encoded first byte is its length (>1 for "latency" etc.).
                 int nextByte = input.getBuffer()[input.position()] & 0xff;
                 if (nextByte <= 1) {
-                    input.readBoolean(); // legacy MyBox stickyByApp; sticky runtime is not in test1
+                    input.readBoolean(); // legacy MyBox stickyByApp (v6 layout)
                     migrateLegacyStrategy(strategy);
                     fallbackAutoRevert = true;
                     fallbackMaxFails = 2;
