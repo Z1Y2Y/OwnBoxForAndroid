@@ -1122,7 +1122,10 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         // rotation; a fresh Activity instance starts untouched.
         legacyDropdownTouched = savedInstanceState?.getBoolean(STATE_LEGACY_TOUCHED, false) ?: false
         super.onCreate(savedInstanceState)
-        supportActionBar?.setTitle(R.string.balancer_settings_autoselect)
+        // test5: title "策略组设置" — same as .85 (BalancerSettingsActivity
+        // :372 uses R.string.balancer_settings). The .24 "自动选择"
+        // (balancer_settings_autoselect) string is left defined but unused.
+        supportActionBar?.setTitle(R.string.balancer_settings)
     }
 
     override fun PreferenceFragmentCompat.viewCreated(view: View, savedInstanceState: Bundle?) {

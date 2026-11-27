@@ -19,8 +19,11 @@
         app:title="@string/balancer_source_type"
         app:useSimpleSummaryProvider="true" />
 
+    <!-- test5: sticky switches moved below the "配置" (match summary,
+         order 9000) row and above "高级" (order 10000); relative order and
+         the persist-depends-on-sticky wiring are unchanged. -->
     <SwitchPreferenceCompat
-        android:order="1500"
+        android:order="9500"
         app:defaultValue="false"
         app:icon="@drawable/ic_baseline_compare_arrows_24"
         app:key="balancerStickyByApp"
@@ -28,7 +31,7 @@
         app:title="@string/balancer_sticky_by_app" />
 
     <SwitchPreferenceCompat
-        android:order="1501"
+        android:order="9501"
         app:defaultValue="false"
         app:dependency="balancerStickyByApp"
         app:icon="@drawable/ic_baseline_compare_arrows_24"
