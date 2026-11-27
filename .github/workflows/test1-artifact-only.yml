@@ -3,7 +3,7 @@
 # 只出 artifact，不发 release、不建 tag、不做正式版。
 # 触发方式只有 workflow_dispatch（手动触发），不响应 push / tag。
 # 基底：Own716 v26.11.24；移植：MyBox .85（主题、IPv6、策略组 5 项、连接完整显示、分应用智能分流、删侧边栏 Telegram）。
-# 身份：包名 com.ownbox.test1，应用名 MyBoxTest，versionName 26.11.24-test1，versionCode 2650，arm64-only。
+# 身份：包名 com.ownbox.test1，应用名 MyBoxTest，versionName 26.11.24-test3，versionCode 2655，arm64-only。
 # 签名复用仓库已有 secret（KEYSTORE_BASE64 / KEYSTORE_PASS / ALIAS_NAME / ALIAS_PASS），
 # 证书须为 CN=OwnBox Personal（SHA256 a9094d2f…），与在用 MyBox .85 同一证书；
 # 包名不同所以能与 .85 同时安装、不会覆盖。
@@ -171,8 +171,8 @@ jobs:
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
           EXPECTED_PACKAGE="com.ownbox.test1"
           EXPECTED_APP_LABEL="MyBoxTest"
-          EXPECTED_VERSION_NAME="26.11.24-test1"
-          EXPECTED_VERSION_CODE=2650
+          EXPECTED_VERSION_NAME="26.11.24-test3"
+          EXPECTED_VERSION_CODE=2655
           APK_COUNT=0
           for apk in "$APK_DIR"/*.apk; do
             APK_COUNT=$((APK_COUNT + 1))
@@ -225,7 +225,7 @@ jobs:
             exit 1
           fi
 
-          FINAL_APK="$APK_DIR/MyBoxTest-26.11.24-test1-arm64-v8a.apk"
+          FINAL_APK="$APK_DIR/MyBoxTest-26.11.24-test3-arm64-v8a.apk"
           for apk in "$APK_DIR"/*.apk; do
             if [ "$apk" != "$FINAL_APK" ]; then
               mv "$apk" "$FINAL_APK"
@@ -237,18 +237,18 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBoxTest 26.11.24-test1 — Test artifact only'
+            echo '### MyBoxTest 26.11.24-test3 — Test artifact only'
             echo '- Build: signed PreviewRelease; package com.ownbox.test1; existing signing certificate verified'
-            echo '- Version code: 2650; ABI: exactly one arm64-v8a APK'
+            echo '- Version code: 2655; ABI: exactly one arm64-v8a APK'
             echo "- Commit: ${GITHUB_SHA}"
             echo '- Distribution: workflow artifact only; no tag or public GitHub Release created'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload verified test1 APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBoxTest-26.11.24-test1-arm64-v8a
+          name: MyBoxTest-26.11.24-test3-arm64-v8a
           path: |
-            ${{ env.APK_DIR }}/MyBoxTest-26.11.24-test1-arm64-v8a.apk
+            ${{ env.APK_DIR }}/MyBoxTest-26.11.24-test3-arm64-v8a.apk
             ${{ env.APK_DIR }}/sha256sums.txt
           if-no-files-found: error
           retention-days: 7
