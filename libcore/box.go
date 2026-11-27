@@ -768,33 +768,38 @@ func (b *BoxInstance) resetStatefulUDPTransports() {
 	}
 }
 
+// ActiveOutbound is the balancer/group member actually selected for this
+// connection at query time (BoxInstance.GetActiveOutboundTag). It is the
+// group's CURRENT member, not necessarily the member dialed when the
+// connection started — see PORT-TEST1.md (f).
 type activeConnectionItem struct {
-	ID            string   `json:"id"`
-	Network       string   `json:"network"`
-	Protocol      string   `json:"protocol"`
-	Host          string   `json:"host"`
-	Port          int      `json:"port"`
-	Inbound       string   `json:"inbound"`
-	InboundType   string   `json:"inboundType"`
-	SourceIP      string   `json:"sourceIP"`
-	SourcePort    int      `json:"sourcePort"`
-	DestinationIP string   `json:"destinationIP"`
-	IpVersion     string   `json:"ipVersion"`
-	PackageName   string   `json:"packageName"`
-	ProcessPath   string   `json:"processPath"`
-	Uid           int32    `json:"uid"`
-	Rule          string   `json:"rule"`
-	Chains        []string `json:"chains"`
-	Outbound      string   `json:"outbound"`
-	OutboundType  string   `json:"outboundType"`
-	Upload        int64    `json:"upload"`
-	Download      int64    `json:"download"`
-	StartMs       int64    `json:"startMs"`
-	ClosedMs      int64    `json:"closedMs"`
-	Active        bool     `json:"active"`
+	ID             string   `json:"id"`
+	Network        string   `json:"network"`
+	Protocol       string   `json:"protocol"`
+	Host           string   `json:"host"`
+	Port           int      `json:"port"`
+	Inbound        string   `json:"inbound"`
+	InboundType    string   `json:"inboundType"`
+	SourceIP       string   `json:"sourceIP"`
+	SourcePort     int      `json:"sourcePort"`
+	DestinationIP  string   `json:"destinationIP"`
+	IpVersion      string   `json:"ipVersion"`
+	PackageName    string   `json:"packageName"`
+	ProcessPath    string   `json:"processPath"`
+	Uid            int32    `json:"uid"`
+	Rule           string   `json:"rule"`
+	Chains         []string `json:"chains"`
+	Outbound       string   `json:"outbound"`
+	ActiveOutbound string   `json:"activeOutbound"`
+	OutboundType   string   `json:"outboundType"`
+	Upload         int64    `json:"upload"`
+	Download       int64    `json:"download"`
+	StartMs        int64    `json:"startMs"`
+	ClosedMs       int64    `json:"closedMs"`
+	Active         bool     `json:"active"`
 }
 
-func buildConnectionItem(m *trafficcontrol.TrackerMetadata, active bool) activeConnectionItem {
+func (b *BoxInstance) buildConnectionItem(m *trafficcontrol.TrackerMetadata, active bool) activeConnectionItem {
 	network := strings.ToUpper(strings.TrimSpace(m.Metadata.Network))
 	if network == "" {
 		network = "TCP"
@@ -888,29 +893,30 @@ func buildConnectionItem(m *trafficcontrol.TrackerMetadata, active bool) activeC
 	}
 
 	return activeConnectionItem{
-		ID:            m.ID.String(),
-		Network:       network,
-		Protocol:      strings.TrimSpace(m.Metadata.Protocol),
-		Host:          host,
-		Port:          int(m.Metadata.Destination.Port),
-		Inbound:       inbound,
-		InboundType:   inboundFull,
-		SourceIP:      sourceIP,
-		SourcePort:    int(m.Metadata.Source.Port),
-		DestinationIP: destIP,
-		IpVersion:     ipVersion,
-		PackageName:   pkg,
-		ProcessPath:   processPath,
-		Uid:           uid,
-		Rule:          rule,
-		Chains:        chains,
-		Outbound:      m.Outbound,
-		OutboundType:  m.OutboundType,
-		Upload:        up,
-		Download:      down,
-		StartMs:       m.CreatedAt.UnixMilli(),
-		ClosedMs:      closedMs,
-		Active:        active,
+		ID:             m.ID.String(),
+		Network:        network,
+		Protocol:       strings.TrimSpace(m.Metadata.Protocol),
+		Host:           host,
+		Port:           int(m.Metadata.Destination.Port),
+		Inbound:        inbound,
+		InboundType:    inboundFull,
+		SourceIP:       sourceIP,
+		SourcePort:     int(m.Metadata.Source.Port),
+		DestinationIP:  destIP,
+		IpVersion:      ipVersion,
+		PackageName:    pkg,
+		ProcessPath:    processPath,
+		Uid:            uid,
+		Rule:           rule,
+		Chains:         chains,
+		Outbound:       m.Outbound,
+		ActiveOutbound: b.GetActiveOutboundTag(m.Outbound),
+		OutboundType:   m.OutboundType,
+		Upload:         up,
+		Download:       down,
+		StartMs:        m.CreatedAt.UnixMilli(),
+		ClosedMs:       closedMs,
+		Active:         active,
 	}
 }
 
@@ -938,7 +944,7 @@ func (b *BoxInstance) GetConnectionsJSON() string {
 
 	items := make([]activeConnectionItem, 0, len(filtered))
 	for _, m := range filtered {
-		items = append(items, buildConnectionItem(m, true))
+		items = append(items, b.buildConnectionItem(m, true))
 	}
 
 	closedFiltered := make([]*trafficcontrol.TrackerMetadata, 0, len(closedConns))
@@ -964,7 +970,7 @@ func (b *BoxInstance) GetConnectionsJSON() string {
 
 	closedItems := make([]activeConnectionItem, 0, len(closedFiltered))
 	for _, m := range closedFiltered {
-		closedItems = append(closedItems, buildConnectionItem(m, false))
+		closedItems = append(closedItems, b.buildConnectionItem(m, false))
 	}
 
 	payload := struct {

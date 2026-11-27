@@ -631,8 +631,9 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             val chainsList = parseChainsList(obj.optJSONArray("chains"), reverse = false, fallback = outbound)
             // MyBox: append the actually-hit member (activeOutbound) when it is not
             // already in the chain, so the node a balancer really dialed is visible.
-            // (libcore does not emit activeOutbound yet — see PORT-TEST1.md (f); the
-            // formatter is a no-op for the active part until then.)
+            // (test2: libcore now emits activeOutbound — see box.go
+            // buildConnectionItem; it is the group's CURRENT member, not
+            // necessarily the member dialed when the connection started.)
             val activeOutbound = obj.optString("activeOutbound").trim()
             val chainsDisplay = ConnectionChainFormatter.format(chainsList, activeOutbound)
             val up = obj.optLong("upload", 0L)
@@ -680,7 +681,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
                     downloadSpeed = downSpeed,
                     chainsList = chainsList,
                     chainsDisplay = chainsDisplay,
-                    outbound = outbound.ifBlank { chainsList.lastOrNull().orEmpty() },
+                    outbound = activeOutbound.ifBlank { chainsList.lastOrNull().orEmpty() },
                     outboundType = outboundType,
                     startMs = startMs,
                     closedMs = closedMs,
@@ -1442,7 +1443,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             time.text = formatRelativeTime(item)
             host.text = item.host
             rule.text = item.rule
-            chains.text = item.chainsDisplay
+            chains.text = itemView.context.getString(R.string.connections_detail_chain, item.chainsDisplay)
 
             val ctx = itemView.context
             download.text = "▼ ${Formatter.formatFileSize(ctx, item.download)}"
