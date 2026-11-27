@@ -69,12 +69,19 @@
         app:title="@string/balancer_strategy"
         app:useSimpleSummaryProvider="true" />
 
+    <!-- test4: hide the .24 "selection mode" row. The settings page shows only
+         the .85 strategy dropdown (balancerLegacyStrategy, order 4500); the
+         .24 selectionMode is no longer user-changeable. Stored priority /
+         fallback beans keep their routing until the user picks a legacy
+         strategy, which forces latency (see BalancerSettingsActivity and
+         BalancerBean.applyLegacyChoiceForSave). -->
     <moe.matsuri.nb4a.ui.SimpleMenuPreference
         android:order="5000"
         app:defaultValue="latency"
         app:entries="@array/balancer_selection_mode_entries"
         app:entryValues="@array/balancer_selection_mode_values"
         app:icon="@drawable/ic_baseline_low_priority_24"
+        app:isPreferenceVisible="false"
         app:key="balancerSelectionMode"
         app:title="@string/balancer_selection_mode" />
 

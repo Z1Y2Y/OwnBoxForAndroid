@@ -467,6 +467,65 @@ class BalancerBeanMigrationTest {
     }
 
     @Test
+    fun `applyLegacyChoiceForSave forces latency for a stored priority bean`() {
+        // test4: the .24 selection-mode row is hidden, so picking a legacy
+        // strategy must rescue a stored priority/fallback bean instead of
+        // being swallowed by it (the old early return did exactly that).
+        val bean = BalancerBean().apply {
+            initializeDefaultValues()
+            selectionMode = BalancerBean.SELECTION_PRIORITY
+            balanceEnabled = false
+            balanceMode = BalancerBean.BALANCE_TIMED_ROTATION
+            legacyStrategy = BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+        }
+        bean.applyLegacyChoiceForSave()
+        assertEquals(BalancerBean.SELECTION_LATENCY, bean.selectionMode)
+        assertEquals(BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL, bean.legacyStrategy)
+        assertTrue(bean.balanceEnabled)
+        assertEquals(BalancerBean.BALANCE_TIMED_ROTATION, bean.balanceMode)
+
+        val fallbackBean = BalancerBean().apply {
+            initializeDefaultValues()
+            selectionMode = BalancerBean.SELECTION_FALLBACK
+            balanceEnabled = false
+            balanceMode = BalancerBean.BALANCE_TIMED_ROTATION
+            legacyStrategy = BalancerBean.STRATEGY_LEAST_PING
+        }
+        fallbackBean.applyLegacyChoiceForSave()
+        assertEquals(BalancerBean.SELECTION_LATENCY, fallbackBean.selectionMode)
+        assertFalse(fallbackBean.balanceEnabled)
+    }
+
+    @Test
+    fun `applyLegacyChoiceForSave leaves blank legacy beans untouched`() {
+        // test4: no legacy choice means the stored .24 fields govern — a
+        // test2-era bean (blank legacy, latency) and a stored priority bean
+        // must both keep their routing until the user picks a strategy.
+        val latencyBean = BalancerBean().apply {
+            initializeDefaultValues()
+            selectionMode = BalancerBean.SELECTION_LATENCY
+            balanceEnabled = true
+            balanceMode = BalancerBean.BALANCE_PER_CONNECTION
+            legacyStrategy = ""
+        }
+        latencyBean.applyLegacyChoiceForSave()
+        assertEquals(BalancerBean.SELECTION_LATENCY, latencyBean.selectionMode)
+        assertTrue(latencyBean.balanceEnabled)
+        assertEquals(BalancerBean.BALANCE_PER_CONNECTION, latencyBean.balanceMode)
+
+        val priorityBean = BalancerBean().apply {
+            initializeDefaultValues()
+            selectionMode = BalancerBean.SELECTION_PRIORITY
+            balanceEnabled = false
+            balanceMode = BalancerBean.BALANCE_TIMED_ROTATION
+            legacyStrategy = ""
+        }
+        priorityBean.applyLegacyChoiceForSave()
+        assertEquals(BalancerBean.SELECTION_PRIORITY, priorityBean.selectionMode)
+        assertFalse(priorityBean.balanceEnabled)
+    }
+
+    @Test
     fun `v6 mybox-85-format TYPE_GROUP blob keeps group and proxies`() {
         val bean = KryoConverters.deserialize(
             BalancerBean(),

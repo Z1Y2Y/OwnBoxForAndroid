@@ -336,6 +336,23 @@ public class BalancerBean extends InternalBean {
     }
 
     /**
+     * test4: saving with a legacy dropdown choice always means latency mode.
+     * The .24 "selection mode" row is hidden from the settings page, so a
+     * stored priority/fallback value must never block the dropdown: picking
+     * any of the five strategies forces latency, then the mapping applies.
+     * A blank legacy choice leaves the .24 fields untouched, so test2-era
+     * beans and stored priority/fallback beans keep their routing until the
+     * user picks a legacy strategy. Called from BalancerSettingsActivity
+     * serialize(); the dropdown listener forces the same in DataStore.
+     */
+    public void applyLegacyChoiceForSave() {
+        String norm = legacyStrategy != null ? legacyStrategy.trim() : "";
+        if (norm.isEmpty()) return;
+        selectionMode = SELECTION_LATENCY;
+        applyLegacyMappingOnly();
+    }
+
+    /**
      * Inverse of the mapping for canonical combos; null when ambiguous
      * (leastLoad/random/roundRobin all map to latency + per-connection balance)
      * or when the mode is priority/fallback (no legacy equivalent).

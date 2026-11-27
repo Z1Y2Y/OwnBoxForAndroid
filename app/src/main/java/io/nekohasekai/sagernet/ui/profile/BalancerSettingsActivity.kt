@@ -183,8 +183,10 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         }
         strategy = selectionMode
 
-        // test3: the legacy dropdown is authoritative in latency mode: re-assert
-        // its mapping on the bean. Priority/fallback keep their .24 fields.
+        // test4: the legacy dropdown is authoritative whenever it has a choice:
+        // saving with a legacy strategy forces latency (the .24 selection-mode
+        // row is hidden, so a stored priority/fallback value must not block
+        // the dropdown). Blank legacy keeps the stored .24 fields untouched.
         legacyStrategy = when (DataStore.balancerLegacyStrategy) {
             BalancerBean.STRATEGY_LEAST_PING, BalancerBean.STRATEGY_LEAST_LOAD,
             BalancerBean.STRATEGY_RANDOM, BalancerBean.STRATEGY_ROUND_ROBIN,
@@ -193,8 +195,8 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             BalancerBean.STRATEGY_CONSISTENT_HASH -> BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
             else -> "" // no legacy choice; the .24 fields govern (see BalancerBean)
         }
-        if (selectionMode == BalancerBean.SELECTION_LATENCY && legacyStrategy.isNotBlank()) {
-            applyLegacyMappingOnly()
+        if (legacyStrategy.isNotBlank()) {
+            applyLegacyChoiceForSave()
         } else {
             balanceEnabled = DataStore.balancerBalanceEnabled
             balanceMode = if (DataStore.balancerBalanceMode == BalancerBean.BALANCE_PER_CONNECTION) {
@@ -203,9 +205,9 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
                 BalancerBean.BALANCE_TIMED_ROTATION
             }
         }
-        // (In latency mode with a legacy choice, balanceEnabled/balanceMode keep the
-        // dropdown-mapped values from applyLegacyMappingOnly(); otherwise they are
-        // re-read from DataStore in the else branch above.)
+        // (With a legacy choice, balanceEnabled/balanceMode keep the
+        // dropdown-mapped values from applyLegacyChoiceForSave(); otherwise they
+        // are re-read from DataStore in the else branch above.)
         stickyByApp = DataStore.balancerStickyByApp
         persistStickyByApp = stickyByApp && DataStore.balancerPersistStickyByApp
         useFrontProxy = DataStore.balancerUseFrontProxy
@@ -840,14 +842,18 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         // choice maps onto the .24 fields and refreshes the UI.
         val legacyPref = findPreference<SimpleMenuPreference>("balancerLegacyStrategy")
 
-        // test3 (from 4a70a4b5): map a legacy dropdown choice onto the .24 fields.
-        // Only in latency mode; priority/fallback keep their own fields.
+        // test4: map a legacy dropdown choice onto the .24 fields. Picking a
+        // legacy strategy always means latency mode now: the .24 selection-mode
+        // row is hidden, so a stored priority/fallback value must not swallow
+        // the pick (the old early return did exactly that). applyLegacyStrategy
+        // normalizes every choice to latency; the explicit assignment below
+        // keeps DataStore.balancerStrategy in step.
         fun applyLegacyMappingToDataStore(rawStrategy: String) {
             DataStore.balancerLegacyStrategy = rawStrategy
-            if (DataStore.balancerSelectionMode != BalancerBean.SELECTION_LATENCY) return
             val legacyBean = BalancerBean()
             legacyBean.applyLegacyStrategy(rawStrategy)
             DataStore.balancerSelectionMode = legacyBean.selectionMode
+            DataStore.balancerStrategy = legacyBean.selectionMode
             DataStore.balancerBalanceEnabled = legacyBean.balanceEnabled
             DataStore.balancerBalanceMode = legacyBean.balanceMode
         }
@@ -879,16 +885,10 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             true
         }
 
-        selectionModePref?.setOnPreferenceChangeListener { _, newValue ->
-            val mode = (newValue as? String) ?: BalancerBean.SELECTION_LATENCY
-            DataStore.balancerSelectionMode = mode
-            DataStore.balancerStrategy = mode
-            syncLegacyFromDataStore()
-            updateStrategyVisibility()
-            updateSelectionAndBalanceUi(selectionOverride = mode)
-            refreshMatchSummary(PreviewOverrides(selectionMode = mode))
-            true
-        }
+        // test4: the .24 selection-mode row is hidden (balancer_preferences.xml)
+        // and has no change listener any more — the row can never fire. The
+        // stored selectionMode is only changed by picking a legacy strategy
+        // (applyLegacyMappingToDataStore, always latency) or by loading a bean.
 
         balanceSwitchPref?.setOnPreferenceChangeListener { _, newValue ->
             val enabled = newValue as? Boolean ?: false
