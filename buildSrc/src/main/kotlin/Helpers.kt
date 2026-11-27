@@ -47,10 +47,10 @@ fun Project.setupCommon() {
             minSdk = 21
             targetSdk = 35
             // test1: arm64-only build (user requirement 2026-11-27);
-            // drop armeabi-v7a / x86 / x86_64 to save memory and build time.
-            ndk {
-                abiFilters += "arm64-v8a"
-            }
+            // arm64-only is enforced by splits.abi below (include "arm64-v8a").
+            // NOTE: do NOT add ndk.abiFilters here — AGP rejects abiFilters
+            // when splits abi filters are set ("Conflicting configuration",
+            // run 45952183683 failed configuring :app for exactly this).
         }
         buildTypes {
             getByName("release") {
