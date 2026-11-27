@@ -40,16 +40,6 @@
         app:title="@string/balancer_name_include" />
 
     <moe.matsuri.nb4a.ui.SimpleMenuPreference
-        android:order="4500"
-        app:defaultValue="leastPing"
-        app:entries="@array/balancer_strategy_entries"
-        app:entryValues="@array/balancer_strategy_values"
-        app:icon="@drawable/ic_baseline_compare_arrows_24"
-        app:key="balancerLegacyStrategy"
-        app:title="@string/balancer_strategy"
-        app:useSimpleSummaryProvider="true" />
-
-    <moe.matsuri.nb4a.ui.SimpleMenuPreference
         android:order="5000"
         app:defaultValue="latency"
         app:entries="@array/balancer_selection_mode_entries"
