@@ -149,19 +149,11 @@ class MainActivity : ThemedActivity(),
             binding.drawerLayout.removeView(binding.navView)
         }
         val drawerFactor = UiScaleManager.drawerFactor()
-        val baseDrawerWidthDp = 265f
         val drawerWidth = minOf(
-            (baseDrawerWidthDp * resources.displayMetrics.density * drawerFactor.coerceIn(0.8f, 1.15f)).toInt(),
-            resources.displayMetrics.widthPixels - (72 * resources.displayMetrics.density).toInt(),
+            (320f * resources.displayMetrics.density * drawerFactor.coerceIn(0.8f, 1.15f)).toInt(),
+            resources.displayMetrics.widthPixels - (56 * resources.displayMetrics.density).toInt(),
         )
         drawerRoot.layoutParams = drawerRoot.layoutParams.apply { width = drawerWidth }
-        val drawerRadius = resources.getDimension(R.dimen.drawer_corner_radius)
-        drawerRoot.outlineProvider = object : android.view.ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: android.graphics.Outline) {
-                outline.setRoundRect(-drawerRadius.toInt(), 0, view.width, view.height, drawerRadius)
-            }
-        }
-        drawerRoot.clipToOutline = true
         drawerRoot.elevation = dp(8).toFloat()
         if (drawerFactor != 1.0f) {
             drawerSettingsButton.scaleX = drawerFactor
@@ -289,7 +281,7 @@ class MainActivity : ThemedActivity(),
             onNewIntent(intent)
         }
 
-        refreshNavMenu(DataStore.enableClashAPI, DataStore.enableConnectionsMonitor)
+        refreshNavMenu(DataStore.enableClashAPI)
 
         // sdk 33 notification
         if (Build.VERSION.SDK_INT >= 33) {
@@ -326,7 +318,7 @@ class MainActivity : ThemedActivity(),
 
         checkClipboardOnResume()
         binding.stats.refreshDisplay()
-        refreshNavMenu(DataStore.enableClashAPI, DataStore.enableConnectionsMonitor)
+        refreshNavMenu(DataStore.enableClashAPI)
         updateProxyModeCard()
     }
 
@@ -426,12 +418,8 @@ class MainActivity : ThemedActivity(),
         }
     }
 
-    fun refreshNavMenu(
-        clashApi: Boolean = DataStore.enableClashAPI,
-        connectionsMonitor: Boolean = DataStore.enableConnectionsMonitor,
-    ) {
+    fun refreshNavMenu(clashApi: Boolean = DataStore.enableClashAPI) {
         navigation.menu.findItem(R.id.nav_dashboard)?.isVisible = clashApi
-        navigation.menu.findItem(R.id.nav_connections)?.isVisible = connectionsMonitor
         rebuildDrawerItems()
     }
 
@@ -695,7 +683,7 @@ class MainActivity : ThemedActivity(),
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(14), 0, dp(14), 0)
+                setPadding(dp(13), 0, dp(12), 0)
                 isClickable = true
                 isFocusable = true
                 tag = item.itemId
@@ -711,13 +699,12 @@ class MainActivity : ThemedActivity(),
                 bottomMargin = dp(5)
             }
             row.background = drawerRowBackground(selected = item.isChecked)
-            val contentColor = resolveDrawerItemContentColor(selected = item.isChecked)
 
             val icon = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 val iconDrawable = item.icon?.mutate()
-                iconDrawable?.setTint(contentColor)
+                iconDrawable?.setTint(getColorAttr(R.attr.colorOnSurfaceVariant))
                 setImageDrawable(iconDrawable)
             }
             row.addView(icon, LinearLayout.LayoutParams(iconSize, iconSize))
@@ -725,8 +712,8 @@ class MainActivity : ThemedActivity(),
             val title = TextView(this).apply {
                 text = item.title
                 textSize = 16f * drawerFactor
-                setTextColor(contentColor)
-                typeface = Typeface.create("sans-serif-medium", if (item.isChecked) Typeface.BOLD else Typeface.NORMAL)
+                setTextColor(getColorAttr(R.attr.colorOnSurface))
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -740,16 +727,6 @@ class MainActivity : ThemedActivity(),
         drawerMenuItems.post { drawerMenuScroll.requestLayout() }
     }
 
-    private fun resolveDrawerItemContentColor(selected: Boolean): Int {
-        val isBlack = Theme.isBlackTheme(this)
-        val isNight = Theme.usingNightMode(this)
-        return when {
-            isBlack -> if (selected) Color.WHITE else Color.parseColor("#A1A1AA")
-            isNight -> if (selected) Color.parseColor("#E2E8F0") else Color.parseColor("#94A3B8")
-            else -> Color.parseColor("#475569")
-        }
-    }
-
     private fun updateDrawerItemSelection(selectedId: Int) {
         for (index in 0 until drawerMenuItems.childCount) {
             val row = drawerMenuItems.getChildAt(index) as? LinearLayout ?: continue
@@ -757,11 +734,9 @@ class MainActivity : ThemedActivity(),
             val selected = itemId == selectedId
             row.isSelected = selected
             row.background = drawerRowBackground(selected)
-            val contentColor = resolveDrawerItemContentColor(selected)
-            (row.getChildAt(0) as? ImageView)?.drawable?.setTint(contentColor)
-            val titleView = row.getChildAt(1) as? TextView
-            titleView?.setTextColor(contentColor)
-            titleView?.typeface = Typeface.create("sans-serif-medium", if (selected) Typeface.BOLD else Typeface.NORMAL)
+            (row.getChildAt(0) as? ImageView)?.drawable?.setTint(
+                getColorAttr(if (selected) R.attr.colorOnSurface else R.attr.colorOnSurfaceVariant)
+            )
         }
         updateProxyModeCard()
     }
@@ -821,28 +796,6 @@ class MainActivity : ThemedActivity(),
         drawerMenuItems.addView(proxyModeView)
     }
 
-    private fun createActiveModeToggleBackground(accentColor: Int, isDark: Boolean): RippleDrawable {
-        val density = resources.displayMetrics.density
-        val strokePx = (1.5f * density).toInt().coerceAtLeast(1)
-        val fill = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(12).toFloat()
-            setColor(ColorUtils.setAlphaComponent(accentColor, if (isDark) 36 else 22))
-            setStroke(strokePx, accentColor)
-        }
-        val ripple = ColorUtils.setAlphaComponent(accentColor, 32)
-        return RippleDrawable(ColorStateList.valueOf(ripple), fill, null)
-    }
-
-    private fun createThemeStatusChipBackground(accentColor: Int, isDark: Boolean): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(999).toFloat()
-            setColor(ColorUtils.setAlphaComponent(accentColor, if (isDark) 46 else 36))
-            setStroke(dp(1), ColorUtils.setAlphaComponent(accentColor, if (isDark) 130 else 115))
-        }
-    }
-
     fun refreshProxyModeCard() {
         updateProxyModeCard()
     }
@@ -858,24 +811,14 @@ class MainActivity : ThemedActivity(),
         val textSmart = view.findViewById<TextView>(R.id.text_mode_smart)
         val textGlobal = view.findViewById<TextView>(R.id.text_mode_global)
 
-        val isBlack = Theme.isBlackTheme(this)
-        val isNight = Theme.usingNightMode(this)
-        val isDark = isBlack || isNight
-        val themeColor = Theme.getPrimaryColor(this)
-        val accentTextColor = when {
-            isBlack -> Color.WHITE
-            isNight -> ColorUtils.blendARGB(themeColor, Color.WHITE, 0.25f)
-            ColorUtils.calculateLuminance(themeColor) > 0.50 -> ColorUtils.blendARGB(themeColor, Color.BLACK, 0.35f)
-            else -> themeColor
-        }
+        val primaryColor = getColorAttr(R.attr.colorPrimary)
         val onSurfaceColor = getColorAttr(R.attr.colorOnSurface)
         val onSurfaceVariantColor = getColorAttr(R.attr.colorOnSurfaceVariant)
 
-        // 3A: Selected mode button uses theme color border + soft theme fill + theme icon/text
         if (isSmart) {
-            btnSmart.background = createActiveModeToggleBackground(themeColor, isDark)
-            iconSmart.drawable?.mutate()?.setTint(accentTextColor)
-            textSmart.setTextColor(accentTextColor)
+            btnSmart.setBackgroundResource(R.drawable.bg_proxy_mode_btn_active)
+            iconSmart.drawable?.mutate()?.setTint(primaryColor)
+            textSmart.setTextColor(primaryColor)
         } else {
             btnSmart.setBackgroundResource(R.drawable.bg_proxy_mode_btn_inactive)
             iconSmart.drawable?.mutate()?.setTint(onSurfaceVariantColor)
@@ -883,31 +826,29 @@ class MainActivity : ThemedActivity(),
         }
 
         if (isGlobal) {
-            btnGlobal.background = createActiveModeToggleBackground(themeColor, isDark)
-            iconGlobal.drawable?.mutate()?.setTint(accentTextColor)
-            textGlobal.setTextColor(accentTextColor)
+            btnGlobal.setBackgroundResource(R.drawable.bg_proxy_mode_btn_active)
+            iconGlobal.drawable?.mutate()?.setTint(primaryColor)
+            textGlobal.setTextColor(primaryColor)
         } else {
             btnGlobal.setBackgroundResource(R.drawable.bg_proxy_mode_btn_inactive)
             iconGlobal.drawable?.mutate()?.setTint(onSurfaceVariantColor)
             textGlobal.setTextColor(onSurfaceVariantColor)
         }
 
-        // 4A: App proxy keeps borderless row, only inner "已开启 ●" status pill uses user theme color
+        // App proxy status
         val isAppProxyEnabled = DataStore.proxyApps
-        val btnAppProxy = view.findViewById<LinearLayout>(R.id.btn_app_proxy)
         val chipAppProxy = view.findViewById<LinearLayout>(R.id.chip_app_proxy)
         val textStatusAppProxy = view.findViewById<TextView>(R.id.status_text_app_proxy)
         val dotStatusAppProxy = view.findViewById<View>(R.id.status_dot_app_proxy)
 
-        btnAppProxy?.setBackgroundResource(R.drawable.bg_proxy_mode_row)
         if (chipAppProxy != null && textStatusAppProxy != null && dotStatusAppProxy != null) {
             if (isAppProxyEnabled) {
-                chipAppProxy.background = createThemeStatusChipBackground(themeColor, isDark)
+                chipAppProxy.setBackgroundResource(R.drawable.bg_chip_status_connected)
                 textStatusAppProxy.text = getString(R.string.status_enabled)
-                textStatusAppProxy.setTextColor(accentTextColor)
+                textStatusAppProxy.setTextColor(Color.parseColor("#34D399"))
                 dotStatusAppProxy.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(accentTextColor)
+                    setColor(Color.parseColor("#10B981"))
                 }
             } else {
                 chipAppProxy.setBackgroundResource(R.drawable.bg_chip_status_disconnected)
@@ -920,7 +861,7 @@ class MainActivity : ThemedActivity(),
             }
         }
 
-        // 5A: Custom route three-state indicator: 走智能分流 / 全局生效中 / 按规则运行
+        // Custom route three-state indicator: 走智能分流 / 全局生效中 / 按规则运行
         val btnCustomRoute = view.findViewById<LinearLayout>(R.id.btn_custom_route)
         val iconCustomRoute = view.findViewById<ImageView>(R.id.icon_custom_route)
         val chipCustomRoute = view.findViewById<LinearLayout>(R.id.chip_custom_route)
@@ -932,12 +873,17 @@ class MainActivity : ThemedActivity(),
                 isSmart -> {
                     btnCustomRoute?.setBackgroundResource(R.drawable.bg_proxy_mode_row)
                     iconCustomRoute?.drawable?.mutate()?.setTint(onSurfaceColor)
-                    chipCustomRoute.background = createThemeStatusChipBackground(themeColor, isDark)
+                    chipCustomRoute.background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(999).toFloat()
+                        setColor(Color.parseColor("#243B82F6"))
+                        setStroke(dp(1), Color.parseColor("#663B82F6"))
+                    }
                     textStatusCustomRoute.text = getString(R.string.status_smart_routing)
-                    textStatusCustomRoute.setTextColor(accentTextColor)
+                    textStatusCustomRoute.setTextColor(Color.parseColor("#3B82F6"))
                     dotStatusCustomRoute.background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(accentTextColor)
+                        setColor(Color.parseColor("#3B82F6"))
                     }
                 }
                 isGlobal -> {
@@ -957,21 +903,19 @@ class MainActivity : ThemedActivity(),
                     }
                 }
                 else -> {
-                    val density = resources.displayMetrics.density
-                    val strokePx = (1.2f * density).toInt().coerceAtLeast(1)
                     btnCustomRoute?.background = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         cornerRadius = dp(14).toFloat()
-                        setColor(ColorUtils.setAlphaComponent(themeColor, if (isDark) 32 else 20))
-                        setStroke(strokePx, ColorUtils.setAlphaComponent(themeColor, if (isDark) 130 else 105))
+                        setColor(Color.parseColor("#1410B981"))
+                        setStroke(dp(1), Color.parseColor("#5910B981"))
                     }
-                    iconCustomRoute?.drawable?.mutate()?.setTint(accentTextColor)
-                    chipCustomRoute.background = createThemeStatusChipBackground(themeColor, isDark)
+                    iconCustomRoute?.drawable?.mutate()?.setTint(Color.parseColor("#10B981"))
+                    chipCustomRoute.setBackgroundResource(R.drawable.bg_chip_status_connected)
                     textStatusCustomRoute.text = getString(R.string.status_rule_active)
-                    textStatusCustomRoute.setTextColor(accentTextColor)
+                    textStatusCustomRoute.setTextColor(Color.parseColor("#10B981"))
                     dotStatusCustomRoute.background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(accentTextColor)
+                        setColor(Color.parseColor("#10B981"))
                     }
                 }
             }
@@ -979,23 +923,9 @@ class MainActivity : ThemedActivity(),
     }
 
     private fun drawerRowBackground(selected: Boolean): RippleDrawable {
-        val fillColor = if (!selected) {
-            Color.TRANSPARENT
-        } else {
-            val isBlack = Theme.isBlackTheme(this)
-            val isNight = Theme.usingNightMode(this)
-            val isMonoLight = Theme.isWhiteTheme(this) || Theme.isLightGrayTheme(this)
-            val themeColor = Theme.getPrimaryColor(this)
-            when {
-                isBlack -> Color.parseColor("#27272A")
-                isMonoLight -> getColorAttr(R.attr.colorSurfaceVariant)
-                isNight -> ColorUtils.setAlphaComponent(themeColor, 48)
-                else -> ColorUtils.blendARGB(Color.WHITE, themeColor, 0.13f)
-            }
-        }
         val fill = GradientDrawable().apply {
             cornerRadius = dp(16).toFloat()
-            setColor(fillColor)
+            setColor(if (selected) getColorAttr(R.attr.colorSurfaceVariant) else Color.TRANSPARENT)
         }
         val ripple = ColorUtils.setAlphaComponent(getColorAttr(R.attr.colorOnSurface), 20)
         return RippleDrawable(ColorStateList.valueOf(ripple), fill, null)
@@ -1180,7 +1110,7 @@ class MainActivity : ThemedActivity(),
             when (key) {
                 Key.SERVICE_MODE -> onBinderDied()
                 Key.ENABLE_CLASH_API, Key.ENABLE_CONNECTIONS_MONITOR -> {
-                    refreshNavMenu(DataStore.enableClashAPI, DataStore.enableConnectionsMonitor)
+                    refreshNavMenu(DataStore.enableClashAPI)
                 }
                 Key.PROFILE_ID -> {
                     LandingIpManager.clearCache()

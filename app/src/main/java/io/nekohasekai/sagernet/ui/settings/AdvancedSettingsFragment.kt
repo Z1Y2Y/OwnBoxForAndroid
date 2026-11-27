@@ -35,7 +35,6 @@ class AdvancedSettingsFragment : BaseSettingsPreferenceFragment() {
         findPreference<SwitchPreferenceCompat>(Key.ENABLE_CONNECTIONS_MONITOR)?.setOnPreferenceChangeListener { _, newValue ->
             (activity as? MainActivity)?.refreshNavMenu(
                 clashApi = DataStore.enableClashAPI,
-                connectionsMonitor = newValue as Boolean,
             )
             true
         }

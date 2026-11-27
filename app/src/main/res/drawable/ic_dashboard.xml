@@ -1,14 +1,9 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="256"
-    android:viewportHeight="256"
-    android:tint="?attr/colorControlNormal">
+    android:viewportWidth="24"
+    android:viewportHeight="24">
     <path
-        android:fillColor="@android:color/white"
-        android:fillAlpha="0.35"
-        android:pathData="M232,152v24a8,8,0,0,1-8,8H32a8,8,0,0,1-8-8V153.13C24,95.65,70.15,48.2,127.63,48A104,104,0,0,1,232,152Z" />
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M207.06,72.67A111.24,111.24,0,0,0,128,40h-.4C66.07,40.21,16,91,16,153.13V176a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V152A111.25,111.25,0,0,0,207.06,72.67ZM224,176H119.71l54.76-75.3a8,8,0,0,0-12.94-9.42L99.92,176H32V153.13c0-3.08.15-6.12.43-9.13H56a8,8,0,0,0,0-16H35.27c10.32-38.86,44-68.24,84.73-71.66V80a8,8,0,0,0,16,0V56.33A96.14,96.14,0,0,1,221,128H200a8,8,0,0,0,0,16h23.67c.21,2.65.33,5.31.33,8Z" />
+        android:fillColor="@color/navigation_icon"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8 0,-1.82 0.62,-3.49 1.64,-4.83l1.45,1.45C6.41,9.59 6,10.74 6,12c0,3.31 2.69,6 6,6s6,-2.69 6,-6c0,-1.26 -0.41,-2.41 -1.09,-3.38l1.45,-1.45C19.38,8.51 20,10.18 20,12c0,4.41 -3.59,8 -8,8zM12.5,8h-1v5.25l4.5,2.67 0.75,-1.23 -3.75,-2.22V8z" />
 </vector>

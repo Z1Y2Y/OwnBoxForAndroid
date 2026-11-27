@@ -462,9 +462,9 @@
     </style>
     <style name="Widget.SagerNet.DrawerSettingsButton" parent="Widget.MaterialComponents.Button">
         <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay.SagerNet.DrawerButton</item>
-        <item name="android:textColor">?colorOnPrimary</item>
-        <item name="iconTint">?colorOnPrimary</item>
-        <item name="backgroundTint">?colorPrimary</item>
+        <item name="android:textColor">@color/ownbox_drawer_action_text</item>
+        <item name="iconTint">@color/ownbox_drawer_action_text</item>
+        <item name="backgroundTint">@color/ownbox_drawer_action_fill</item>
         <item name="strokeWidth">0dp</item>
         <item name="android:insetTop">0dp</item>
         <item name="android:insetBottom">0dp</item>

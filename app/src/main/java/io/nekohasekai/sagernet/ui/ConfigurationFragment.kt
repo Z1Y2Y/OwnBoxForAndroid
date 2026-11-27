@@ -1239,36 +1239,6 @@ class ConfigurationFragment @JvmOverloads constructor(
         )
     }
 
-    private fun resolveTopBarIconTint(ctx: Context): Int {
-        val isBlack = Theme.isBlackTheme(ctx)
-        val isNight = Theme.usingNightMode(ctx)
-        return when {
-            isBlack -> Color.WHITE
-            isNight -> Color.parseColor("#94A3B8")
-            else -> Color.parseColor("#475569")
-        }
-    }
-
-    private fun applyTopBarIconTint(iconColor: Int) {
-        if (!isToolbarInitialized) return
-        (toolbar as? com.google.android.material.appbar.MaterialToolbar)?.setNavigationIconTint(iconColor)
-        toolbar.navigationIcon?.let {
-            val tinted = it.mutate()
-            DrawableCompat.setTint(tinted, iconColor)
-            toolbar.navigationIcon = tinted
-        }
-        toolbar.overflowIcon?.let {
-            val tinted = it.mutate()
-            DrawableCompat.setTint(tinted, iconColor)
-            toolbar.overflowIcon = tinted
-        }
-        tintMenuIcons(toolbar.menu, iconColor)
-        val searchItem = toolbar.menu.findItem(R.id.action_search)
-        val sv = (searchItem?.actionView as? SearchView) ?: toolbar.findViewById<SearchView>(R.id.action_search)
-        sv?.findViewById<ImageView>(androidx.appcompat.R.id.search_button)?.setColorFilter(iconColor)
-        sv?.findViewById<ImageView>(androidx.appcompat.R.id.search_mag_icon)?.setColorFilter(iconColor)
-        sv?.findViewById<ImageView>(androidx.appcompat.R.id.search_close_btn)?.setColorFilter(iconColor)
-    }
 
     private var tabCapsuleDrawable: SingleFloatingCapsuleDrawable? = null
     private var tabCapsuleStyleKey: String? = null
@@ -1380,7 +1350,6 @@ class ConfigurationFragment @JvmOverloads constructor(
             shadowBaseColor = shadowBaseColor,
             isDark = isBlack || isNight,
         )
-        applyTopBarIconTint(resolveTopBarIconTint(ctx))
 
         // 2. Style Inner Active Sliding Pill & Text colors
         val capsuleBg: Int
@@ -1463,7 +1432,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             showSoftKeyboard(editText)
         }
 
-        val iconColor = resolveTopBarIconTint(ctx)
+        val iconColor = textColor
         val closeBtn = searchView.findViewById<ImageView>(androidx.appcompat.R.id.search_close_btn)
         closeBtn?.setColorFilter(iconColor)
 
@@ -1701,7 +1670,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 view.findViewById<View>(R.id.toolbar_title_view)?.visibility = View.GONE
                 toolbar.menu.findItem(R.id.action_add)?.isVisible = false
                 toolbar.menu.findItem(R.id.action_connection_url_test)?.isVisible = false
-                toolbar.menu.findItem(R.id.action_locate_active_profile)?.isVisible = false
+                toolbar.menu.findItem(R.id.action_speed_test_group)?.isVisible = false
                 toolbar.title = null
                 updateSearchMaxWidth(searchView)
                 updateToolbarMenuTitles()
@@ -1709,7 +1678,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                 // Show back navigation arrow on the toolbar for clear exit path
                 if (!select) {
                     val searchContext = requireContext()
-                    val iconTint = resolveTopBarIconTint(searchContext)
+                    val iconTint = when {
+                        Theme.isBlackTheme(searchContext) -> Color.WHITE
+                        Theme.isWhiteTheme(searchContext) -> Color.parseColor("#212121")
+                        Theme.isLightGrayTheme(searchContext) -> Color.parseColor("#1F2937")
+                        else -> searchContext.getColorAttr(android.R.attr.textColorPrimary)
+                    }
                     (toolbar as? com.google.android.material.appbar.MaterialToolbar)?.setNavigationIconTint(iconTint)
                     toolbar.setNavigationIcon(R.drawable.baseline_arrow_back_24)
                     toolbar.navigationIcon?.let {
@@ -2330,7 +2304,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         customTitle?.text = getString(R.string.reorder_mode_title)
 
         toolbar.setNavigationIcon(R.drawable.baseline_arrow_back_24)
-        val iconColor = resolveTopBarIconTint(requireContext())
+        val iconColor = requireContext().getColorAttr(android.R.attr.textColorPrimary)
         toolbar.navigationIcon?.let {
             val tinted = it.mutate()
             androidx.core.graphics.drawable.DrawableCompat.setTint(tinted, iconColor)
@@ -2343,7 +2317,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         toolbar.menu.findItem(R.id.action_search)?.isVisible = false
         toolbar.menu.findItem(R.id.action_add)?.isVisible = false
         toolbar.menu.findItem(R.id.action_connection_url_test)?.isVisible = false
-        toolbar.menu.findItem(R.id.action_locate_active_profile)?.isVisible = false
+        toolbar.menu.findItem(R.id.action_speed_test_group)?.isVisible = false
         toolbar.menu.findItem(R.id.action_misc)?.isVisible = false
 
         toolbar.menu.findItem(R.id.action_reorder_save)?.let {
@@ -2362,7 +2336,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         customTitle?.text = getString(R.string.app_name)
 
         toolbar.setNavigationIcon(R.drawable.ic_navigation_menu)
-        val iconColor = resolveTopBarIconTint(requireContext())
+        val iconColor = requireContext().getColorAttr(android.R.attr.textColorPrimary)
         toolbar.navigationIcon?.let {
             val tinted = it.mutate()
             androidx.core.graphics.drawable.DrawableCompat.setTint(tinted, iconColor)
@@ -2375,7 +2349,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         toolbar.menu.findItem(R.id.action_search)?.isVisible = true
         toolbar.menu.findItem(R.id.action_add)?.isVisible = true
         toolbar.menu.findItem(R.id.action_connection_url_test)?.isVisible = true
-        toolbar.menu.findItem(R.id.action_locate_active_profile)?.isVisible = true
+        toolbar.menu.findItem(R.id.action_speed_test_group)?.isVisible = true
         toolbar.menu.findItem(R.id.action_misc)?.isVisible = true
 
         toolbar.menu.findItem(R.id.action_reorder_save)?.isVisible = false
@@ -2558,7 +2532,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         customTitle?.text = if (count > 0) getString(R.string.batch_selected_count, count) else getString(R.string.action_batch_multiselect)
 
         toolbar.setNavigationIcon(R.drawable.baseline_arrow_back_24)
-        val iconColor = resolveTopBarIconTint(requireContext())
+        val iconColor = requireContext().getColorAttr(android.R.attr.textColorPrimary)
         toolbar.navigationIcon?.let {
             val tinted = it.mutate()
             androidx.core.graphics.drawable.DrawableCompat.setTint(tinted, iconColor)
@@ -2571,7 +2545,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         toolbar.menu.findItem(R.id.action_search)?.isVisible = false
         toolbar.menu.findItem(R.id.action_add)?.isVisible = false
         toolbar.menu.findItem(R.id.action_connection_url_test)?.isVisible = false
-        toolbar.menu.findItem(R.id.action_locate_active_profile)?.isVisible = false
+        toolbar.menu.findItem(R.id.action_speed_test_group)?.isVisible = false
         toolbar.menu.findItem(R.id.action_misc)?.isVisible = false
         toolbar.menu.findItem(R.id.action_reorder_save)?.isVisible = false
 
@@ -2607,7 +2581,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         customTitle?.text = getString(R.string.app_name)
 
         toolbar.setNavigationIcon(R.drawable.ic_navigation_menu)
-        val iconColor = resolveTopBarIconTint(requireContext())
+        val iconColor = requireContext().getColorAttr(android.R.attr.textColorPrimary)
         toolbar.navigationIcon?.let {
             val tinted = it.mutate()
             androidx.core.graphics.drawable.DrawableCompat.setTint(tinted, iconColor)
@@ -2620,7 +2594,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         toolbar.menu.findItem(R.id.action_search)?.isVisible = true
         toolbar.menu.findItem(R.id.action_add)?.isVisible = true
         toolbar.menu.findItem(R.id.action_connection_url_test)?.isVisible = true
-        toolbar.menu.findItem(R.id.action_locate_active_profile)?.isVisible = true
+        toolbar.menu.findItem(R.id.action_speed_test_group)?.isVisible = true
         toolbar.menu.findItem(R.id.action_misc)?.isVisible = true
 
         listOf(
@@ -3195,10 +3169,6 @@ class ConfigurationFragment @JvmOverloads constructor(
                 return true
             }
 
-            R.id.action_locate_active_profile -> {
-                locateActiveProfile()
-                return true
-            }
 
             R.id.action_speed_test_group -> {
                 confirmSpeedTest()
@@ -6639,7 +6609,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
             toolbar.menu.findItem(R.id.action_add)?.isVisible = true
             toolbar.menu.findItem(R.id.action_connection_url_test)?.isVisible = true
-            toolbar.menu.findItem(R.id.action_locate_active_profile)?.isVisible = true
+            toolbar.menu.findItem(R.id.action_speed_test_group)?.isVisible = true
             toolbar.title = null
 
             if (!select) {
@@ -6649,7 +6619,11 @@ class ConfigurationFragment @JvmOverloads constructor(
                 }
             }
 
-            applyTopBarIconTint(resolveTopBarIconTint(cancelContext))
+            toolbar.navigationIcon?.let {
+                val tinted = it.mutate()
+                DrawableCompat.setTint(tinted, primaryColor)
+                toolbar.navigationIcon = tinted
+            }
             adjustToolbarActionButtons()
 
             val imm = requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
