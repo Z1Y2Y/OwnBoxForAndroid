@@ -66,6 +66,15 @@
                     android:textStyle="bold"
                     tools:text="TCP" />
 
+                <TextView
+                    android:id="@+id/conn_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="10.5sp"
+                    tools:text="几秒前" />
+
             </LinearLayout>
 
             <TextView

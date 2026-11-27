@@ -1507,6 +1507,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
         val appIcon: ImageView = itemView.findViewById(R.id.conn_app_icon)
         val appName: TextView = itemView.findViewById(R.id.conn_app_name)
         val network: TextView = itemView.findViewById(R.id.conn_network)
+        val time: TextView = itemView.findViewById(R.id.conn_time)
         val packageName: TextView = itemView.findViewById(R.id.conn_package)
         val host: TextView = itemView.findViewById(R.id.conn_host)
         val traffic: TextView = itemView.findViewById(R.id.conn_traffic)
@@ -1516,6 +1517,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
         fun bind(item: ConnectionItem) {
             appName.text = item.appName
             network.text = item.network
+            time.text = formatRelativeTime(item)
             packageName.text = item.packageName
             packageName.isVisible = item.packageName.isNotBlank()
             host.text = item.host

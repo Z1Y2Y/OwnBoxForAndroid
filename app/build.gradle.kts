@@ -18,7 +18,11 @@ val generateRootLicenseAsset by tasks.registering(Copy::class) {
 android {
     defaultConfig {
         versionName = requireMetadata().getProperty("VERSION_NAME")
-        versionCode = requireMetadata().getProperty("VERSION_CODE").toInt() * 5
+        // test6: versionCode 2666 is not a multiple of 5, so it cannot come from
+        // VERSION_CODE * 5 (533 * 5 = 2665). An explicit build-time override
+        // (-PoverrideVersionCode=2666) wins; without it the * 5 rule still applies.
+        versionCode = (project.findProperty("overrideVersionCode") as String?)?.toIntOrNull()
+            ?: requireMetadata().getProperty("VERSION_CODE").toInt() * 5
     }
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
