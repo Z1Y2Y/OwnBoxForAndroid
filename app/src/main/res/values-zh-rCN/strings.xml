@@ -77,7 +77,7 @@
     <string name="lan_sharing">局域网共享</string>
     <string name="lan_sharing_disabled_sum">点击开启热点代理共享</string>
     <string name="lan_sharing_enabled_sum">共享已开启：在 Wi-Fi 设置中将代理设为 %1$s:%2$d</string>
-    <string name="lan_sharing_dialog_off">局域网共享当前未开启。\n\n使用步骤：\n1. 点击「开启」启用共享。\n2. 打开手机热点。\n3. 本机连接 MyBoxTest VPN。\n4. 其他设备连接该热点后，在 Wi-Fi 设置中手动设置代理：\n   主机名：%1$s\n   端口：%2$d\n\n无需 Root。</string>
+    <string name="lan_sharing_dialog_off">局域网共享当前未开启。\n\n使用步骤：\n1. 点击「开启」启用共享。\n2. 打开手机热点。\n3. 本机连接 MyBox VPN。\n4. 其他设备连接该热点后，在 Wi-Fi 设置中手动设置代理：\n   主机名：%1$s\n   端口：%2$d\n\n无需 Root。</string>
     <string name="lan_sharing_dialog_on">局域网共享当前已开启。\n\n热点内其他设备可使用：\n   主机名：%1$s\n   端口：%2$d\n\n在其他设备的 Wi-Fi 设置中手动设置上述代理。\n\n点击「关闭」可停止共享。</string>
     <string name="lan_sharing_turn_on">开启</string>
     <string name="lan_sharing_turn_off">关闭</string>
@@ -908,7 +908,7 @@
     <string name="auto_backup_local_sum">每日自动在应用私有存储中备份节点配置与分流规则</string>
     <string name="subscription_enabled">启用此订阅</string>
     <string name="subscription_disabled">已禁用此订阅</string>
-    <string name="widget_name">MyBoxTest 快捷开关</string>
+    <string name="widget_name">MyBox 快捷开关</string>
     <string name="ui_settings">用户界面设置</string>
     <string name="vpn_settings">VPN 设置</string>
     <string name="core_settings">核心设置</string>
@@ -921,8 +921,8 @@
         <string name="app_icon_dynamic">动态</string>
         <string name="app_icon_light_mode">浅色模式</string>
         <string name="app_icon_dark_mode">深色模式</string>
-        <string name="app_icon_old_nekobox_plus">旧版 MyBoxTest+</string>
-        <string name="app_icon_nekobox">MyBoxTest</string>
+        <string name="app_icon_old_nekobox_plus">旧版 MyBox+</string>
+        <string name="app_icon_nekobox">MyBox</string>
         <string name="app_icon_midnight">午夜</string>
         <string name="app_icon_heavens">天空</string>
         <string name="app_icon_black_white">黑白</string>
@@ -930,13 +930,13 @@
         <string name="app_icon_selected">已选择</string>
     <string name="switch_node">切换节点</string>
     <string name="switch_node_short">换节点</string>
-    <string name="widget_1x1_name">MyBoxTest 快捷开关 (1×1)</string>
+    <string name="widget_1x1_name">MyBox 快捷开关 (1×1)</string>
     <string name="widget_1x1_desc">一键快速启停 VPN，极简小飞机水滴微件</string>
-    <string name="widget_4x1_name">MyBoxTest 状态胶囊 (4×1)</string>
+    <string name="widget_4x1_name">MyBox 状态胶囊 (4×1)</string>
     <string name="widget_4x1_desc">单行状态条，实时节点显示与快速切换</string>
-    <string name="widget_2x2_name">MyBoxTest 控制台 (2×2)</string>
+    <string name="widget_2x2_name">MyBox 控制台 (2×2)</string>
     <string name="widget_2x2_desc">方形控制台，状态、延迟与流速监控</string>
-    <string name="widget_4x2_name">MyBoxTest 仪表盘 (4×2)</string>
+    <string name="widget_4x2_name">MyBox 仪表盘 (4×2)</string>
     <string name="widget_4x2_desc">大号全功能仪表盘，全方位网络诊断与流量看板</string>
     <string name="proxy_mode_title">代 理 模 式</string>
     <string name="mode_smart_routing">智能分流</string>
@@ -1079,7 +1079,7 @@
     <string name="show_subscription_info_card_summary">在订阅分组顶部展示流量配额、剩余与到期时间等资产卡片</string>
     <string name="subscription_info">订阅资产信息</string>
     <string name="cannot_delete_active_profile">正在运行的活动节点无法删除，请先断开连接或切换至其他节点。</string>
-    <string name="ignore_battery_optimizations_summary">将 MyBoxTest 加入系统电池白名单，保障熄屏长效保活与防休眠掉线</string>
+    <string name="ignore_battery_optimizations_summary">将 MyBox 加入系统电池白名单，保障熄屏长效保活与防休眠掉线</string>
     <string name="already_ignoring_battery_optimizations">已成功加入电池优化白名单，长效保活已生效</string>
     <string name="action_not_supported">当前设备不支持此操作</string>
     <string name="custom_color_title">自定义主题色 (HEX / RGB)</string>
@@ -1329,7 +1329,7 @@
     <string name="notification_permission">通知</string>
     <string name="notification_permission_allowed">已允许</string>
     <string name="notification_permission_blocked">已阻止：服务通知及其按钮被隐藏。点按以允许。</string>
-    <string name="notification_permission_rationale">VPN 运行时 MyBoxTest 会显示带停止与切换服务器按钮的通知。请允许通知以查看它。</string>
+    <string name="notification_permission_rationale">VPN 运行时 MyBox 会显示带停止与切换服务器按钮的通知。请允许通知以查看它。</string>
     <string name="notification_previous">上一个</string>
     <string name="notification_switch">切换…</string>
     <string name="notification_switching">切换中…</string>

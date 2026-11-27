@@ -1,17 +1,17 @@
-# Test1 Artifact Only — OwnBox 测试版 test1（MyBoxTest）专用构建
+# Formal Artifact Only — OwnBox 正式版（MyBox）专用构建
 #
-# 只出 artifact，不发 release、不建 tag、不做正式版。
+# 只出 artifact，不发 release、不建 tag。
 # 触发方式只有 workflow_dispatch（手动触发），不响应 push / tag。
 # 基底：Own716 v26.11.24；移植：MyBox .85（主题、IPv6、策略组 5 项、连接完整显示、分应用智能分流、删侧边栏 Telegram）。
-# 身份：包名 com.ownbox.test1，应用名 MyBoxTest，versionName 26.11.24-test6，versionCode 2666，arm64-only。
+# 身份：包名 com.ownbox.fork，应用名 MyBox，versionName 26.11.24，versionCode 2667，arm64-only。
 # 签名复用仓库已有 secret（KEYSTORE_BASE64 / KEYSTORE_PASS / ALIAS_NAME / ALIAS_PASS），
 # 证书须为 CN=OwnBox Personal（SHA256 a9094d2f…），与在用 MyBox .85 同一证书；
-# 包名不同所以能与 .85 同时安装、不会覆盖。
+# 包名与 .85 相同、证书相同，所以会直接覆盖安装 .85；安装前请先在应用内备份订阅与设置。
 # 改编自 mybox-85 的 official-release-artifact-only.yml（artifact-only 做法），
-# 但 Gradle 任务改用 test1 树实际可用的 app:assemblePreviewRelease
-# （test1 树没有 assembleOssRelease，也没有 -PmyboxApkAbis 参数；arm64-only 靠 Helpers.kt 的 splits 实现）。
+# 但 Gradle 任务改用 本树实际可用的 app:assemblePreviewRelease
+# （本树没有 assembleOssRelease，也没有 -PmyboxApkAbis 参数；arm64-only 靠 Helpers.kt 的 splits 实现）。
 
-name: Test1 Artifact Only
+name: Formal Artifact Only
 
 on:
   workflow_dispatch:
@@ -77,13 +77,13 @@ jobs:
       - name: Upload LibCore AAR
         uses: actions/upload-artifact@v4
         with:
-          name: test1-libcore-aar
+          name: formal-libcore-aar
           path: app/libs/libcore.aar
           if-no-files-found: error
           retention-days: 1
 
   build:
-    name: Build and verify MyBoxTest APK
+    name: Build and verify MyBox APK
     runs-on: ubuntu-latest
     needs: libcore
     steps:
@@ -97,7 +97,7 @@ jobs:
       - name: Download LibCore AAR
         uses: actions/download-artifact@v4
         with:
-          name: test1-libcore-aar
+          name: formal-libcore-aar
           path: app/libs
       - name: Verify LibCore AAR
         run: |
@@ -110,7 +110,7 @@ jobs:
         with:
           path: ~/.gradle
           key: gradle-test1-${{ hashFiles('**/*.gradle.kts') }}
-      - name: Build and verify signed MyBoxTest arm64 APK
+      - name: Build and verify signed MyBox arm64 APK
         env:
           BUILD_PLUGIN: none
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -151,7 +151,7 @@ jobs:
             exit 1
           fi
 
-          ./gradlew app:assemblePreviewRelease -PoverrideVersionCode=2666
+          ./gradlew app:assemblePreviewRelease -PoverrideVersionCode=2667
           APK_DIR="app/build/outputs/apk/preview/release"
           APKSIGNER=$(find "${ANDROID_HOME}/build-tools" -name apksigner | sort -V | tail -n 1)
           AAPT=$(find "${ANDROID_HOME}/build-tools" -name aapt | sort -V | tail -n 1)
@@ -163,16 +163,16 @@ jobs:
           shopt -s nullglob
           for apk in "$APK_DIR"/*-unsigned.apk; do
             signed_apk="${apk%-unsigned.apk}-signed.apk"
-            echo "Signing test1 APK: $apk"
+            echo "Signing formal APK: $apk"
             "$APKSIGNER" sign --ks release.keystore --ks-pass "pass:$KEYSTORE_PASS" --key-pass "pass:${ALIAS_PASS:-$KEYSTORE_PASS}" --ks-key-alias "$ALIAS_NAME" --out "$signed_apk" "$apk"
             rm "$apk"
           done
 
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
-          EXPECTED_PACKAGE="com.ownbox.test1"
-          EXPECTED_APP_LABEL="MyBoxTest"
-          EXPECTED_VERSION_NAME="26.11.24-test6"
-          EXPECTED_VERSION_CODE=2666
+          EXPECTED_PACKAGE="com.ownbox.fork"
+          EXPECTED_APP_LABEL="MyBox"
+          EXPECTED_VERSION_NAME="26.11.24"
+          EXPECTED_VERSION_CODE=2667
           APK_COUNT=0
           for apk in "$APK_DIR"/*.apk; do
             APK_COUNT=$((APK_COUNT + 1))
@@ -218,14 +218,14 @@ jobs:
               printf '%s\n' "$lib_entries"
               exit 1
             fi
-            echo "Verified test1 APK: $apk (package=$package label=$app_label versionName=$version_name versionCode=$version_code signerSHA256=$cert ABI=arm64-v8a)"
+            echo "Verified formal APK: $apk (package=$package label=$app_label versionName=$version_name versionCode=$version_code signerSHA256=$cert ABI=arm64-v8a)"
           done
           if [ "$APK_COUNT" -ne 1 ]; then
-            echo "::error::Expected exactly one test1 arm64-v8a APK (found=$APK_COUNT)."
+            echo "::error::Expected exactly one formal arm64-v8a APK (found=$APK_COUNT)."
             exit 1
           fi
 
-          FINAL_APK="$APK_DIR/MyBoxTest-26.11.24-test6-arm64-v8a.apk"
+          FINAL_APK="$APK_DIR/MyBox-26.11.24-arm64-v8a.apk"
           for apk in "$APK_DIR"/*.apk; do
             if [ "$apk" != "$FINAL_APK" ]; then
               mv "$apk" "$FINAL_APK"
@@ -237,18 +237,18 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBoxTest 26.11.24-test6 — Test artifact only'
-            echo '- Build: signed PreviewRelease; package com.ownbox.test1; existing signing certificate verified'
-            echo '- Version code: 2666; ABI: exactly one arm64-v8a APK'
+            echo '### MyBox 26.11.24 — Formal artifact only'
+            echo '- Build: signed PreviewRelease; package com.ownbox.fork; existing signing certificate verified'
+            echo '- Version code: 2667; ABI: exactly one arm64-v8a APK'
             echo "- Commit: ${GITHUB_SHA}"
             echo '- Distribution: workflow artifact only; no tag or public GitHub Release created'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload verified test1 APK artifact
+      - name: Upload verified formal APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBoxTest-26.11.24-test6-arm64-v8a
+          name: MyBox-26.11.24-arm64-v8a
           path: |
-            ${{ env.APK_DIR }}/MyBoxTest-26.11.24-test6-arm64-v8a.apk
+            ${{ env.APK_DIR }}/MyBox-26.11.24-arm64-v8a.apk
             ${{ env.APK_DIR }}/sha256sums.txt
           if-no-files-found: error
           retention-days: 7

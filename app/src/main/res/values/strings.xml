@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">MyBoxTest</string>
-    <string name="app_name_long" translatable="false">MyBoxTest for Android</string>
+    <string name="app_name" translatable="false">MyBox</string>
+    <string name="app_name_long" translatable="false">MyBox for Android</string>
     <string name="app_desc">The universal proxy toolchain for Android, written in Kotlin.</string>
     <string name="project">Project</string>
     <string name="github">Source code</string>
@@ -104,7 +104,7 @@
     <string name="lan_sharing">LAN Sharing</string>
     <string name="lan_sharing_disabled_sum">Tap to enable hotspot proxy sharing</string>
     <string name="lan_sharing_enabled_sum">Sharing enabled: set proxy %1$s:%2$d in Wi-Fi settings</string>
-    <string name="lan_sharing_dialog_off">LAN Sharing is currently disabled.\n\n1. Tap \"Turn On\" to enable.\n2. Enable the phone hotspot.\n3. Connect your device to MyBoxTest VPN.\n4. On the other device, connect to this hotspot, then set Manual Proxy in Wi-Fi settings:\n   Hostname: %1$s\n   Port: %2$d\n\nNo root required.</string>
+    <string name="lan_sharing_dialog_off">LAN Sharing is currently disabled.\n\n1. Tap \"Turn On\" to enable.\n2. Enable the phone hotspot.\n3. Connect your device to MyBox VPN.\n4. On the other device, connect to this hotspot, then set Manual Proxy in Wi-Fi settings:\n   Hostname: %1$s\n   Port: %2$d\n\nNo root required.</string>
     <string name="lan_sharing_dialog_on">LAN Sharing is currently ON.\n\nOther devices on the hotspot can use:\n   Hostname: %1$s\n   Port: %2$d\n\nSet Manual Proxy in Wi-Fi settings on the other device.\n\nTap \"Turn Off\" to disable sharing.</string>
     <string name="lan_sharing_turn_on">Turn On</string>
     <string name="lan_sharing_turn_off">Turn Off</string>
@@ -151,7 +151,7 @@
     <string name="lan_sharing_copied_port">Copied Port: %1$d</string>
     <string name="lan_sharing_restarting_service">Applying LAN sharing settings and restarting core...</string>
     <string name="lan_sharing_tutorial_title">LAN Sharing Setup Guide</string>
-    <string name="lan_sharing_tutorial_content"><![CDATA[【LAN Sharing Setup Guide】\n\n📌 Why Method A vs Method B?\n• Method A (Phone Hotspot): This phone turns on personal hotspot, client devices connect to this hotspot. This is the most common and reliable method!\n• Method B (Same Wi-Fi): Neither device creates a hotspot; both are connected to the same Wi-Fi router.\n💡 Note: Phones supporting Wi-Fi sharing can have both Wi-Fi and Hotspot active simultaneously. If other devices connect to your hotspot, always use Method A\'s IP!\n\n────────────────\n\n📌 Method 1: Phone Hotspot Sharing (Recommended)\n1. Enable [LAN Sharing] switch in this page.\n2. Turn on personal hotspot on this phone, and connect to MyBoxTest VPN.\n3. On the client device (Phone, PC, Switch, etc.), connect to this hotspot Wi-Fi.\n4. Open the Wi-Fi settings / Advanced options of that hotspot:\n   ⚠️ CRITICAL NOTE (Avoid Common Mistakes):\n   Keep [IP Settings] on [DHCP]! Do NOT change to Static IP, or connection will fail!\n   ✅ Correct Setting Location:\n   Find [Proxy], and change it from [None] to [Manual]:\n   • Proxy Hostname: enter the Hotspot IP (e.g. 192.168.43.1). Do NOT append :2080 or port number!\n   • Proxy Port: enter 2080 (or your customized port).\n   • Bypass / No proxy: leave blank or keep default.\n5. Save Wi-Fi settings. The client device can now enjoy VPN proxy without root!\n\n────────────────\n\n📌 Method 2: Same Wi-Fi Sharing (e.g. PC or Smart TV on same home Wi-Fi)\n1. Connect both devices to the same Wi-Fi router.\n2. In client device proxy settings:\n   • Hostname: enter the Local Wi-Fi IPv4 address shown in Method B.\n   • Port: enter 2080.\n   Save to use shared proxy.]]></string>
+    <string name="lan_sharing_tutorial_content"><![CDATA[【LAN Sharing Setup Guide】\n\n📌 Why Method A vs Method B?\n• Method A (Phone Hotspot): This phone turns on personal hotspot, client devices connect to this hotspot. This is the most common and reliable method!\n• Method B (Same Wi-Fi): Neither device creates a hotspot; both are connected to the same Wi-Fi router.\n💡 Note: Phones supporting Wi-Fi sharing can have both Wi-Fi and Hotspot active simultaneously. If other devices connect to your hotspot, always use Method A\'s IP!\n\n────────────────\n\n📌 Method 1: Phone Hotspot Sharing (Recommended)\n1. Enable [LAN Sharing] switch in this page.\n2. Turn on personal hotspot on this phone, and connect to MyBox VPN.\n3. On the client device (Phone, PC, Switch, etc.), connect to this hotspot Wi-Fi.\n4. Open the Wi-Fi settings / Advanced options of that hotspot:\n   ⚠️ CRITICAL NOTE (Avoid Common Mistakes):\n   Keep [IP Settings] on [DHCP]! Do NOT change to Static IP, or connection will fail!\n   ✅ Correct Setting Location:\n   Find [Proxy], and change it from [None] to [Manual]:\n   • Proxy Hostname: enter the Hotspot IP (e.g. 192.168.43.1). Do NOT append :2080 or port number!\n   • Proxy Port: enter 2080 (or your customized port).\n   • Bypass / No proxy: leave blank or keep default.\n5. Save Wi-Fi settings. The client device can now enjoy VPN proxy without root!\n\n────────────────\n\n📌 Method 2: Same Wi-Fi Sharing (e.g. PC or Smart TV on same home Wi-Fi)\n1. Connect both devices to the same Wi-Fi router.\n2. In client device proxy settings:\n   • Hostname: enter the Local Wi-Fi IPv4 address shown in Method B.\n   • Port: enter 2080.\n   Save to use shared proxy.]]></string>
     <string name="lan_sharing_invalid_port">Please enter a valid port between 1024 and 65535</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_edit">Edit</string>
@@ -1002,7 +1002,7 @@
     <string name="auto_backup_local_sum">Automatically back up profiles daily to local storage</string>
     <string name="subscription_enabled">Subscription enabled</string>
     <string name="subscription_disabled">Subscription disabled</string>
-    <string name="widget_name">MyBoxTest Quick Switch</string>
+    <string name="widget_name">MyBox Quick Switch</string>
     <string name="ui_settings">User Interface Settings</string>
     <string name="vpn_settings">VPN Settings</string>
     <string name="core_settings">Core Settings</string>
@@ -1015,8 +1015,8 @@
         <string name="app_icon_dynamic">Dynamic</string>
         <string name="app_icon_light_mode">Light mode</string>
         <string name="app_icon_dark_mode">Dark mode</string>
-        <string name="app_icon_old_nekobox_plus">Old MyBoxTest+</string>
-        <string name="app_icon_nekobox" translatable="false">MyBoxTest</string>
+        <string name="app_icon_old_nekobox_plus">Old MyBox+</string>
+        <string name="app_icon_nekobox" translatable="false">MyBox</string>
         <string name="app_icon_midnight">Midnight</string>
         <string name="app_icon_heavens">Heavens</string>
         <string name="app_icon_black_white">Black and White</string>
@@ -1024,13 +1024,13 @@
         <string name="app_icon_selected">Selected</string>
     <string name="switch_node">Switch Node</string>
     <string name="switch_node_short">Switch</string>
-    <string name="widget_1x1_name">MyBoxTest Quick Toggle (1x1)</string>
+    <string name="widget_1x1_name">MyBox Quick Toggle (1x1)</string>
     <string name="widget_1x1_desc">One-tap VPN toggle with liquid glass droplet</string>
-    <string name="widget_4x1_name">MyBoxTest Status Capsule (4x1)</string>
+    <string name="widget_4x1_name">MyBox Status Capsule (4x1)</string>
     <string name="widget_4x1_desc">Live node info and fast switching capsule</string>
-    <string name="widget_2x2_name">MyBoxTest Console (2x2)</string>
+    <string name="widget_2x2_name">MyBox Console (2x2)</string>
     <string name="widget_2x2_desc">Compact dashboard with latency and speed</string>
-    <string name="widget_4x2_name">MyBoxTest Dashboard (4x2)</string>
+    <string name="widget_4x2_name">MyBox Dashboard (4x2)</string>
     <string name="widget_4x2_desc">Full-featured network dashboard with live stats</string>
     <string name="proxy_mode_title">Proxy Mode</string>
     <string name="mode_smart_routing">Smart Routing</string>
@@ -1416,7 +1416,7 @@
     <string name="notification_permission">Notifications</string>
     <string name="notification_permission_allowed">Allowed</string>
     <string name="notification_permission_blocked">Blocked: the service notification and its buttons are hidden. Tap to allow.</string>
-    <string name="notification_permission_rationale">MyBoxTest shows a notification while the VPN runs, with buttons to stop it and to switch servers. Allow notifications to see it.</string>
+    <string name="notification_permission_rationale">MyBox shows a notification while the VPN runs, with buttons to stop it and to switch servers. Allow notifications to see it.</string>
     <string name="asset_set_active">Set as Active</string>
     <string name="asset_active_badge">In Use</string>
     <string name="asset_set_active_success">Set %1$s as active database</string>

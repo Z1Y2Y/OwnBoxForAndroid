@@ -286,13 +286,13 @@ object Action {
     const val RESTART = "io.nekohasekai.sagernet.RESTART"
 
     // const val SWITCH_WAKE_LOCK = "io.nekohasekai.sagernet.SWITCH_WAKELOCK"
-    const val RESET_UPSTREAM_CONNECTIONS = "com.ownbox.test1.RESET_UPSTREAM_CONNECTIONS"
-    const val SWITCH_PERFORMANCE_MODE = "com.ownbox.test1.SWITCH_PERFORMANCE_MODE"
+    const val RESET_UPSTREAM_CONNECTIONS = "com.ownbox.fork.RESET_UPSTREAM_CONNECTIONS"
+    const val SWITCH_PERFORMANCE_MODE = "com.ownbox.fork.SWITCH_PERFORMANCE_MODE"
     const val SWITCH_NEXT = "io.nekohasekai.sagernet.SWITCH_NEXT"
     const val SWITCH_PREVIOUS = "io.nekohasekai.sagernet.SWITCH_PREVIOUS"
     const val SWITCH_PROFILE = "io.nekohasekai.sagernet.SWITCH_PROFILE"
     const val REFRESH_NOTIFICATION = "io.nekohasekai.sagernet.REFRESH_NOTIFICATION"
-    const val REFRESH_SMART_AUTO_STOP = "com.ownbox.test1.REFRESH_SMART_AUTO_STOP"
-    const val SMART_RESUME = "com.ownbox.test1.SMART_RESUME"
+    const val REFRESH_SMART_AUTO_STOP = "com.ownbox.fork.REFRESH_SMART_AUTO_STOP"
+    const val SMART_RESUME = "com.ownbox.fork.SMART_RESUME"
     const val EXTRA_PROFILE_ID = "profile_id"
 }
