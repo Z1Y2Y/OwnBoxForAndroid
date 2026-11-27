@@ -694,13 +694,20 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             val rawRule = obj.optString("rule").trim().ifBlank { "final" }
             val outbound = obj.optString("outbound").trim()
             val outboundType = obj.optString("outboundType").trim()
-            val chainsList = parseChainsList(obj.optJSONArray("chains"), reverse = false, fallback = outbound)
+            val activeOutbound = obj.optString("activeOutbound").trim()
             // MyBox: append the actually-hit member (activeOutbound) when it is not
             // already in the chain, so the node a balancer really dialed is visible.
             // (test2: libcore now emits activeOutbound — see box.go
             // buildConnectionItem; it is the group's CURRENT member, not
             // necessarily the member dialed when the connection started.)
-            val activeOutbound = obj.optString("activeOutbound").trim()
+            // test5 (F2): store the display chain (raw chains + active member)
+            // as chainsList, so hop chips/cards show the same N+1 hops as the
+            // chain line (detailChains). Previously chips/cards used the raw
+            // N-hop list while the line showed N+1.
+            val chainsList = ConnectionChainFormatter.chainList(
+                parseChainsList(obj.optJSONArray("chains"), reverse = false, fallback = outbound),
+                activeOutbound,
+            )
             val chainsDisplay = ConnectionChainFormatter.format(chainsList, activeOutbound)
             val up = obj.optLong("upload", 0L)
             val down = obj.optLong("download", 0L)
@@ -883,8 +890,13 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
                             }
                             nextMap[id] = Triple(up, down, nowMs)
 
-                            val chainsList = parseChainsList(obj.optJSONArray("chains"), reverse = true, fallback = "direct")
                             val activeOutbound = obj.optString("activeOutbound").trim()
+                            // test5 (F2): same display-chain list as the libcore
+                            // path — hop chips/cards must match the chain line.
+                            val chainsList = ConnectionChainFormatter.chainList(
+                                parseChainsList(obj.optJSONArray("chains"), reverse = true, fallback = "direct"),
+                                activeOutbound,
+                            )
                             val startMs = parseIsoTimeMs(obj.optString("start"))
 
                             parsed.add(

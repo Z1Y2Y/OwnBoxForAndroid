@@ -562,7 +562,10 @@ class MainActivity : ThemedActivity(),
             .setPositiveButton(R.string.action_download) { _, _ ->
                 showDownloadDialog(pluginEntity)
             }
-            .setNeutralButton(android.R.string.cancel, null)
+            // test5 (F1): this used to be a second setNeutralButton, which
+            // overwrote the cancel button above — the dialog had no Cancel.
+            // Cancel is the negative button; Learn more stays neutral.
+            .setNegativeButton(android.R.string.cancel, null)
             .setNeutralButton(R.string.action_learn_more) { _, _ ->
                 launchCustomTab("https://t.me/OwnBoxs")
             }

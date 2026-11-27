@@ -25,4 +25,22 @@ class ConnectionChainFormatterTest {
         assertEquals("bypass", ConnectionChainFormatter.format(listOf("bypass"), ""))
         assertEquals("美国02", ConnectionChainFormatter.format(listOf("美国02"), "美国02"))
     }
+
+    @Test
+    fun chainListAppendsRuntimeMemberForHopCards() {
+        // test5 (F2): chainsList must be the display chain, so hop chips/cards
+        // show the same N+1 hops as the chain line.
+        assertEquals(
+            listOf("AI相关", "美国02"),
+            ConnectionChainFormatter.chainList(listOf("AI相关"), "美国02"),
+        )
+        assertEquals(
+            listOf("美国02", "AI相关"),
+            ConnectionChainFormatter.chainList(listOf("美国02", "AI相关"), "美国02"),
+        )
+        assertEquals(
+            listOf("bypass"),
+            ConnectionChainFormatter.chainList(listOf("bypass", ""), ""),
+        )
+    }
 }

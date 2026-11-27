@@ -468,6 +468,146 @@ class ConfigBuilderAutoSelectTest {
     }
 
     @Test
+    fun fallbackBalancerPreservesResolverOrderInsteadOfColdStartSort() {
+        // test5 (N3): fallback members keep resolver (preview) order; only
+        // latency mode gets the cold-start latency sort. Before the fix the
+        // build step re-sorted every non-priority list, so a fallback bean's
+        // [slow, fast] order came out [fast, slow] in the generated config.
+        val slow = socksEntity(10L, "Slow-Member", status = 1, ping = 200)
+        val fast = socksEntity(11L, "Fast-Member", status = 1, ping = 20)
+        val balancer = ProxyEntity(
+            id = 2L,
+            groupId = 10L,
+            type = ProxyEntity.TYPE_BALANCER,
+            balancerBean = BalancerBean().apply {
+                name = "Fallback-Pool"
+                balancerType = BalancerBean.TYPE_LIST
+                proxies = mutableListOf(10L, 11L)
+                selectionMode = BalancerBean.SELECTION_FALLBACK
+                legacyStrategy = ""
+                testUrl = "https://cp.cloudflare.com/generate_204"
+            },
+        )
+        val result = assembleChainGraphForTest(
+            root = balancer,
+            entitiesById = mapOf(balancer.id to balancer, slow.id to slow, fast.id to fast),
+        )
+        val balancerOuts = result.outbounds.filter { it["tag"] == "Fallback-Pool" }
+        assertEquals(1, balancerOuts.size)
+        @Suppress("UNCHECKED_CAST")
+        val memberTags = balancerOuts[0]["outbounds"] as List<String>
+        assertEquals(listOf(10L, 11L), memberTags.map { result.outboundTagProfileMap[it] })
+        assertEquals(listOf(10L, 11L), result.balancerMemberMap[2L])
+    }
+
+    @Test
+    fun listBalancerHonoursOwnFrontAndLandingProxiesWhenSwitchesOff() {
+        // test5 (N4, .85): for LIST/MIXED the front/landing switches are
+        // ignored (treated as on); only TYPE_GROUP honours the switch
+        // (.85 ConfigBuilder.kt:937-938). A LIST balancer with front/landing
+        // entities picked must route members through the front and exit
+        // through the landing even with both switches off.
+        val front = socksEntity(1L, "Front-Relay")
+        val slow = socksEntity(10L, "Slow-Member", status = 1, ping = 150)
+        val fast = socksEntity(11L, "Fast-Member", status = 1, ping = 30)
+        val landing = socksEntity(3L, "Landing-Exit")
+        val balancer = ProxyEntity(
+            id = 2L,
+            groupId = 10L,
+            type = ProxyEntity.TYPE_BALANCER,
+            balancerBean = BalancerBean().apply {
+                name = "List-Pool"
+                balancerType = BalancerBean.TYPE_LIST
+                proxies = mutableListOf(10L, 11L)
+                selectionMode = BalancerBean.SELECTION_LATENCY
+                legacyStrategy = BalancerBean.STRATEGY_LEAST_PING
+                frontProxy = 1L
+                landingProxy = 3L
+                useFrontProxy = false
+                useLandingProxy = false
+                testUrl = "https://cp.cloudflare.com/generate_204"
+            },
+        )
+        val result = assembleChainGraphForTest(
+            root = balancer,
+            entitiesById = mapOf(
+                front.id to front,
+                balancer.id to balancer,
+                slow.id to slow,
+                fast.id to fast,
+                landing.id to landing,
+            ),
+        )
+        val byTag = result.outbounds.associateBy { it["tag"] as String }
+        val balancerMap = byTag["List-Pool"]!!
+        val landingMap = byTag["Landing-Exit"]!!
+        val frontTag = result.outbounds.first { it["server"] == "198.51.100.1" }["tag"] as String
+        val frontMap = byTag[frontTag]!!
+
+        assertEquals("Landing-Exit", result.mainProxyTag)
+        assertEquals("List-Pool", landingMap["detour"])
+        @Suppress("UNCHECKED_CAST")
+        val memberTags = balancerMap["outbounds"] as List<String>
+        assertEquals(2, memberTags.size)
+        // Latency mode still cold-start sorts: fast first.
+        assertEquals(listOf(11L, 10L), memberTags.map { result.outboundTagProfileMap[it] })
+        assertEquals(frontTag, byTag[memberTags[0]]!!["detour"])
+        assertEquals(frontTag, byTag[memberTags[1]]!!["detour"])
+        assertNull(frontMap["detour"])
+    }
+
+    @Test
+    fun groupBalancerWithSwitchesOffIgnoresOwnFrontAndLandingProxies() {
+        // test5 (N4): the other side of the gate — TYPE_GROUP still honours
+        // the switches, so off means no front/landing detour at all.
+        val front = socksEntity(1L, "Front-Relay")
+        val slow = socksEntity(10L, "Slow-Member", status = 1, ping = 150).apply { groupId = 100L }
+        val fast = socksEntity(11L, "Fast-Member", status = 1, ping = 30).apply { groupId = 100L }
+        val landing = socksEntity(3L, "Landing-Exit")
+        val balancer = ProxyEntity(
+            id = 2L,
+            groupId = 999L,
+            type = ProxyEntity.TYPE_BALANCER,
+            balancerBean = BalancerBean().apply {
+                name = "Group-Pool"
+                balancerType = BalancerBean.TYPE_GROUP
+                targetGroupIds = mutableListOf(100L)
+                selectionMode = BalancerBean.SELECTION_LATENCY
+                legacyStrategy = BalancerBean.STRATEGY_LEAST_PING
+                frontProxy = 1L
+                landingProxy = 3L
+                useFrontProxy = false
+                useLandingProxy = false
+                testUrl = "https://cp.cloudflare.com/generate_204"
+            },
+        )
+        val result = assembleChainGraphForTest(
+            root = balancer,
+            entitiesById = mapOf(
+                front.id to front,
+                balancer.id to balancer,
+                slow.id to slow,
+                fast.id to fast,
+                landing.id to landing,
+            ),
+            groupsById = mapOf(100L to ProxyGroup(id = 100L)),
+            groupProfiles = mapOf(100L to listOf(slow, fast)),
+        )
+        assertEquals("Group-Pool", result.mainProxyTag)
+        assertFalse(result.outbounds.any { it["server"] == "198.51.100.1" })
+        assertFalse(result.outbounds.any { it["server"] == "198.51.100.3" })
+        val balancerMap = result.outbounds.first { it["tag"] == "Group-Pool" }
+        @Suppress("UNCHECKED_CAST")
+        val memberTags = balancerMap["outbounds"] as List<String>
+        assertEquals(2, memberTags.size)
+        assertNull(byTagOf(result, memberTags[0])["detour"])
+        assertNull(byTagOf(result, memberTags[1])["detour"])
+    }
+
+    private fun byTagOf(result: ChainGraphTestResult, tag: String): Map<String, Any?> =
+        result.outbounds.first { it["tag"] == tag }
+
+    @Test
     fun tieredPriorityBalancerEmitsOrderedTiersToAutoSelectOutbound() {
         val mTier1 = socksEntity(10L, "HK IEPL 01", status = 1, ping = 45).apply { groupId = 100L }
         val mFallback = socksEntity(11L, "US Backup 01", status = 1, ping = 120).apply { groupId = 100L }

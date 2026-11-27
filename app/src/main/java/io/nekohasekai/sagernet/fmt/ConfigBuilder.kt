@@ -629,13 +629,24 @@ internal class ChainGraphContext(
             }
 
             val balancerBean = entity.balancerBean ?: (entity.requireBean() as? BalancerBean) ?: BalancerBean()
-            // test3 (.85): front/landing proxies are only honoured for TYPE_GROUP
-            // balancers whose switches are on; MIXED/LIST balancers and switched-off
-            // groups keep the .24 behaviour (no front/landing detour).
-            val useGroupFrontProxy = balancerBean.useFrontProxy &&
-                balancerBean.balancerType == BalancerBean.TYPE_GROUP
-            val useGroupLandingProxy = balancerBean.useLandingProxy &&
-                balancerBean.balancerType == BalancerBean.TYPE_GROUP
+            // test5 (N4, .85): the front/landing switches only gate TYPE_GROUP
+            // balancers. For LIST/MIXED the switches are ignored — treated as
+            // on — exactly like .85 (ConfigBuilder.kt:937-938: useFront =
+            // if (TYPE_GROUP) useFrontProxy else true). The test3 TYPE_GROUP
+            // gate dropped the front/landing entities for LIST/MIXED even
+            // though the settings page lets the user pick them. The switches
+            // themselves stay GROUP-only in the UI (updateTypeVisibility);
+            // only the build gate opens.
+            val useGroupFrontProxy = if (balancerBean.balancerType == BalancerBean.TYPE_GROUP) {
+                balancerBean.useFrontProxy
+            } else {
+                true
+            }
+            val useGroupLandingProxy = if (balancerBean.balancerType == BalancerBean.TYPE_GROUP) {
+                balancerBean.useLandingProxy
+            } else {
+                true
+            }
             val balancerFrontEntity = if (useGroupFrontProxy && balancerBean.frontProxy > 0L && balancerBean.frontProxy != entity.id) {
                 getById(balancerBean.frontProxy)
             } else null
@@ -673,7 +684,12 @@ internal class ChainGraphContext(
                 entitiesByIdsProvider = getEntities,
                 isGroupDisabled = isGroupDisabled,
             )
-            val memberEntities = if (!balancerBean.isPriorityMode()) {
+            // test5 (N3): fallback members keep resolver order, like priority.
+            // BalancerMemberResolver already skips sortForColdStart for
+            // priority/fallback, but this re-sorted every non-priority list —
+            // so a fallback bean's preview order (resolver order) was rebuilt
+            // into latency order at build time. Latency mode still sorts.
+            val memberEntities = if (!balancerBean.isPriorityMode() && !balancerBean.isFallbackMode()) {
                 BalancerMemberResolver.sortForColdStart(resolvedResult.members)
             } else {
                 resolvedResult.members

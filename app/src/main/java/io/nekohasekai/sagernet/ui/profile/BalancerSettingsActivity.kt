@@ -39,6 +39,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
 
     companion object {
         private const val STATE_ADVANCED_EXPANDED = "balancer_advanced_expanded"
+        private const val STATE_LEGACY_TOUCHED = "balancer_legacy_touched"
         private const val ORDER_TIER_BASE = 6001
     }
 
@@ -60,6 +61,11 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
     private var refreshNodeListFn: (() -> Unit)? = null
     private var rebuildTierPrefsFn: (() -> Unit)? = null
     private var advancedExpanded = false
+    // test5 (N1): true once the user picks from the legacy strategy dropdown
+    // this session. init() seeds DataStore.balancerLegacyStrategy with a
+    // derived value for display, which must not be mistaken for a user pick
+    // at save time — see serialize().
+    private var legacyDropdownTouched = false
 
     val selectProfileForAddFront = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -128,6 +134,11 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
 
         // test3 legacy dropdown seed: stored choice, else derive from the .24
         // fields, else "" (no legacy choice; the .24 fields govern).
+        // test5 (N1): this seed is DISPLAY ONLY. It is written to
+        // DataStore (profileCacheStore) so the dropdown shows the effective
+        // strategy, but serialize() must not read it back as a user pick —
+        // only a real dropdown pick (legacyDropdownTouched) counts. A stored
+        // blank legacy stays blank at save time.
         DataStore.balancerLegacyStrategy = legacyStrategy?.takeIf { it.isNotBlank() }
             ?: deriveLegacyStrategy() ?: ""
         DataStore.balancerStickyByApp = stickyByApp
@@ -183,17 +194,41 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         }
         strategy = selectionMode
 
-        // test4: the legacy dropdown is authoritative whenever it has a choice:
-        // saving with a legacy strategy forces latency (the .24 selection-mode
-        // row is hidden, so a stored priority/fallback value must not block
-        // the dropdown). Blank legacy keeps the stored .24 fields untouched.
-        legacyStrategy = when (DataStore.balancerLegacyStrategy) {
-            BalancerBean.STRATEGY_LEAST_PING, BalancerBean.STRATEGY_LEAST_LOAD,
-            BalancerBean.STRATEGY_RANDOM, BalancerBean.STRATEGY_ROUND_ROBIN,
-            BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL -> DataStore.balancerLegacyStrategy
-            BalancerBean.STRATEGY_ROUND_ROBIN_LEGACY -> BalancerBean.STRATEGY_ROUND_ROBIN
-            BalancerBean.STRATEGY_CONSISTENT_HASH -> BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
-            else -> "" // no legacy choice; the .24 fields govern (see BalancerBean)
+        // test5 (N1): the legacy value saved here is the bean's own stored
+        // legacyStrategy (captured before any write below), NOT the
+        // DataStore value — init() seeds DataStore with a derived choice for
+        // display, and that seed is persisted through profileCacheStore.
+        // Reading it back would silently adopt the derived choice on a
+        // no-touch save: e.g. a blank-legacy bean with latency + timed
+        // balance derives consistentHash, which would force latency + the
+        // mapping (learnFromConnections on) via applyLegacyChoiceForSave().
+        // Only an actual dropdown pick this session (legacyDropdownTouched,
+        // set by the dropdown listener) makes the DataStore value count.
+        // A fresh bean (new profile) defaults legacyStrategy to leastPing,
+        // which is what the seed holds too, so the new-profile flow is
+        // unaffected.
+        val storedLegacyStrategy = legacyStrategy
+        val pickedLegacyStrategy = if (legacyDropdownTouched) {
+            when (DataStore.balancerLegacyStrategy) {
+                BalancerBean.STRATEGY_LEAST_PING, BalancerBean.STRATEGY_LEAST_LOAD,
+                BalancerBean.STRATEGY_RANDOM, BalancerBean.STRATEGY_ROUND_ROBIN,
+                BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL -> DataStore.balancerLegacyStrategy
+                BalancerBean.STRATEGY_ROUND_ROBIN_LEGACY -> BalancerBean.STRATEGY_ROUND_ROBIN
+                BalancerBean.STRATEGY_CONSISTENT_HASH -> BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+                else -> "" // no legacy choice; the .24 fields govern (see BalancerBean)
+            }
+        } else {
+            ""
+        }
+        // test4: the legacy dropdown is authoritative whenever the user picked
+        // a choice: saving with a legacy strategy forces latency (the .24
+        // selection-mode row is hidden, so a stored priority/fallback value
+        // must not block the dropdown). Blank legacy keeps the stored .24
+        // fields untouched.
+        legacyStrategy = if (legacyDropdownTouched) {
+            pickedLegacyStrategy
+        } else {
+            storedLegacyStrategy?.takeIf { it.isNotBlank() } ?: ""
         }
         if (legacyStrategy.isNotBlank()) {
             applyLegacyChoiceForSave()
@@ -245,6 +280,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(STATE_ADVANCED_EXPANDED, advancedExpanded)
+        outState.putBoolean(STATE_LEGACY_TOUCHED, legacyDropdownTouched)
     }
 
     override fun PreferenceFragmentCompat.createPreferences(
@@ -743,6 +779,7 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         tolerancePref?.summaryProvider = toleranceSummaryProvider
 
         val balanceSwitchPref = findPreference<SwitchPreferenceCompat>("balancerBalanceEnabled")
+        val interruptPref = findPreference<SwitchPreferenceCompat>("balancerInterruptOnSwitch")
         val balanceModePref = findPreference<SimpleMenuPreference>("balancerBalanceMode")
         val balanceIntervalPref = bindIntPref("balancerBalanceIntervalSec", 30, 1, R.string.balancer_unit_seconds)
         val selectionModePref = findPreference<SimpleMenuPreference>("balancerSelectionMode")
@@ -797,6 +834,13 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             tolerancePref?.isVisible = visible && notFallback
             testUrlPref?.isVisible = visible
             intervalPref?.isVisible = visible
+            // test5 (N5): "interrupt connections on switch" is forced false
+            // under leastPing (buildUrlTestOutbound / the loadbalance branches
+            // hard-code interrupt_exist_connections=false), so the switch
+            // would be a dead toggle there — hide it for leastPing. Blank
+            // legacy keeps it: the autoselect path reads the bean value, and
+            // the value itself is never rewritten, so behaviour is unchanged.
+            interruptPref?.isVisible = legacy != BalancerBean.STRATEGY_LEAST_PING
         }
 
         fun updateSelectionAndBalanceUi(
@@ -871,7 +915,19 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         // test3 (from 4a70a4b5): when the .24 fields change, re-derive the dropdown
         // value so it never shows a stale choice. Ambiguous combos (leastLoad /
         // random / roundRobin all map to latency + per-connection) derive to "".
-        fun syncLegacyFromDataStore() {
+        // test5 (N2): two guards. (1) Blank legacy stays blank: these listeners
+        // are only reachable while no legacy choice exists, and deriving a
+        // choice from the .24 fields here would invent one — a blank-legacy
+        // latency bean with the traffic switch OFF->ON used to derive leastPing
+        // from the still-unpersisted OFF value, hide the switch and swallow
+        // the toggle. (2) When derivation does run, use the pending newValue
+        // passed by the caller: preference change listeners fire BEFORE the
+        // new value is persisted to DataStore.
+        fun syncLegacyFromDataStore(
+            balanceEnabledOverride: Boolean? = null,
+            balanceModeOverride: String? = null,
+        ) {
+            if (DataStore.balancerLegacyStrategy.isBlank()) return
             if (DataStore.balancerSelectionMode != BalancerBean.SELECTION_LATENCY) {
                 DataStore.balancerLegacyStrategy = ""
                 legacyPref?.value = ""
@@ -879,8 +935,8 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             }
             val bean = BalancerBean()
             bean.selectionMode = DataStore.balancerSelectionMode
-            bean.balanceEnabled = DataStore.balancerBalanceEnabled
-            bean.balanceMode = DataStore.balancerBalanceMode
+            bean.balanceEnabled = balanceEnabledOverride ?: DataStore.balancerBalanceEnabled
+            bean.balanceMode = balanceModeOverride ?: DataStore.balancerBalanceMode
             val derived = bean.deriveLegacyStrategy()
             DataStore.balancerLegacyStrategy = derived ?: ""
             legacyPref?.value = derived ?: ""
@@ -888,6 +944,10 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
 
         legacyPref?.setOnPreferenceChangeListener { _, newValue ->
             val raw = newValue?.toString() ?: ""
+            // test5 (N1): mark the real user pick — serialize() only trusts
+            // the DataStore legacy value when this fired (the init() seed
+            // must not count as a pick).
+            legacyDropdownTouched = true
             applyLegacyMappingToDataStore(raw)
             updateStrategyVisibility(DataStore.balancerLegacyStrategy)
             updateSelectionAndBalanceUi()
@@ -902,14 +962,14 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
 
         balanceSwitchPref?.setOnPreferenceChangeListener { _, newValue ->
             val enabled = newValue as? Boolean ?: false
-            syncLegacyFromDataStore()
+            syncLegacyFromDataStore(balanceEnabledOverride = enabled)
             updateSelectionAndBalanceUi(balanceEnabledOverride = enabled)
             true
         }
 
         balanceModePref?.setOnPreferenceChangeListener { _, newValue ->
             val mode = (newValue as? String) ?: BalancerBean.BALANCE_TIMED_ROTATION
-            syncLegacyFromDataStore()
+            syncLegacyFromDataStore(balanceModeOverride = mode)
             updateSelectionAndBalanceUi(balanceModeOverride = mode)
             true
         }
@@ -1057,6 +1117,10 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
 
     override fun onCreate(savedInstanceState: Bundle?) {
         advancedExpanded = savedInstanceState?.getBoolean(STATE_ADVANCED_EXPANDED, false) ?: false
+        // test5 (N1): init() is only run on a fresh open (see
+        // ProfileSettingsActivity.onCreate), so a restored flag survives
+        // rotation; a fresh Activity instance starts untouched.
+        legacyDropdownTouched = savedInstanceState?.getBoolean(STATE_LEGACY_TOUCHED, false) ?: false
         super.onCreate(savedInstanceState)
         supportActionBar?.setTitle(R.string.balancer_settings_autoselect)
     }
