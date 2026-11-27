@@ -1077,6 +1077,10 @@ func (b *urlTestBatch) test(outbounds []adapter.Outbound, link string, interval 
 				case <-testCtx.Done():
 					testResult.err = testCtx.Err()
 				}
+				if b.ctx.Err() != nil {
+					// Cancellation is not evidence that this outbound is unhealthy.
+					return nil, nil
+				}
 				checkedAt := time.Now()
 				if testResult.err != nil {
 					if b.logger != nil {

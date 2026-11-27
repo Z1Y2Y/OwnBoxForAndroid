@@ -233,6 +233,7 @@ type LoadBalance struct {
 	interruptExternalConnections bool
 	outbounds                    []adapter.Outbound
 	counter                      uint64
+	randomIntn                   func(int) int
 	activeConns                  []*atomic.Int64
 	stats                        []*nodeStats
 	interruptGroup               *interrupt.Group
@@ -1175,6 +1176,9 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 		}
 		hn := len(healthy)
 		start := rand.Intn(hn)
+		if s.randomIntn != nil {
+			start = s.randomIntn(hn)
+		}
 		rotated := make([]int, hn)
 		for i := 0; i < hn; i++ {
 			rotated[i] = healthy[(start+i)%hn]
