@@ -3,6 +3,7 @@ set -e
 
 source "buildScript/init/env.sh"
 ENV_NB4A=1
+PROJECT_ROOT="$PWD"
 
 ####
 
@@ -49,6 +50,38 @@ if [ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
   exit 1
 fi
 echo ">> Verified official sing-box $SINGBOX_VERSION at $ACTUAL_COMMIT"
+
+# Apply version-scoped MyBox changes only after verifying the clean official tag.
+# Keep the patch in this repository so CI's fresh upstream clone gets the same fix.
+PATCH_DIR="$PROJECT_ROOT/buildScript/lib/core/patches/$SINGBOX_VERSION"
+if [ -d "$PATCH_DIR" ]; then
+  # get_source.sh may run more than once in one job. git checkout resets tracked
+  # patch edits but leaves patch-created untracked files behind; remove only
+  # those exact new-file outputs before applying the versioned patches again.
+  for patch in "$PATCH_DIR"/*.patch; do
+    [ -f "$patch" ] || continue
+    while IFS= read -r stale_file; do
+      [ -n "$stale_file" ] || continue
+      if ! git ls-files --error-unmatch -- "$stale_file" >/dev/null 2>&1 && [ -f "$stale_file" ]; then
+        echo ">> Removing stale untracked patch output: $stale_file"
+        rm -f -- "$stale_file"
+      fi
+    done < <(awk '/^diff --git / { path=$4; sub(/^b\//, "", path) } /^new file mode / { print path }' "$patch")
+  done
+
+  for patch in "$PATCH_DIR"/*.patch; do
+    [ -f "$patch" ] || continue
+    echo ">> Applying MyBox sing-box patch: $(basename "$patch")"
+    git apply --check "$patch"
+    git apply "$patch"
+  done
+
+  while IFS= read -r -d '' test_file; do
+    relative_path=${test_file#"$PATCH_DIR"/}
+    echo ">> Installing MyBox sing-box regression test: $relative_path"
+    install -D -m 0644 "$test_file" "$relative_path"
+  done < <(find "$PATCH_DIR" -type f -name '*_test.go' -print0)
+fi
 popd
 
 popd

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"libcore/protocol/appsticky"
 	urltestPkg "libcore/protocol/urltest"
 
 	"golang.org/x/net/publicsuffix"
@@ -40,8 +41,13 @@ const TypeLoadBalance = "loadbalance"
 
 type LoadBalanceOptions struct {
 	option.URLTestOutboundOptions
-	Strategy string `json:"strategy,omitempty"`
-	Default  string `json:"default,omitempty"`
+	Strategy             string   `json:"strategy,omitempty"`
+	Default              string   `json:"default,omitempty"`
+	StickyByApp          bool     `json:"sticky_by_app,omitempty"`
+	StickyStorePath      string   `json:"sticky_store_path,omitempty"`
+	PersistStickyByApp   bool     `json:"persist_sticky_by_app,omitempty"`
+	HealthyOutbounds     []string `json:"healthy_outbounds,omitempty"`
+	UnavailableOutbounds []string `json:"unavailable_outbounds,omitempty"`
 }
 
 func RegisterLoadBalance(registry *outbound.Registry) {
@@ -63,12 +69,31 @@ type nodeStats struct {
 	totalDials       atomic.Int64
 	successDials     atomic.Int64
 	latencyEmaMs     atomic.Int64
+	healthHint       atomic.Int32
+	healthHintUntil  atomic.Int64 // UnixMilli
+}
+
+const (
+	healthHintUnavailable int32 = -1
+	healthHintAvailable   int32 = 1
+	healthHintLifetime          = 2 * time.Minute
+)
+
+func (s *nodeStats) setHealthHint(hint int32) {
+	s.healthHint.Store(hint)
+	s.healthHintUntil.Store(time.Now().Add(healthHintLifetime).UnixMilli())
+}
+
+func (s *nodeStats) clearHealthHint() {
+	s.healthHint.Store(0)
+	s.healthHintUntil.Store(0)
 }
 
 func (s *nodeStats) recordDialSuccess() {
 	s.consecutiveFails.Store(0)
 	s.totalDials.Add(1)
 	s.successDials.Add(1)
+	s.setHealthHint(healthHintAvailable)
 }
 
 func (s *nodeStats) recordSuccess(latencyMs int64) {
@@ -88,6 +113,7 @@ func (s *nodeStats) recordFailure() {
 	s.consecutiveFails.Add(1)
 	s.totalDials.Add(1)
 	s.lastFailTime.Store(time.Now().UnixMilli())
+	s.setHealthHint(healthHintUnavailable)
 }
 
 const virtualNodesPerPhysicalNode = 160
@@ -194,6 +220,12 @@ type LoadBalance struct {
 	logger                       log.ContextLogger
 	tags                         []string
 	strategy                     string
+	stickyByApp                  bool
+	persistStickyByApp           bool
+	stickyStore                  *appsticky.Store
+	healthyOutbounds             []string
+	unavailableOutbounds         []string
+	warnedAllUnavailable         atomic.Bool
 	link                         string
 	interval                     time.Duration
 	tolerance                    uint16
@@ -213,6 +245,7 @@ type LoadBalance struct {
 	access                       sync.Mutex
 	stickyMu                     sync.RWMutex
 	stickySessions               map[string]stickyEntry
+	stickyFlights                map[string]*stickyFlight
 	lastSelectedIdx              atomic.Int32
 	manualMu                     sync.RWMutex
 	manualTag                    string
@@ -246,6 +279,10 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		logger:                       logger,
 		tags:                         options.Outbounds,
 		strategy:                     options.Strategy,
+		stickyByApp:                  options.StickyByApp,
+		persistStickyByApp:           options.PersistStickyByApp,
+		healthyOutbounds:             options.HealthyOutbounds,
+		unavailableOutbounds:         options.UnavailableOutbounds,
 		link:                         link,
 		interval:                     interval,
 		tolerance:                    options.Tolerance,
@@ -253,13 +290,43 @@ func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.Conte
 		interruptExternalConnections: options.InterruptExistConnections,
 		interruptGroup:               interrupt.NewGroup(),
 		stickySessions:               make(map[string]stickyEntry),
+		stickyFlights:                make(map[string]*stickyFlight),
 		close:                        make(chan struct{}),
 	}
+	stickyStore, err := appsticky.Open(options.StickyStorePath, options.PersistStickyByApp && options.StickyByApp)
+	if err != nil {
+		return nil, E.Cause(err, "open app sticky store")
+	}
+	lb.stickyStore = stickyStore
 	lb.lastSelectedIdx.Store(-1)
 	if len(lb.tags) == 0 {
 		return nil, E.New("missing tags")
 	}
 	return lb, nil
+}
+
+func (s *LoadBalance) restorePersistedAppSticky() {
+	if !s.stickyByApp || !s.persistStickyByApp || s.stickyStore == nil {
+		return
+	}
+	now := time.Now()
+	for key, entry := range s.stickyStore.Snapshot(now, 5*time.Minute) {
+		for idx, tag := range s.tags {
+			if tag == entry.Tag && idx < len(s.outbounds) && s.outbounds[idx] != nil {
+				s.stickyMu.Lock()
+				s.setStickySessionLocked(key, idx, now.UnixMilli())
+				s.stickyMu.Unlock()
+				break
+			}
+		}
+	}
+}
+
+func (s *LoadBalance) persistAppStickyBinding(key string, nodeIdx int) {
+	if !s.persistStickyByApp || !s.stickyByApp || s.stickyStore == nil || !strings.HasPrefix(key, "app:") || nodeIdx < 0 || nodeIdx >= len(s.tags) {
+		return
+	}
+	_ = s.stickyStore.Set(key, s.tags[nodeIdx], time.Now())
 }
 
 func (s *LoadBalance) References() []string {
@@ -392,6 +459,8 @@ func (s *LoadBalance) URLTest(ctx context.Context) (map[string]uint16, error) {
 			if i < len(s.stats) && s.stats[i] != nil {
 				s.stats[i].recordSuccess(int64(delay))
 			}
+		} else if i < len(s.stats) && s.stats[i] != nil {
+			s.stats[i].setHealthHint(healthHintUnavailable)
 		}
 	}
 	return result, nil
@@ -515,8 +584,14 @@ func (s *LoadBalance) Start(stage adapter.StartStage, scope *adapter.Scope) erro
 			s.outbounds = append(s.outbounds, detour)
 			s.activeConns[i] = new(atomic.Int64)
 			s.stats[i] = new(nodeStats)
+			if slices.Contains(s.unavailableOutbounds, tag) {
+				s.stats[i].setHealthHint(healthHintUnavailable)
+			} else if slices.Contains(s.healthyOutbounds, tag) {
+				s.stats[i].setHealthHint(healthHintAvailable)
+			}
 		}
 		s.ring = newConsistentHashRing(s.tags)
+		s.restorePersistedAppSticky()
 	case adapter.StartStateStarted:
 		s.access.Lock()
 		s.started = true
@@ -580,7 +655,124 @@ type stickyEntry struct {
 }
 
 func (s *LoadBalance) isStickyEnabled() bool {
-	return s.strategy == "consistent_hash" || s.strategy == "consistentHash"
+	return s.stickyByApp || s.strategy == "consistent_hash" || s.strategy == "consistentHash"
+}
+
+func appStickyKey(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	inbound := adapter.ContextFrom(ctx)
+	if inbound == nil || inbound.ProcessInfo == nil || len(inbound.ProcessInfo.PackageNames) == 0 {
+		return ""
+	}
+	packageNames := make([]string, 0, len(inbound.ProcessInfo.PackageNames))
+	for _, packageName := range inbound.ProcessInfo.PackageNames {
+		packageName = strings.ToLower(strings.TrimSpace(packageName))
+		if packageName != "" {
+			packageNames = append(packageNames, packageName)
+		}
+	}
+	if len(packageNames) == 0 {
+		return ""
+	}
+	slices.Sort(packageNames)
+	packageNames = slices.Compact(packageNames)
+	return "app:" + strings.Join(packageNames, ",")
+}
+
+func (s *LoadBalance) stickySessionKey(ctx context.Context, dest M.Socksaddr) string {
+	if s.stickyByApp {
+		if key := appStickyKey(ctx); key != "" {
+			return key
+		}
+	}
+	if s.strategy == "consistent_hash" || s.strategy == "consistentHash" {
+		return destinationKey(ctx, dest)
+	}
+	return ""
+}
+
+// stickyFlight serialises same-app dials: the first dial for an app key becomes
+// the leader, later dials wait for its outcome and then reuse the bound member.
+// test3 simplified singleflight (mybox-85's full version is intertwined with its
+// sticky diagnostics: revision tracking, flow tracing, diagnostic logging).
+// Differences from mybox: no revision, no diagnostic state; the leader's
+// cancellation is handled by watchStickyDialCancellation, and a failed leader
+// releases the flight without binding (finishStickyDial with nodeIdx -1).
+type stickyFlight struct {
+	done    chan struct{}
+	waiters atomic.Int32
+}
+
+func (s *LoadBalance) beginStickyDial(ctx context.Context, key string) (*stickyFlight, error) {
+	if key == "" {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		s.stickyMu.Lock()
+		// A live binding needs no serialisation: dial the bound member directly.
+		if _, ok := s.getStickySessionLocked(key, time.Now().UnixMilli()); ok {
+			s.stickyMu.Unlock()
+			return nil, nil
+		}
+		if flight := s.stickyFlights[key]; flight != nil {
+			done := flight.done
+			flight.waiters.Add(1)
+			s.stickyMu.Unlock()
+			select {
+			case <-done:
+				flight.waiters.Add(-1)
+				continue
+			case <-ctx.Done():
+				flight.waiters.Add(-1)
+				return nil, ctx.Err()
+			}
+		}
+		flight := &stickyFlight{done: make(chan struct{})}
+		if s.stickyFlights == nil {
+			s.stickyFlights = make(map[string]*stickyFlight)
+		}
+		s.stickyFlights[key] = flight
+		s.stickyMu.Unlock()
+		go s.watchStickyDialCancellation(ctx, key, flight)
+		return flight, nil
+	}
+}
+
+func (s *LoadBalance) watchStickyDialCancellation(ctx context.Context, key string, flight *stickyFlight) {
+	select {
+	case <-flight.done:
+		return
+	case <-ctx.Done():
+		s.stickyMu.Lock()
+		if s.stickyFlights[key] == flight {
+			delete(s.stickyFlights, key)
+			close(flight.done)
+		}
+		s.stickyMu.Unlock()
+	}
+}
+
+func (s *LoadBalance) finishStickyDial(key string, flight *stickyFlight, nodeIdx int) bool {
+	if key == "" || flight == nil {
+		return false
+	}
+	s.stickyMu.Lock()
+	if s.stickyFlights[key] != flight {
+		s.stickyMu.Unlock()
+		return false
+	}
+	if nodeIdx >= 0 {
+		s.setStickySessionLocked(key, nodeIdx, time.Now().UnixMilli())
+	}
+	delete(s.stickyFlights, key)
+	close(flight.done)
+	s.stickyMu.Unlock()
+	return true
 }
 
 func destinationKey(ctx context.Context, dest M.Socksaddr) string {
@@ -628,6 +820,12 @@ func hashDestination(ctx context.Context, dest M.Socksaddr) uint32 {
 func (s *LoadBalance) getStickySession(key string, now int64) (int, bool) {
 	s.stickyMu.Lock()
 	defer s.stickyMu.Unlock()
+	return s.getStickySessionLocked(key, now)
+}
+
+// getStickySessionLocked assumes stickyMu is held. A hit refreshes the
+// 5-minute sliding expiry, like the original getStickySession.
+func (s *LoadBalance) getStickySessionLocked(key string, now int64) (int, bool) {
 	if s.stickySessions == nil {
 		return 0, false
 	}
@@ -654,6 +852,12 @@ func (s *LoadBalance) setStickySession(key string, nodeIdx int) {
 	now := time.Now().UnixMilli()
 	s.stickyMu.Lock()
 	defer s.stickyMu.Unlock()
+	s.setStickySessionLocked(key, nodeIdx, now)
+}
+
+// setStickySessionLocked assumes stickyMu is held (used by finishStickyDial
+// and restorePersistedAppSticky, which already hold it).
+func (s *LoadBalance) setStickySessionLocked(key string, nodeIdx int, now int64) {
 	if s.stickySessions == nil {
 		s.stickySessions = make(map[string]stickyEntry)
 	}
@@ -688,9 +892,58 @@ func (s *LoadBalance) isNodeDegraded(idx int, now int64) bool {
 	if idx < 0 || idx >= len(s.stats) || s.stats[idx] == nil {
 		return false
 	}
-	fails := s.stats[idx].consecutiveFails.Load()
-	lastFail := s.stats[idx].lastFailTime.Load()
+	stats := s.stats[idx]
+	if stats.healthHint.Load() == healthHintUnavailable && stats.healthHintUntil.Load() > now {
+		return true
+	}
+	fails := stats.consecutiveFails.Load()
+	lastFail := stats.lastFailTime.Load()
 	return fails >= 2 && now-lastFail < 10_000
+}
+
+func (s *LoadBalance) healthPriority(idx int, now int64) int {
+	if idx >= 0 && idx < len(s.stats) && s.stats[idx] != nil {
+		stats := s.stats[idx]
+		if stats.healthHintUntil.Load() > now {
+			switch stats.healthHint.Load() {
+			case healthHintAvailable:
+				return 0
+			case healthHintUnavailable:
+				return 2
+			}
+		}
+	}
+	if s.isNodeDegraded(idx, now) {
+		return 2
+	}
+	return 1
+}
+
+func (s *LoadBalance) prioritizeByHealth(indices []int, now int64) []int {
+	available := make([]int, 0, len(indices))
+	unknown := make([]int, 0, len(indices))
+	unavailable := make([]int, 0, len(indices))
+	for _, idx := range indices {
+		switch s.healthPriority(idx, now) {
+		case 0:
+			available = append(available, idx)
+		case 2:
+			unavailable = append(unavailable, idx)
+		default:
+			unknown = append(unknown, idx)
+		}
+	}
+	if len(available)+len(unknown) == 0 && len(unavailable) > 0 {
+		if s.warnedAllUnavailable.CompareAndSwap(false, true) && s.logger != nil {
+			s.logger.Warn("all load-balance members are temporarily marked unavailable; trying them in strategy order")
+		}
+		return indices
+	}
+	result := make([]int, 0, len(indices))
+	result = append(result, available...)
+	result = append(result, unknown...)
+	result = append(result, unavailable...)
+	return result
 }
 
 func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []int {
@@ -953,18 +1206,28 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 		result = append(rotated, degraded...)
 	}
 
+	result = s.prioritizeByHealth(result, now)
+
 	if s.isStickyEnabled() {
-		destKey := destinationKey(ctx, dest)
-		if destKey != "" && len(result) > 1 {
-			if stickyIdx, ok := s.getStickySession(destKey, now); ok {
+		stickyKey := s.stickySessionKey(ctx, dest)
+		if stickyKey != "" && len(result) > 1 {
+			if stickyIdx, ok := s.getStickySession(stickyKey, now); ok {
+				stickyPos := -1
 				for i, idx := range result {
-					if idx == stickyIdx && !s.isNodeDegraded(idx, now) {
-						if i > 0 {
-							copy(result[1:i+1], result[0:i])
-							result[0] = stickyIdx
-						}
+					if idx == stickyIdx {
+						stickyPos = i
 						break
 					}
+				}
+				degraded := false
+				if stickyPos >= 0 {
+					degraded = s.isNodeDegraded(stickyIdx, now)
+				}
+				// Pin the bound member first, unless it is degraded or a
+				// healthier member is available (health priority wins).
+				if stickyPos > 0 && !degraded && s.healthPriority(stickyIdx, now) <= s.healthPriority(result[0], now) {
+					copy(result[1:stickyPos+1], result[0:stickyPos])
+					result[0] = stickyIdx
 				}
 			}
 		}
@@ -1012,6 +1275,25 @@ func (c *trackedConn) SyscallConn() (syscall.RawConn, error) {
 
 func (s *LoadBalance) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
 	s.Touch()
+	// test3: app-sticky singleflight — serialise same-app dials before
+	// candidate selection so concurrent dials share one bound member.
+	// (mybox-85 begins the flight here too; the deferred release with -1
+	// is a no-op after a successful finishStickyDial with the bound index.)
+	var stickyKey string
+	var stickyFlight *stickyFlight
+	if s.stickyByApp {
+		stickyKey = appStickyKey(ctx)
+		if stickyKey != "" {
+			var err error
+			stickyFlight, err = s.beginStickyDial(ctx, stickyKey)
+			if err != nil {
+				return nil, err
+			}
+			if stickyFlight != nil {
+				defer s.finishStickyDial(stickyKey, stickyFlight, -1)
+			}
+		}
+	}
 	pinnedIdx := s.pinnedIndex()
 	var indices []int
 	if pinnedIdx >= 0 {
@@ -1060,14 +1342,24 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 			conn, err = candidate.DialContext(ctx, network, destination)
 		}
 		if err == nil {
+			// A cancelled sticky leader whose outbound ignored cancellation
+			// must not return a live connection or overwrite the newer binding.
+			if stickyKey != "" && ctx.Err() != nil {
+				conn.Close()
+				return nil, ctx.Err()
+			}
 			s.lastSelectedIdx.Store(int32(idx))
+			adapter.RecordActiveOutbound(ctx, candidate.Tag())
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
-			if s.isStickyEnabled() {
-				destKey := destinationKey(ctx, destination)
-				if destKey != "" {
-					s.setStickySession(destKey, idx)
+			if stickyFlight != nil {
+				s.finishStickyDial(stickyKey, stickyFlight, idx)
+				s.persistAppStickyBinding(stickyKey, idx)
+			} else if s.isStickyEnabled() {
+				if sessionKey := s.stickySessionKey(ctx, destination); sessionKey != "" {
+					s.setStickySession(sessionKey, idx)
+					s.persistAppStickyBinding(sessionKey, idx)
 				}
 			}
 			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {
@@ -1132,6 +1424,22 @@ func (c *trackedPacketConn) SyscallConn() (syscall.RawConn, error) {
 
 func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
 	s.Touch()
+	// test3: same app-sticky singleflight as DialContext (see above).
+	var stickyKey string
+	var stickyFlight *stickyFlight
+	if s.stickyByApp {
+		stickyKey = appStickyKey(ctx)
+		if stickyKey != "" {
+			var err error
+			stickyFlight, err = s.beginStickyDial(ctx, stickyKey)
+			if err != nil {
+				return nil, err
+			}
+			if stickyFlight != nil {
+				defer s.finishStickyDial(stickyKey, stickyFlight, -1)
+			}
+		}
+	}
 	pinnedIdx := s.pinnedIndex()
 	var indices []int
 	if pinnedIdx >= 0 {
@@ -1180,14 +1488,24 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 			conn, err = candidate.ListenPacket(ctx, destination)
 		}
 		if err == nil {
+			// See DialContext: a cancelled sticky leader must not return a
+			// live connection or overwrite the newer binding.
+			if stickyKey != "" && ctx.Err() != nil {
+				conn.Close()
+				return nil, ctx.Err()
+			}
 			s.lastSelectedIdx.Store(int32(idx))
+			adapter.RecordActiveOutbound(ctx, candidate.Tag())
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
-			if s.isStickyEnabled() {
-				destKey := destinationKey(ctx, destination)
-				if destKey != "" {
-					s.setStickySession(destKey, idx)
+			if stickyFlight != nil {
+				s.finishStickyDial(stickyKey, stickyFlight, idx)
+				s.persistAppStickyBinding(stickyKey, idx)
+			} else if s.isStickyEnabled() {
+				if sessionKey := s.stickySessionKey(ctx, destination); sessionKey != "" {
+					s.setStickySession(sessionKey, idx)
+					s.persistAppStickyBinding(sessionKey, idx)
 				}
 			}
 			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {

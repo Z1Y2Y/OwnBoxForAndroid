@@ -40,6 +40,9 @@ type AutoSelectOptions struct {
 	FallbackAutoRevert        *bool              `json:"fallback_auto_revert,omitempty"`
 	FallbackMaxFails          int                `json:"fallback_max_fails,omitempty"`
 	ProbeTimeoutMs            int                `json:"probe_timeout_ms,omitempty"`
+	StickyByApp               bool               `json:"sticky_by_app,omitempty"`
+	StickyStorePath           string             `json:"sticky_store_path,omitempty"`
+	PersistStickyByApp        bool               `json:"persist_sticky_by_app,omitempty"`
 }
 
 type normalizedConfig struct {
@@ -56,6 +59,7 @@ type normalizedConfig struct {
 	fallbackAutoRevert   bool
 	fallbackMaxFails     int
 	probeTimeout         time.Duration
+	stickyByApp          bool
 }
 
 func (o AutoSelectOptions) normalized() normalizedConfig {
@@ -146,5 +150,6 @@ func (o AutoSelectOptions) normalized() normalizedConfig {
 		fallbackAutoRevert:   fallbackAutoRevert,
 		fallbackMaxFails:     fallbackMaxFails,
 		probeTimeout:         pTimeout,
+		stickyByApp:          o.StickyByApp,
 	}
 }

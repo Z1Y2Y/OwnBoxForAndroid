@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"libcore/protocol/appsticky"
 	customUrltest "libcore/protocol/urltest"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -58,6 +61,9 @@ type AutoSelect struct {
 	interruptGroup *interrupt.Group
 	dialFailMu     sync.Mutex
 	dialFails      map[string]int
+	appStickyMu    sync.RWMutex
+	appSticky      map[string]string
+	appStickyStore *appsticky.Store
 	nowFn          func() time.Time
 	started        atomic.Bool
 }
@@ -76,6 +82,10 @@ func NewAutoSelect(ctx context.Context, router adapter.Router, logger log.Contex
 	}
 
 	cfg := options.normalized()
+	stickyStore, err := appsticky.Open(options.StickyStorePath, options.PersistStickyByApp && cfg.stickyByApp)
+	if err != nil {
+		return nil, E.Cause(err, "open app sticky store")
+	}
 	var passive *passiveTracker
 	if cfg.learnFromConnections {
 		passive = newPassiveTracker(defaultSiteStickyTTL)
@@ -95,7 +105,16 @@ func NewAutoSelect(ctx context.Context, router adapter.Router, logger log.Contex
 		history:        history,
 		interruptGroup: interrupt.NewGroup(),
 		dialFails:      make(map[string]int),
+		appSticky:      make(map[string]string),
+		appStickyStore: stickyStore,
 		nowFn:          time.Now,
+	}
+	if cfg.stickyByApp {
+		for key, entry := range stickyStore.Snapshot(g.now(), 0) {
+			if containsTag(g.tags, entry.Tag) {
+				g.appSticky[key] = entry.Tag
+			}
+		}
 	}
 
 	g.resolveOutboundsLocked()
@@ -276,6 +295,94 @@ func (g *AutoSelect) siteHostFromContext(ctx context.Context, destination M.Sock
 	return ""
 }
 
+func autoSelectAppStickyKey(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	metadata := adapter.ContextFrom(ctx)
+	if metadata == nil || metadata.ProcessInfo == nil || len(metadata.ProcessInfo.PackageNames) == 0 {
+		return ""
+	}
+	packageNames := make([]string, 0, len(metadata.ProcessInfo.PackageNames))
+	for _, packageName := range metadata.ProcessInfo.PackageNames {
+		packageName = strings.ToLower(strings.TrimSpace(packageName))
+		if packageName != "" {
+			packageNames = append(packageNames, packageName)
+		}
+	}
+	if len(packageNames) == 0 {
+		return ""
+	}
+	sort.Strings(packageNames)
+	unique := packageNames[:0]
+	for _, packageName := range packageNames {
+		if len(unique) == 0 || unique[len(unique)-1] != packageName {
+			unique = append(unique, packageName)
+		}
+	}
+	return "app:" + strings.Join(unique, ",")
+}
+
+func (g *AutoSelect) appStickyCandidates(ctx context.Context, candidates []string) (string, []string) {
+	if !g.cfg.stickyByApp {
+		return "", candidates
+	}
+	key := autoSelectAppStickyKey(ctx)
+	if key == "" {
+		return "", candidates
+	}
+	// A user-issued strict group pin keeps its existing precedence over automatic app affinity.
+	if g.PinnedOutbound() != "" {
+		return key, candidates
+	}
+	g.appStickyMu.RLock()
+	boundTag := g.appSticky[key]
+	g.appStickyMu.RUnlock()
+	if boundTag == "" {
+		return key, candidates
+	}
+	g.scorer.mu.RLock()
+	_, memberExists := g.scorer.members[boundTag]
+	g.scorer.mu.RUnlock()
+	if !memberExists {
+		g.appStickyMu.Lock()
+		if g.appSticky[key] == boundTag {
+			delete(g.appSticky, key)
+		}
+		g.appStickyMu.Unlock()
+		return key, candidates
+	}
+	ordered := make([]string, 0, len(candidates)+1)
+	ordered = append(ordered, boundTag)
+	for _, tag := range candidates {
+		if tag != boundTag {
+			ordered = append(ordered, tag)
+		}
+	}
+	return key, ordered
+}
+
+func (g *AutoSelect) bindAppStickyMember(key, tag string) {
+	if key == "" || tag == "" || !g.cfg.stickyByApp {
+		return
+	}
+	g.appStickyMu.Lock()
+	g.appSticky[key] = tag
+	g.appStickyMu.Unlock()
+	if g.appStickyStore != nil {
+		_ = g.appStickyStore.Set(key, tag, g.now())
+	}
+}
+
+func containsTag(tags []string, tag string) bool {
+	for _, candidate := range tags {
+		if candidate == tag {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *AutoSelect) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
 	g.Touch()
 	if ctx == nil {
@@ -284,6 +391,7 @@ func (g *AutoSelect) DialContext(ctx context.Context, network string, destinatio
 	now := g.now()
 	siteHost := g.siteHostFromContext(ctx, destination)
 	candidates := g.scorer.candidateOrder(normalizeSiteKey(siteHost), now, g.passive)
+	appKey, candidates := g.appStickyCandidates(ctx, candidates)
 	maxAttempts := 1 + defaultMaxDialRetries
 	if g.PinnedOutbound() != "" {
 		maxAttempts = 1
@@ -320,6 +428,7 @@ func (g *AutoSelect) DialContext(ctx context.Context, network string, destinatio
 			cancel()
 		}
 		if err == nil {
+			g.bindAppStickyMember(appKey, tag)
 			g.resetDialFail(tag)
 			if g.cfg.learnFromConnections && g.passive != nil {
 				nodeTag := tag
@@ -356,6 +465,7 @@ func (g *AutoSelect) ListenPacket(ctx context.Context, destination M.Socksaddr) 
 	now := g.now()
 	siteHost := g.siteHostFromContext(ctx, destination)
 	candidates := g.scorer.candidateOrder(normalizeSiteKey(siteHost), now, g.passive)
+	appKey, candidates := g.appStickyCandidates(ctx, candidates)
 	maxAttempts := 1 + defaultMaxDialRetries
 	if g.PinnedOutbound() != "" {
 		maxAttempts = 1
@@ -381,6 +491,7 @@ func (g *AutoSelect) ListenPacket(ctx context.Context, destination M.Socksaddr) 
 
 		pConn, err := ob.ListenPacket(ctx, destination)
 		if err == nil {
+			g.bindAppStickyMember(appKey, tag)
 			g.resetDialFail(tag)
 			if g.cfg.learnFromConnections && g.passive != nil {
 				nodeTag := tag
