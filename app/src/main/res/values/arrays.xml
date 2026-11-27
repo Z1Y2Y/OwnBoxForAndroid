@@ -770,6 +770,23 @@
         <item>fallback</item>
     </string-array>
 
+    <!-- MyBox legacy strategy dropdown (5 items); each maps onto the .24
+         selectionMode/balance model via BalancerBean.applyLegacyStrategy(). -->
+    <string-array name="balancer_strategy_entries">
+        <item>@string/balancer_strategy_least_ping</item>
+        <item>@string/balancer_strategy_least_load</item>
+        <item>@string/balancer_strategy_random</item>
+        <item>@string/balancer_strategy_round_robin</item>
+        <item>@string/balancer_strategy_consistent_hash</item>
+    </string-array>
+    <string-array name="balancer_strategy_values" translatable="false">
+        <item>leastPing</item>
+        <item>leastLoad</item>
+        <item>random</item>
+        <item>roundRobin</item>
+        <item>consistentHash</item>
+    </string-array>
+
     <string-array name="balancer_balance_mode_entries">
         <item>@string/balancer_balance_mode_timed</item>
         <item>@string/balancer_balance_mode_per_conn</item>

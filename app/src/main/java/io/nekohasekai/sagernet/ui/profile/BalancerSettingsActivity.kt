@@ -126,6 +126,10 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         DataStore.balancerSelectionMode = normalizedSelectionMode
         DataStore.balancerStrategy = normalizedSelectionMode
 
+        // Legacy dropdown seed: stored choice, else derive from the .24 fields, else leastPing.
+        DataStore.balancerLegacyStrategy = legacyStrategy?.takeIf { it.isNotBlank() }
+            ?: deriveLegacyStrategy() ?: ""
+
         DataStore.balancerBalanceEnabled = balanceEnabled
         DataStore.balancerBalanceMode = if (balanceMode == BalancerBean.BALANCE_PER_CONNECTION) {
             BalancerBean.BALANCE_PER_CONNECTION
@@ -174,12 +178,30 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         }
         strategy = selectionMode
 
-        balanceEnabled = DataStore.balancerBalanceEnabled
-        balanceMode = if (DataStore.balancerBalanceMode == BalancerBean.BALANCE_PER_CONNECTION) {
-            BalancerBean.BALANCE_PER_CONNECTION
-        } else {
-            BalancerBean.BALANCE_TIMED_ROTATION
+        // The legacy dropdown is authoritative in latency mode: re-assert its mapping
+        // so a stale manual balance toggle cannot silently change the built config.
+        // (In priority/fallback mode the dropdown has no equivalent and is only remembered.)
+        legacyStrategy = when (DataStore.balancerLegacyStrategy) {
+            BalancerBean.STRATEGY_LEAST_PING, BalancerBean.STRATEGY_LEAST_LOAD,
+            BalancerBean.STRATEGY_RANDOM, BalancerBean.STRATEGY_ROUND_ROBIN,
+            BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL -> DataStore.balancerLegacyStrategy
+            BalancerBean.STRATEGY_ROUND_ROBIN_LEGACY -> BalancerBean.STRATEGY_ROUND_ROBIN
+            BalancerBean.STRATEGY_CONSISTENT_HASH -> BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+            else -> "" // no legacy choice; the .24 fields govern (see BalancerBean)
         }
+        if (selectionMode == BalancerBean.SELECTION_LATENCY && legacyStrategy.isNotBlank()) {
+            applyLegacyMappingOnly()
+        } else {
+            balanceEnabled = DataStore.balancerBalanceEnabled
+            balanceMode = if (DataStore.balancerBalanceMode == BalancerBean.BALANCE_PER_CONNECTION) {
+                BalancerBean.BALANCE_PER_CONNECTION
+            } else {
+                BalancerBean.BALANCE_TIMED_ROTATION
+            }
+        }
+        // (In latency mode with a legacy choice, balanceEnabled/balanceMode keep the
+        // dropdown-mapped values from applyLegacyMappingOnly(); otherwise they are
+        // re-read from DataStore in the else branch above.)
         balanceIntervalSec = DataStore.balancerBalanceIntervalSec
 
         countryFilter = DataStore.balancerCountryFilter.trim()
@@ -187,7 +209,13 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         tolerance = DataStore.balancerTolerance
         toleranceUnit = "ms"
         interruptOnSwitch = DataStore.balancerInterruptOnSwitch
-        learnFromConnections = DataStore.balancerLearnFromConnections
+        learnFromConnections = if (selectionMode == BalancerBean.SELECTION_LATENCY
+            && legacyStrategy == BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+        ) {
+            true // consistentHash mapping (see above); otherwise the stored toggle applies
+        } else {
+            DataStore.balancerLearnFromConnections
+        }
         fallbackAutoRevert = DataStore.balancerFallbackAutoRevert
         fallbackMaxFails = DataStore.balancerFallbackMaxFails.coerceIn(1, 20)
 
@@ -784,10 +812,79 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
             balanceIntervalPref?.isVisible = balanceOn && !isFallback && balMode != BalancerBean.BALANCE_PER_CONNECTION
         }
 
+        // Legacy 5-item strategy dropdown -> .24 model mapping (single source: BalancerBean
+        // migrateLegacyStrategy). Choosing a legacy strategy switches the balancer to latency
+        // mode; leastLoad/random/roundRobin all map to latency + per-connection balance and
+        // are therefore indistinguishable in the .24 model (see PORT-TEST1.md (e)).
+        val legacyStrategyPref = findPreference<SimpleMenuPreference>("balancerLegacyStrategy")
+        fun applyLegacyMappingToDataStore(legacy: String) {
+            val norm = when (legacy) {
+                BalancerBean.STRATEGY_ROUND_ROBIN_LEGACY -> BalancerBean.STRATEGY_ROUND_ROBIN
+                BalancerBean.STRATEGY_CONSISTENT_HASH -> BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+                BalancerBean.STRATEGY_LEAST_PING, BalancerBean.STRATEGY_LEAST_LOAD,
+                BalancerBean.STRATEGY_RANDOM, BalancerBean.STRATEGY_ROUND_ROBIN,
+                BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL -> legacy
+                else -> BalancerBean.STRATEGY_LEAST_PING
+            }
+            DataStore.balancerLegacyStrategy = norm
+            DataStore.balancerSelectionMode = BalancerBean.SELECTION_LATENCY
+            DataStore.balancerStrategy = BalancerBean.SELECTION_LATENCY
+            when (norm) {
+                BalancerBean.STRATEGY_LEAST_PING -> {
+                    DataStore.balancerBalanceEnabled = false
+                    DataStore.balancerBalanceMode = BalancerBean.BALANCE_TIMED_ROTATION
+                }
+                BalancerBean.STRATEGY_LEAST_LOAD, BalancerBean.STRATEGY_RANDOM,
+                BalancerBean.STRATEGY_ROUND_ROBIN -> {
+                    DataStore.balancerBalanceEnabled = true
+                    DataStore.balancerBalanceMode = BalancerBean.BALANCE_PER_CONNECTION
+                }
+                BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL -> {
+                    DataStore.balancerBalanceEnabled = true
+                    DataStore.balancerBalanceMode = BalancerBean.BALANCE_TIMED_ROTATION
+                    DataStore.balancerLearnFromConnections = true
+                }
+            }
+        }
+
+        // Re-derive the dropdown value from the .24 fields when the combo is canonical;
+        // ambiguous combos (per-connection trio) keep the last explicit choice.
+        fun syncLegacyFromDataStore() {
+            val derived = when {
+                DataStore.balancerSelectionMode != BalancerBean.SELECTION_LATENCY -> null
+                !DataStore.balancerBalanceEnabled -> BalancerBean.STRATEGY_LEAST_PING
+                DataStore.balancerBalanceMode == BalancerBean.BALANCE_TIMED_ROTATION ->
+                    BalancerBean.STRATEGY_CONSISTENT_HASH_CAMEL
+                else -> null
+            }
+            if (derived != null) {
+                DataStore.balancerLegacyStrategy = derived
+                legacyStrategyPref?.value = derived
+            }
+        }
+
+        legacyStrategyPref?.value = DataStore.balancerLegacyStrategy
+        legacyStrategyPref?.setOnPreferenceChangeListener { _, newValue ->
+            val legacy = (newValue as? String) ?: BalancerBean.STRATEGY_LEAST_PING
+            applyLegacyMappingToDataStore(legacy)
+            legacyStrategyPref?.value = DataStore.balancerLegacyStrategy
+            updateSelectionAndBalanceUi(
+                selectionOverride = BalancerBean.SELECTION_LATENCY,
+                balanceEnabledOverride = DataStore.balancerBalanceEnabled,
+                balanceModeOverride = DataStore.balancerBalanceMode,
+            )
+            refreshMatchSummary(PreviewOverrides(selectionMode = BalancerBean.SELECTION_LATENCY))
+            true
+        }
+
         selectionModePref?.setOnPreferenceChangeListener { _, newValue ->
             val mode = (newValue as? String) ?: BalancerBean.SELECTION_LATENCY
             DataStore.balancerSelectionMode = mode
             DataStore.balancerStrategy = mode
+            if (mode == BalancerBean.SELECTION_LATENCY) {
+                applyLegacyMappingToDataStore(DataStore.balancerLegacyStrategy)
+                legacyStrategyPref?.value = DataStore.balancerLegacyStrategy
+            }
             updateSelectionAndBalanceUi(selectionOverride = mode)
             refreshMatchSummary(PreviewOverrides(selectionMode = mode))
             true
@@ -796,12 +893,14 @@ class BalancerSettingsActivity : ProfileSettingsActivity<BalancerBean>(R.layout.
         balanceSwitchPref?.setOnPreferenceChangeListener { _, newValue ->
             val enabled = newValue as? Boolean ?: false
             updateSelectionAndBalanceUi(balanceEnabledOverride = enabled)
+            syncLegacyFromDataStore()
             true
         }
 
         balanceModePref?.setOnPreferenceChangeListener { _, newValue ->
             val mode = (newValue as? String) ?: BalancerBean.BALANCE_TIMED_ROTATION
             updateSelectionAndBalanceUi(balanceModeOverride = mode)
+            syncLegacyFromDataStore()
             true
         }
 

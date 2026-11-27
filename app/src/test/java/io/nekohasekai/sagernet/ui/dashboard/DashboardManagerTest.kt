@@ -20,7 +20,7 @@ class DashboardManagerTest {
         val dangerousUrls = listOf(
             "javascript:alert(document.cookie)",
             "JAVASCRIPT:void(0)",
-            "file:///data/data/com.ownbox.app/databases",
+            "file:///data/data/com.ownbox.test1/databases",
             "content://telephony/siminfo",
             "data:text/html,<html>Evil</html>",
             "intent:#Intent;action=android.intent.action.VIEW;end",

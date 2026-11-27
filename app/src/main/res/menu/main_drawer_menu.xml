@@ -24,10 +24,6 @@
         android:id="@+id/misc"
         android:checkableBehavior="single">
         <item
-            android:id="@+id/nav_diagnostics"
-            android:icon="@drawable/ic_baseline_health_and_safety_24"
-            android:title="@string/menu_diagnostics" />
-        <item
             android:id="@+id/nav_connections"
             android:icon="@drawable/solar_wi_fi_router_linear"
             android:title="@string/menu_connections"
@@ -55,9 +51,9 @@
         android:id="@+id/about"
         android:checkableBehavior="single">
         <item
-            android:id="@+id/nav_faq"
-            android:icon="@drawable/baseline_send_24"
-            android:title="@string/menu_community" />
+            android:id="@+id/nav_diagnostics"
+            android:icon="@drawable/ic_baseline_health_and_safety_24"
+            android:title="@string/menu_diagnostics" />
         <item
             android:id="@+id/nav_docs"
             android:icon="@drawable/ic_baseline_import_contacts_24"

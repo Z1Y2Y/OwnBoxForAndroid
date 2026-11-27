@@ -1,0 +1,230 @@
+# Test1 Artifact Only — OwnBox 测试版 test1（MyBoxTest）专用构建
+#
+# 只出 artifact，不发 release、不建 tag、不做正式版。
+# 触发方式只有 workflow_dispatch（手动触发），不响应 push / tag。
+# 基底：Own716 v26.11.24；移植：MyBox .85（主题、IPv6、策略组 5 项、连接完整显示、分应用智能分流、删侧边栏 Telegram）。
+# 身份：包名 com.ownbox.test1，应用名 MyBoxTest，versionName 26.11.24-test1，versionCode 2650，arm64-only。
+# 签名复用仓库已有 secret（KEYSTORE_BASE64 / KEYSTORE_PASS / ALIAS_NAME / ALIAS_PASS），
+# 证书须为 CN=OwnBox Personal（SHA256 a9094d2f…），与在用 MyBox .85 同一证书；
+# 包名不同所以能与 .85 同时安装、不会覆盖。
+# 改编自 mybox-85 的 official-release-artifact-only.yml（artifact-only 做法），
+# 但 Gradle 任务改用 test1 树实际可用的 app:assemblePreviewRelease
+# （test1 树没有 assembleOssRelease，也没有 -PmyboxApkAbis 参数；arm64-only 靠 Helpers.kt 的 splits 实现）。
+
+name: Test1 Artifact Only
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  libcore:
+    name: Build LibCore
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Golang Status
+        run: find buildScript libcore/*.sh nb4a.properties | xargs cat | sha1sum > golang_status
+      - name: Libcore Status
+        run: git ls-files libcore | xargs cat | sha1sum > libcore_status
+      - name: LibCore Cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: app/libs/libcore.aar
+          key: ${{ hashFiles('.github/workflows/*', 'golang_status', 'libcore_status') }}
+      - name: Install Golang
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+      - name: Native Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ./run lib core
+      - name: Verify LibCore AAR
+        run: |
+          test -s app/libs/libcore.aar
+          unzip -p app/libs/libcore.aar classes.jar > /tmp/libcore-classes.jar
+          unzip -l /tmp/libcore-classes.jar | grep -q 'libcore/Libcore.class'
+          unzip -l /tmp/libcore-classes.jar | grep -q 'go/Seq.class'
+      - name: Upload LibCore AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: test1-libcore-aar
+          path: app/libs/libcore.aar
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build and verify MyBoxTest APK
+    runs-on: ubuntu-latest
+    needs: libcore
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Download LibCore AAR
+        uses: actions/download-artifact@v4
+        with:
+          name: test1-libcore-aar
+          path: app/libs
+      - name: Verify LibCore AAR
+        run: |
+          test -s app/libs/libcore.aar
+          unzip -p app/libs/libcore.aar classes.jar > /tmp/libcore-classes.jar
+          unzip -l /tmp/libcore-classes.jar | grep -q 'libcore/Libcore.class'
+          unzip -l /tmp/libcore-classes.jar | grep -q 'go/Seq.class'
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle
+          key: gradle-test1-${{ hashFiles('**/*.gradle.kts') }}
+      - name: Build and verify signed MyBoxTest arm64 APK
+        env:
+          BUILD_PLUGIN: none
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          fi
+          if [ ! -s release.keystore ] || [ -z "$KEYSTORE_PASS" ] || [ -z "$ALIAS_NAME" ]; then
+            echo "::error::Release signing credentials missing; refusing to build an unsigned APK."
+            exit 1
+          fi
+          printf 'KEYSTORE_PASS=%s\n' "$KEYSTORE_PASS" >> local.properties
+          printf 'ALIAS_NAME=%s\n' "$ALIAS_NAME" >> local.properties
+          printf 'ALIAS_PASS=%s\n' "${ALIAS_PASS:-$KEYSTORE_PASS}" >> local.properties
+
+          init_complete=false
+          for attempt in 1 2 3; do
+            echo "Initializing build assets (attempt $attempt/3)."
+            if ./run init action gradle; then
+              init_complete=true
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 15))
+              echo "Asset initialization failed; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          if [ "$init_complete" != true ]; then
+            echo "::error::Asset initialization failed after 3 attempts."
+            exit 1
+          fi
+
+          ./gradlew app:assemblePreviewRelease
+          APK_DIR="app/build/outputs/apk/preview/release"
+          APKSIGNER=$(find "${ANDROID_HOME}/build-tools" -name apksigner | sort -V | tail -n 1)
+          AAPT=$(find "${ANDROID_HOME}/build-tools" -name aapt | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ] || [ -z "$AAPT" ]; then
+            echo "::error::Android build tools are incomplete; refusing to upload unverified APKs."
+            exit 1
+          fi
+
+          shopt -s nullglob
+          for apk in "$APK_DIR"/*-unsigned.apk; do
+            signed_apk="${apk%-unsigned.apk}-signed.apk"
+            echo "Signing test1 APK: $apk"
+            "$APKSIGNER" sign --ks release.keystore --ks-pass "pass:$KEYSTORE_PASS" --key-pass "pass:${ALIAS_PASS:-$KEYSTORE_PASS}" --ks-key-alias "$ALIAS_NAME" --out "$signed_apk" "$apk"
+            rm "$apk"
+          done
+
+          EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
+          EXPECTED_PACKAGE="com.ownbox.test1"
+          EXPECTED_APP_LABEL="MyBoxTest"
+          EXPECTED_VERSION_NAME="26.11.24-test1"
+          EXPECTED_VERSION_CODE=2650
+          APK_COUNT=0
+          for apk in "$APK_DIR"/*.apk; do
+            APK_COUNT=$((APK_COUNT + 1))
+            if [[ "$apk" == *debug* || "$apk" == *diagnostic* || "$apk" == *diag* ]]; then
+              echo "::error::Debug or diagnostic APK is not allowed: $apk"
+              exit 1
+            fi
+            "$APKSIGNER" verify --verbose "$apk"
+            cert_output=$("$APKSIGNER" verify --print-certs "$apk" 2>&1)
+            cert=$(printf '%s\n' "$cert_output" | awk 'tolower($0) ~ /certificate sha-256 digest/ { sub(/^.*digest:[[:space:]]*/, ""); gsub(/[^[:xdigit:]]/, ""); print tolower($0); exit }')
+            if [ "$cert" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::APK signing certificate mismatch (got $cert); refusing to upload."
+              exit 1
+            fi
+            badging=$("$AAPT" dump badging "$apk")
+            package=$(printf '%s\n' "$badging" | sed -n "s/.*package: name='\\([^']*\\)'.*/\\1/p")
+            app_label=$(printf '%s\n' "$badging" | sed -n "s/.*application-label:'\\([^']*\\)'.*/\\1/p" | head -n 1)
+            version_name=$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p")
+            version_code=$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
+            if [ "$package" != "$EXPECTED_PACKAGE" ]; then
+              echo "::error::Unexpected package ($package); expected $EXPECTED_PACKAGE."
+              exit 1
+            fi
+            if [ "$app_label" != "$EXPECTED_APP_LABEL" ]; then
+              echo "::error::Unexpected application label ($app_label); expected $EXPECTED_APP_LABEL."
+              exit 1
+            fi
+            if [ "$version_name" != "$EXPECTED_VERSION_NAME" ]; then
+              echo "::error::Unexpected versionName ($version_name); expected $EXPECTED_VERSION_NAME."
+              exit 1
+            fi
+            if [ "$version_code" != "$EXPECTED_VERSION_CODE" ]; then
+              echo "::error::Unexpected versionCode ($version_code); expected $EXPECTED_VERSION_CODE."
+              exit 1
+            fi
+            if [[ "$(basename "$apk")" != *-arm64-v8a*.apk ]] || ! printf '%s\n' "$badging" | grep -Fq "native-code: 'arm64-v8a'"; then
+              echo "::error::APK ABI is not arm64-v8a."
+              exit 1
+            fi
+            lib_entries=$(unzip -l "$apk" | awk '$4 ~ /^lib\// {print $4}')
+            if [ -z "$lib_entries" ] || printf '%s\n' "$lib_entries" | grep -vq '^lib/arm64-v8a/'; then
+              echo "::error::APK contains non-arm64-v8a native libs:"
+              printf '%s\n' "$lib_entries"
+              exit 1
+            fi
+            echo "Verified test1 APK: $apk (package=$package label=$app_label versionName=$version_name versionCode=$version_code signerSHA256=$cert ABI=arm64-v8a)"
+          done
+          if [ "$APK_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly one test1 arm64-v8a APK (found=$APK_COUNT)."
+            exit 1
+          fi
+
+          FINAL_APK="$APK_DIR/MyBoxTest-26.11.24-test1-arm64-v8a.apk"
+          for apk in "$APK_DIR"/*.apk; do
+            if [ "$apk" != "$FINAL_APK" ]; then
+              mv "$apk" "$FINAL_APK"
+              break
+            fi
+          done
+          test -s "$FINAL_APK"
+          sha256sum "$FINAL_APK" > "$APK_DIR/sha256sums.txt"
+          rm -f release.keystore
+          echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
+          {
+            echo '### MyBoxTest 26.11.24-test1 — Test artifact only'
+            echo '- Build: signed PreviewRelease; package com.ownbox.test1; existing signing certificate verified'
+            echo '- Version code: 2650; ABI: exactly one arm64-v8a APK'
+            echo "- Commit: ${GITHUB_SHA}"
+            echo '- Distribution: workflow artifact only; no tag or public GitHub Release created'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload verified test1 APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyBoxTest-26.11.24-test1-arm64-v8a
+          path: |
+            ${{ env.APK_DIR }}/MyBoxTest-26.11.24-test1-arm64-v8a.apk
+            ${{ env.APK_DIR }}/sha256sums.txt
+          if-no-files-found: error
+          retention-days: 7

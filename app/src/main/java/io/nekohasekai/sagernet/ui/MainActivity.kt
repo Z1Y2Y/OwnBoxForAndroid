@@ -1086,11 +1086,6 @@ class MainActivity : ThemedActivity(),
             }
             R.id.nav_tools -> displayFragment(ToolsFragment())
             R.id.nav_logcat -> displayFragment(LogcatFragment())
-            R.id.nav_faq -> {
-                launchCustomTab("https://t.me/OwnBoxs")
-                return false
-            }
-
             R.id.nav_docs -> displayFragment(DocsFragment())
 
             R.id.nav_about -> displayFragment(AboutFragment())

@@ -46,6 +46,11 @@ fun Project.setupCommon() {
         defaultConfig {
             minSdk = 21
             targetSdk = 35
+            // test1: arm64-only build (user requirement 2026-11-27);
+            // drop armeabi-v7a / x86 / x86_64 to save memory and build time.
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
         }
         buildTypes {
             getByName("release") {
@@ -171,10 +176,8 @@ fun Project.setupApp() {
             reset()
             isEnable = true
             isUniversalApk = false
-            include("armeabi-v7a")
+            // test1: arm64-only (user requirement 2026-11-27); other ABIs dropped.
             include("arm64-v8a")
-            include("x86")
-            include("x86_64")
         }
 
         flavorDimensions += "vendor"

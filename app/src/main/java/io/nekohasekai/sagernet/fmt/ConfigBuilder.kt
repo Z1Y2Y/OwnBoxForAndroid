@@ -567,6 +567,12 @@ internal class ChainGraphContext(
             }.ifEmpty { listOf(TAG_DIRECT) }
 
             val balancerTag = readableTag(entity.displayName())
+            // NOTE (e): the legacy dropdown writes the .24 fields (selectionMode/
+            // balanceEnabled/balanceMode) via BalancerSettingsActivity; buildAutoSelectOutbound
+            // consumes those fields directly. No re-application of the legacy mapping here:
+            // a stale/default legacyStrategy must never override a balancer whose .24
+            // balance fields were set explicitly (e.g. a v9 bean with per-connection
+            // balance, whose legacy value is ambiguous and stored blank).
             val balancerOutbound = buildAutoSelectOutbound(
                 balancer = balancerBean,
                 memberEntities = memberEntities,
@@ -1174,6 +1180,22 @@ fun buildConfig(
     // 曾强制 ENABLE——测速拨号的协议族选择与真实路径不同，
     // v6 不通的网络里测速假 err（节点实际可用），反之假成功。
     val ipv6Mode = DataStore.ipv6Mode
+    // MyBox 直连 AAAA 拒绝：无底层 IPv6 默认路由时，在 dns-direct 规则前插 AAAA 拒绝规则。
+    // 与 Go 侧 direct_ipv6_guard 的传输层压制互补（见 PORT-TEST1.md (d)）：guard 按
+    // NetworkIPv6Detector 的实时状态压制响应，这里按建配置时的底层路由做规则层拒绝并禁缓存。
+    val hasUnderlyingIpv6DefaultRoute = !forTest && runCatching {
+        val network = SagerNet.underlyingNetwork ?: return@runCatching false
+        SagerNet.connectivity.getLinkProperties(network)?.routes?.any { route ->
+            DirectIpv6DnsPolicy.isIpv6DefaultRoute(
+                isIpv6Destination = route.destination.address is java.net.Inet6Address,
+                prefixLength = route.destination.prefixLength,
+            )
+        } == true
+    }.getOrDefault(false)
+    val rejectDirectAaaa = !forTest && DirectIpv6DnsPolicy.shouldRejectDirectAaaa(
+        ipv6Mode = ipv6Mode,
+        hasUnderlyingIpv6DefaultRoute = hasUnderlyingIpv6DefaultRoute,
+    )
     val rawDirectDomainStrategy = SingBoxOptionsUtil.domainStrategy("dns-direct")
     if (!forTest && !forExport) {
         runCatching { Libcore.setDirectIPv6Policy(ipv6Mode, rawDirectDomainStrategy) }
@@ -2133,6 +2155,12 @@ fun buildConfig(
             else -> "prefer_ipv4"
         }
 
+        val directAaaaRejectRules = if (rejectDirectAaaa) {
+            userDNSRuleList.mapNotNull(DirectIpv6DnsPolicy::rejectAaaaRuleForDirectDnsRule)
+        } else {
+            emptyList()
+        }
+
         // dns object user rules
         if (enableDnsRouting) {
             userDNSRuleList.forEach {
@@ -2140,7 +2168,12 @@ fun buildConfig(
                     it.server = null
                     it.action = "reject"
                 }
-                if (!it.checkEmpty()) dns.rules.add(it)
+                if (!it.checkEmpty()) {
+                    dns.rules.add(it)
+                    if (rejectDirectAaaa && it.server == "dns-direct") {
+                        DirectIpv6DnsPolicy.addRejectBeforeDirectDnsRule(dns.rules, it)
+                    }
+                }
             }
         }
 
@@ -2203,6 +2236,12 @@ fun buildConfig(
                 dns.rules.add(firstDirectDnsIdx, googlePlayDnsRule)
             } else {
                 dns.rules.add(googlePlayDnsRule)
+            }
+
+            // 未开 DNS 路由时，用户直连规则的 AAAA 拒绝也需补上（MyBox 语义；两条分支都 addAll，
+            // 相对 Google Play 规则的位置与 MyBox 一致：拒绝规则在 Play 专线规则之后）。
+            if (!enableDnsRouting && rejectDirectAaaa) {
+                dns.rules.addAll(directAaaaRejectRules)
             }
 
             // 所属国家/地区核心应用与常用域名后缀静态直连保底名单（仅在智能分流模式下附加，避免覆盖自定义路由）

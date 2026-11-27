@@ -44,6 +44,11 @@ public class BalancerBean extends InternalBean {
     public List<Long> targetGroupIds = new ArrayList<>();
     public List<Long> proxies = new ArrayList<>();
     public String strategy = SELECTION_LATENCY;
+    // MyBox legacy strategy dropdown choice (leastPing/leastLoad/random/roundRobin/
+    // consistentHash); persisted as v10 field. The .24 fields (selectionMode,
+    // balanceEnabled, balanceMode) remain the source of truth at build time and are
+    // (re)derived from this value in latency mode — see applyLegacyStrategy().
+    public String legacyStrategy = STRATEGY_LEAST_PING;
     public String testUrl = "";
     public int interval = 300;
     public int tolerance = 30;
@@ -238,9 +243,78 @@ public class BalancerBean extends InternalBean {
         fallbackMaxFails = 2;
     }
 
+    /** Apply a MyBox legacy strategy: remember the choice and map it onto the .24 model. */
+    public void applyLegacyStrategy(String rawStrategy) {
+        String norm = rawStrategy != null ? rawStrategy.trim() : "";
+        if (STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)) {
+            legacyStrategy = STRATEGY_ROUND_ROBIN;
+        } else if (STRATEGY_CONSISTENT_HASH.equals(norm)) {
+            legacyStrategy = STRATEGY_CONSISTENT_HASH_CAMEL;
+        } else if (STRATEGY_LEAST_PING.equals(norm) || STRATEGY_LEAST_LOAD.equals(norm)
+                || STRATEGY_RANDOM.equals(norm) || STRATEGY_ROUND_ROBIN.equals(norm)
+                || STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) {
+            legacyStrategy = norm;
+        } else {
+            legacyStrategy = STRATEGY_LEAST_PING;
+        }
+        migrateLegacyStrategy(legacyStrategy);
+    }
+
+    /**
+     * Narrow legacy mapping: only selectionMode/balance fields; country filter, tiers,
+     * interrupt/fallback settings etc. are left untouched (unlike migrateLegacyStrategy,
+     * which resets all .24 defaults and is only for old-bean migration).
+     */
+    public void applyLegacyMappingOnly() {
+        String norm = legacyStrategy != null ? legacyStrategy.trim() : "";
+        if (STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)) norm = STRATEGY_ROUND_ROBIN;
+        if (STRATEGY_CONSISTENT_HASH.equals(norm)) norm = STRATEGY_CONSISTENT_HASH_CAMEL;
+        if (STRATEGY_LEAST_PING.equals(norm)) {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = false;
+            balanceMode = BALANCE_TIMED_ROTATION;
+        } else if (STRATEGY_LEAST_LOAD.equals(norm) || STRATEGY_RANDOM.equals(norm)
+                || STRATEGY_ROUND_ROBIN.equals(norm)) {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = true;
+            balanceMode = BALANCE_PER_CONNECTION;
+        } else if (STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) {
+            selectionMode = SELECTION_LATENCY;
+            balanceEnabled = true;
+            balanceMode = BALANCE_TIMED_ROTATION;
+            learnFromConnections = true;
+        } else {
+            // Unknown/blank: no legacy choice; leave the .24 fields untouched.
+            return;
+        }
+        strategy = selectionMode;
+    }
+
+    /**
+     * Inverse of the mapping for canonical combos; null when ambiguous
+     * (leastLoad/random/roundRobin all map to latency + per-connection balance)
+     * or when the mode is priority/fallback (no legacy equivalent).
+     */
+    public String deriveLegacyStrategy() {
+        if (isPriorityMode() || isFallbackMode()) return null;
+        if (!balanceEnabled) return STRATEGY_LEAST_PING;
+        if (BALANCE_TIMED_ROTATION.equals(balanceMode)) return STRATEGY_CONSISTENT_HASH_CAMEL;
+        return null;
+    }
+
     private void migrateLegacyStrategy(String rawStrategy) {
         resetActiveStrategyDefaults();
         String norm = rawStrategy != null ? rawStrategy.trim() : "";
+        if (STRATEGY_LEAST_PING.equals(norm) || STRATEGY_LEAST_LOAD.equals(norm)
+                || STRATEGY_RANDOM.equals(norm) || STRATEGY_ROUND_ROBIN.equals(norm)
+                || STRATEGY_ROUND_ROBIN_LEGACY.equals(norm)
+                || STRATEGY_CONSISTENT_HASH.equals(norm)
+                || STRATEGY_CONSISTENT_HASH_CAMEL.equals(norm)) {
+            legacyStrategy = STRATEGY_ROUND_ROBIN_LEGACY.equals(norm) ? STRATEGY_ROUND_ROBIN
+                    : (STRATEGY_CONSISTENT_HASH.equals(norm) ? STRATEGY_CONSISTENT_HASH_CAMEL : norm);
+        } else {
+            legacyStrategy = STRATEGY_LEAST_PING;
+        }
         if (STRATEGY_FAILOVER.equals(norm) || SELECTION_PRIORITY.equals(norm)) {
             selectionMode = SELECTION_PRIORITY;
             balanceEnabled = false;
@@ -285,6 +359,10 @@ public class BalancerBean extends InternalBean {
             selectionMode = SELECTION_LATENCY;
         }
         strategy = selectionMode;
+        if (legacyStrategy == null || legacyStrategy.isEmpty()) {
+            String derived = deriveLegacyStrategy();
+            legacyStrategy = derived != null ? derived : "";
+        }
         if (balanceMode == null || (!BALANCE_TIMED_ROTATION.equals(balanceMode) && !BALANCE_PER_CONNECTION.equals(balanceMode))) {
             balanceMode = BALANCE_TIMED_ROTATION;
         }
@@ -308,7 +386,7 @@ public class BalancerBean extends InternalBean {
                 : (SELECTION_PRIORITY.equals(selectionMode) ? SELECTION_PRIORITY : SELECTION_LATENCY);
         strategy = effectiveSelection;
 
-        output.writeInt(9); // version
+        output.writeInt(10); // version
         output.writeInt(balancerType);
         output.writeLong(targetGroupId);
         output.writeString(strategy);
@@ -354,6 +432,10 @@ public class BalancerBean extends InternalBean {
         }
         output.writeBoolean(fallbackAutoRevert);
         output.writeInt(fallbackMaxFails > 0 ? fallbackMaxFails : 2);
+        // v10 MyBox extension; previous upstream v1-v9 layouts remain readable.
+        // NOTE: test1 v10 layout (legacyStrategy string) differs from merge a280d1fb
+        // v10 (stickyByApp boolean); the two trees never share a database.
+        output.writeString(legacyStrategy != null ? legacyStrategy : STRATEGY_LEAST_PING);
     }
 
     @Override
@@ -423,6 +505,15 @@ public class BalancerBean extends InternalBean {
                     fallbackAutoRevert = true;
                     fallbackMaxFails = 2;
                 }
+                if (version >= 10) {
+                    legacyStrategy = input.readString();
+                    if (legacyStrategy == null || legacyStrategy.isEmpty()) {
+                        legacyStrategy = STRATEGY_LEAST_PING;
+                    }
+                } else {
+                    String derived = deriveLegacyStrategy();
+                    legacyStrategy = derived != null ? derived : "";
+                }
                 return;
             }
 
@@ -444,6 +535,20 @@ public class BalancerBean extends InternalBean {
                 landingProxy = -1L;
             }
 
+            if (version == 6 && input.position() < input.limit()) {
+                // MyBox v6 beans (e.g. imported .85 database) end after the front/landing
+                // IDs with a stickyByApp boolean; upstream v6 continues with a selection-mode
+                // string whose Kryo-encoded first byte is its length (>1 for "latency" etc.).
+                int nextByte = input.getBuffer()[input.position()] & 0xff;
+                if (nextByte <= 1) {
+                    input.readBoolean(); // legacy MyBox stickyByApp; sticky runtime is not in test1
+                    migrateLegacyStrategy(strategy);
+                    fallbackAutoRevert = true;
+                    fallbackMaxFails = 2;
+                    tiers = new ArrayList<>();
+                    return;
+                }
+            }
             if (version >= 6) {
                 selectionMode = input.readString();
                 balanceEnabled = input.readBoolean();
@@ -479,6 +584,10 @@ public class BalancerBean extends InternalBean {
                 migrateLegacyStrategy(strategy);
             }
 
+            if (version >= 6) {
+                String derived = deriveLegacyStrategy();
+                legacyStrategy = derived != null ? derived : "";
+            }
             fallbackAutoRevert = true;
             fallbackMaxFails = 2;
             tiers = new ArrayList<>();

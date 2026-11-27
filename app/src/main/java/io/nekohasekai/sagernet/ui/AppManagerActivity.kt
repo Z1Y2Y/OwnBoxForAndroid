@@ -36,6 +36,8 @@ import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.databinding.LayoutAppsBinding
 import io.nekohasekai.sagernet.databinding.LayoutAppsItemBinding
 import io.nekohasekai.sagernet.ktx.Logs
+import io.nekohasekai.sagernet.route.PerAppRoutePolicies
+import io.nekohasekai.sagernet.route.PerAppRoutePolicy
 import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ktx.crossFadeFrom
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
@@ -81,6 +83,7 @@ class AppManagerActivity : ThemedActivity() {
 
         init {
             binding.root.setOnClickListener(this)
+            binding.policy.setOnClickListener { showSmartRoutePolicyDialog(item) }
         }
 
         fun bind(app: ProxiedApp) {
@@ -92,6 +95,7 @@ class AppManagerActivity : ThemedActivity() {
             }
             binding.title.text = app.name
             binding.desc.text = "${app.packageName} (${app.uid})"
+            binding.policy.text = smartRoutePolicyLabel(app)
             binding.itemcheck.isChecked = isProxiedApp(app)
         }
 
@@ -230,6 +234,55 @@ class AppManagerActivity : ThemedActivity() {
 
     private fun isProxiedApp(app: ProxiedApp) = proxiedUids[app.uid]
 
+    private var smartPolicies = LinkedHashMap<String, PerAppRoutePolicy>()
+
+    private fun smartRoutePolicyLabel(app: ProxiedApp): String = getString(
+        when (smartPolicies[app.packageName]) {
+            PerAppRoutePolicy.FOLLOW_SMART -> R.string.app_route_policy_status_follow
+            PerAppRoutePolicy.FORCE_PROXY -> R.string.app_route_policy_status_proxy
+            PerAppRoutePolicy.FORCE_DIRECT -> R.string.app_route_policy_status_direct
+            null -> R.string.app_route_policy_status_inherit
+        }
+    )
+
+    private fun showSmartRoutePolicyDialog(app: ProxiedApp) {
+        val options = arrayOf(
+            getString(R.string.app_route_policy_option_inherit),
+            getString(R.string.app_route_policy_option_follow),
+            getString(R.string.app_route_policy_option_proxy),
+            getString(R.string.app_route_policy_option_direct),
+        )
+        val selected = when (smartPolicies[app.packageName]) {
+            PerAppRoutePolicy.FOLLOW_SMART -> 1
+            PerAppRoutePolicy.FORCE_PROXY -> 2
+            PerAppRoutePolicy.FORCE_DIRECT -> 3
+            null -> 0
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.app_route_policy_dialog_title, app.name))
+            .setSingleChoiceItems(options, selected) { dialog, which ->
+                val policy = when (which) {
+                    0 -> null
+                    1 -> PerAppRoutePolicy.FOLLOW_SMART
+                    2 -> PerAppRoutePolicy.FORCE_PROXY
+                    3 -> PerAppRoutePolicy.FORCE_DIRECT
+                    else -> return@setSingleChoiceItems
+                }
+                // Apps sharing one Android UID are captured together by the VPN,
+                // so they always share one policy.
+                val uidPackages = apps.asSequence()
+                    .filter { it.uid == app.uid }
+                    .map { it.packageName }
+                    .toSet()
+                smartPolicies = PerAppRoutePolicies.updateUidGroup(smartPolicies, uidPackages, policy)
+                DataStore.smartAppPolicies = PerAppRoutePolicies.encode(smartPolicies)
+                appsAdapter.notifyDataSetChanged()
+                dialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     @UiThread
     private fun loadApps() {
         loader?.cancel()
@@ -323,6 +376,7 @@ class AppManagerActivity : ThemedActivity() {
         }
 
         instance = this
+        smartPolicies = PerAppRoutePolicies.decode(DataStore.smartAppPolicies)
         loadApps()
     }
 

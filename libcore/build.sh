@@ -37,7 +37,9 @@ if [ -z "$SINGBOX_VERSION" ]; then
 fi
 
 export GOBIND=gobind-matsuri
-"$GOPATH"/bin/gomobile-matsuri bind -v -androidapi 21 -cache "$(realpath $BUILD)" -trimpath -ldflags="-s -w -X github.com/sagernet/sing-box/constant.Version=$SINGBOX_VERSION" -tags='with_conntrack,with_quic,with_wireguard,with_utls,with_clash_api' . || exit 1
+# test1: arm64-only build (user requirement 2026-11-27); -target android/arm64
+# limits gomobile to a single ABI instead of the default all-four build.
+"$GOPATH"/bin/gomobile-matsuri bind -v -target android/arm64 -androidapi 21 -cache "$(realpath $BUILD)" -trimpath -ldflags="-s -w -X github.com/sagernet/sing-box/constant.Version=$SINGBOX_VERSION" -tags='with_conntrack,with_quic,with_wireguard,with_utls,with_clash_api' . || exit 1
 rm -r libcore-sources.jar
 
 proj=../app/libs

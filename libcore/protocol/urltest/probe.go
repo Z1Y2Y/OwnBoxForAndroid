@@ -45,20 +45,22 @@ func ProbeOutbound(ctx context.Context, detour adapter.Outbound, link string, ti
 		timeout = 5000 * time.Millisecond
 	}
 
+	return probeOutboundWithFallback(ctx, detour, link, GetFallbackLink(link), timeout)
+}
+
+func probeOutboundWithFallback(parentCtx context.Context, detour adapter.Outbound, link, fallbackLink string, timeout time.Duration) (uint16, error) {
 	primaryTimeout := timeout
 	fallbackTimeout := 3000 * time.Millisecond
 	if timeout > 3500*time.Millisecond {
 		primaryTimeout = timeout - 1500*time.Millisecond
 	}
 
-	delay, err := probeSingleURL(ctx, detour, link, primaryTimeout)
+	delay, err := probeSingleURL(parentCtx, detour, link, primaryTimeout)
 	if err == nil && delay > 0 {
 		return delay, nil
 	}
 
-	// 备选地址重试
-	fbLink := GetFallbackLink(link)
-	fbDelay, fbErr := probeSingleURL(ctx, detour, fbLink, fallbackTimeout)
+	fbDelay, fbErr := probeSingleURL(parentCtx, detour, fallbackLink, fallbackTimeout)
 	if fbErr == nil && fbDelay > 0 {
 		return fbDelay, nil
 	}

@@ -142,8 +142,6 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
                     android:textColor="?attr/primaryOrTextPrimary"
                     android:textSize="11sp"
                     tools:text="新加坡策略组 » Singapore 04" />

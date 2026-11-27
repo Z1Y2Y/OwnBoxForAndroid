@@ -629,7 +629,12 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
             val outbound = obj.optString("outbound").trim()
             val outboundType = obj.optString("outboundType").trim()
             val chainsList = parseChainsList(obj.optJSONArray("chains"), reverse = false, fallback = outbound)
-            val chainsDisplay = chainsList.joinToString(" » ")
+            // MyBox: append the actually-hit member (activeOutbound) when it is not
+            // already in the chain, so the node a balancer really dialed is visible.
+            // (libcore does not emit activeOutbound yet — see PORT-TEST1.md (f); the
+            // formatter is a no-op for the active part until then.)
+            val activeOutbound = obj.optString("activeOutbound").trim()
+            val chainsDisplay = ConnectionChainFormatter.format(chainsList, activeOutbound)
             val up = obj.optLong("upload", 0L)
             val down = obj.optLong("download", 0L)
 
@@ -811,6 +816,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
                             nextMap[id] = Triple(up, down, nowMs)
 
                             val chainsList = parseChainsList(obj.optJSONArray("chains"), reverse = true, fallback = "direct")
+                            val activeOutbound = obj.optString("activeOutbound").trim()
                             val startMs = parseIsoTimeMs(obj.optString("start"))
 
                             parsed.add(
@@ -839,8 +845,8 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections) {
                                     uploadSpeed = itemUpSpeed,
                                     downloadSpeed = itemDownSpeed,
                                     chainsList = chainsList,
-                                    chainsDisplay = chainsList.joinToString(" » "),
-                                    outbound = chainsList.lastOrNull().orEmpty(),
+                                    chainsDisplay = ConnectionChainFormatter.format(chainsList, activeOutbound),
+                                    outbound = activeOutbound.ifBlank { chainsList.lastOrNull().orEmpty() },
                                     outboundType = "",
                                     startMs = startMs,
                                     closedMs = 0L,

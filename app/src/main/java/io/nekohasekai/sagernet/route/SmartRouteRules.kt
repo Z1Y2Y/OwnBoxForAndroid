@@ -436,6 +436,10 @@ object SmartRouteRules {
                 .filter { it.isNotEmpty() }
                 .toSet()
         }.getOrDefault(emptySet()),
+        // MyBox per-app overrides; only honoured by callers in Smart Routing mode.
+        appPolicies: Map<String, PerAppRoutePolicy> = runCatching {
+            PerAppRoutePolicies.decode(DataStore.smartAppPolicies)
+        }.getOrDefault(emptyMap()),
     ): Pair<Set<String>, Set<String>> {
         val normCountry = country.trim().lowercase().ifBlank { "cn" }
         val explicitDomestic = domesticExplicitPackages(normCountry)
@@ -497,6 +501,28 @@ object SmartRouteRules {
             }
         }
 
+        // Explicit Smart-mode per-app policies override country classification and legacy
+        // selections. Missing entries leave the stored legacy settings untouched.
+        // FOLLOW_SMART removes the app from both sets so it falls through to domain/IP rules.
+        for ((pkg, policy) in appPolicies) {
+            if (pkg in SYSTEM_EXCLUDED_PACKAGES || pkg in BROWSER_AND_HYBRID_PACKAGES) continue
+            if (installedPackages.isNotEmpty() && pkg !in installedPackages) continue
+            when (policy) {
+                PerAppRoutePolicy.FOLLOW_SMART -> {
+                    resolvedDomestic.remove(pkg)
+                    resolvedForeign.remove(pkg)
+                }
+                PerAppRoutePolicy.FORCE_PROXY -> {
+                    resolvedDomestic.remove(pkg)
+                    resolvedForeign.add(pkg)
+                }
+                PerAppRoutePolicy.FORCE_DIRECT -> {
+                    resolvedForeign.remove(pkg)
+                    resolvedDomestic.add(pkg)
+                }
+            }
+        }
+
         return Pair(resolvedDomestic, resolvedForeign)
     }
 
@@ -515,9 +541,41 @@ object SmartRouteRules {
      * 5. 本国 IP 段 (geoip:<country>) -> 直连
      * 6. 其余未命中流量由 route.final 兜底走主代理节点
      */
-    fun buildSmartRules(rawCountry: String = "cn"): List<RuleEntity> {
+    fun buildSmartRules(
+        rawCountry: String = "cn",
+        appPolicies: Map<String, PerAppRoutePolicy> = runCatching {
+            PerAppRoutePolicies.decode(DataStore.smartAppPolicies)
+        }.getOrDefault(emptyMap()),
+    ): List<RuleEntity> {
         val country = rawCountry.trim().lowercase().ifBlank { "cn" }
         val rules = ArrayList<RuleEntity>()
+
+        // Explicit force policies must precede every destination exception and automatic rule.
+        val (domesticApps, foreignApps) = classifyApps(country, appPolicies = appPolicies)
+        val forceProxyPackages = appPolicies.filterValues { it == PerAppRoutePolicy.FORCE_PROXY }.keys
+            .intersect(foreignApps)
+        val forceDirectPackages = appPolicies.filterValues { it == PerAppRoutePolicy.FORCE_DIRECT }.keys
+            .intersect(domesticApps)
+        if (forceProxyPackages.isNotEmpty()) {
+            rules.add(
+                RuleEntity(
+                    name = "Smart-Force-Proxy-Apps",
+                    packages = forceProxyPackages,
+                    outbound = 0L,
+                    enabled = true
+                )
+            )
+        }
+        if (forceDirectPackages.isNotEmpty()) {
+            rules.add(
+                RuleEntity(
+                    name = "Smart-Force-Direct-Apps",
+                    packages = forceDirectPackages,
+                    outbound = -1L,
+                    enabled = true
+                )
+            )
+        }
 
         // 1. Google Play 商店专线保护（防止被 .cn 等后缀直连规则误伤）
         rules.add(
@@ -543,22 +601,24 @@ object SmartRouteRules {
         )
 
         // 2. 应用级智能识别：国外软件走代理，本国软件走直连（浏览器与混合应用自动穿透到域名/IP 层）
-        val (domesticApps, foreignApps) = classifyApps(country)
-        if (foreignApps.isNotEmpty()) {
+        // Automatic sets exclude explicitly forced apps (already covered by the rules above).
+        val automaticForeignApps = foreignApps - forceProxyPackages
+        val automaticDomesticApps = domesticApps - forceDirectPackages
+        if (automaticForeignApps.isNotEmpty()) {
             rules.add(
                 RuleEntity(
                     name = "Smart-Foreign-Apps",
-                    packages = foreignApps,
+                    packages = automaticForeignApps,
                     outbound = 0L,
                     enabled = true
                 )
             )
         }
-        if (domesticApps.isNotEmpty()) {
+        if (automaticDomesticApps.isNotEmpty()) {
             rules.add(
                 RuleEntity(
                     name = "Smart-Domestic-Apps-$country",
-                    packages = domesticApps,
+                    packages = automaticDomesticApps,
                     outbound = -1L,
                     enabled = true
                 )

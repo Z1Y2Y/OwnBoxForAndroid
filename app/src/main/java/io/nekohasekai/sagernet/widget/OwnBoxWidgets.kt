@@ -21,7 +21,7 @@ import io.nekohasekai.sagernet.ui.MainActivity
 import io.nekohasekai.sagernet.ui.NodeSelectDialogActivity
 
 object OwnBoxWidgetHelper {
-    const val ACTION_TOGGLE = "com.ownbox.app.widget.ACTION_TOGGLE"
+    const val ACTION_TOGGLE = "com.ownbox.test1.widget.ACTION_TOGGLE"
 
     @Volatile
     private var lastToggleTime = 0L

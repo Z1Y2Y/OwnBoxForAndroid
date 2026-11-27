@@ -500,6 +500,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var balancerTargetGroup by profileCacheStore.stringToLong("balancerTargetGroup") { 0L }
     var balancerTargetGroups by profileCacheStore.string("balancerTargetGroups") { "" }
     var balancerStrategy by profileCacheStore.string("balancerStrategy") { "latency" }
+    // MyBox legacy strategy dropdown choice (leastPing/leastLoad/random/roundRobin/
+    // consistentHash); transient per-profile edit cache, persisted to BalancerBean.legacyStrategy on save.
+    var balancerLegacyStrategy by profileCacheStore.string("balancerLegacyStrategy") { "leastPing" }
     var balancerSelectionMode by profileCacheStore.string("balancerSelectionMode") { "latency" }
     var balancerTiers by profileCacheStore.string("balancerTiers") { "" }
     var balancerBalanceEnabled by profileCacheStore.boolean("balancerBalanceEnabled") { false }
@@ -623,6 +626,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var globalMode by configurationStore.boolean(Key.GLOBAL_MODE)
     var smartMode by configurationStore.boolean(Key.SMART_MODE) { false }
+    // Per-app Smart Routing overrides, `package.name=policy` lines (see PerAppRoutePolicy).
+    // Only honoured while Smart Routing is active; empty by default.
+    var smartAppPolicies by configurationStore.string(Key.SMART_APP_POLICIES) { "" }
     var smartRouteCountry by configurationStore.string(Key.SMART_ROUTE_COUNTRY) { "cn" }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
