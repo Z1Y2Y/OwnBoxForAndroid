@@ -3,7 +3,7 @@
 # 只出 artifact，不发 release、不建 tag。
 # 触发方式只有 workflow_dispatch（手动触发），不响应 push / tag。
 # 基底：Own716 v26.11.24；移植：MyBox .85（主题、IPv6、策略组 5 项、连接完整显示、分应用智能分流、删侧边栏 Telegram）。
-# 身份：包名 com.ownbox.fork，应用名 MyBox，versionName 26.11.24.1，versionCode 2668，arm64-only。
+# 身份：包名 com.ownbox.fork，应用名 MyBox，versionName 26.11.24.2，versionCode 2669，arm64-only。
 # 签名复用仓库已有 secret（KEYSTORE_BASE64 / KEYSTORE_PASS / ALIAS_NAME / ALIAS_PASS），
 # 证书须为 CN=OwnBox Personal（SHA256 a9094d2f…），与在用 MyBox .85 同一证书；
 # 包名与 .85 相同、证书相同，所以会直接覆盖安装 .85；安装前请先在应用内备份订阅与设置。
@@ -151,7 +151,7 @@ jobs:
             exit 1
           fi
 
-          ./gradlew app:assemblePreviewRelease -PoverrideVersionCode=2668
+          ./gradlew app:assemblePreviewRelease -PoverrideVersionCode=2669
           APK_DIR="app/build/outputs/apk/preview/release"
           APKSIGNER=$(find "${ANDROID_HOME}/build-tools" -name apksigner | sort -V | tail -n 1)
           AAPT=$(find "${ANDROID_HOME}/build-tools" -name aapt | sort -V | tail -n 1)
@@ -171,8 +171,8 @@ jobs:
           EXPECTED_CERT_SHA256="a9094d2fa0f54b4f35bbf9e86feb7a9a419b832894b21ef45bdcaff7838616bf"
           EXPECTED_PACKAGE="com.ownbox.fork"
           EXPECTED_APP_LABEL="MyBox"
-          EXPECTED_VERSION_NAME="26.11.24.1"
-          EXPECTED_VERSION_CODE=2668
+          EXPECTED_VERSION_NAME="26.11.24.2"
+          EXPECTED_VERSION_CODE=2669
           APK_COUNT=0
           for apk in "$APK_DIR"/*.apk; do
             APK_COUNT=$((APK_COUNT + 1))
@@ -225,7 +225,7 @@ jobs:
             exit 1
           fi
 
-          FINAL_APK="$APK_DIR/MyBox-26.11.24.1-arm64-v8a.apk"
+          FINAL_APK="$APK_DIR/MyBox-26.11.24.2-arm64-v8a.apk"
           for apk in "$APK_DIR"/*.apk; do
             if [ "$apk" != "$FINAL_APK" ]; then
               mv "$apk" "$FINAL_APK"
@@ -237,18 +237,18 @@ jobs:
           rm -f release.keystore
           echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
           {
-            echo '### MyBox 26.11.24.1 — Formal artifact only'
+            echo '### MyBox 26.11.24.2 — Formal artifact only'
             echo '- Build: signed PreviewRelease; package com.ownbox.fork; existing signing certificate verified'
-            echo '- Version code: 2668; ABI: exactly one arm64-v8a APK'
+            echo '- Version code: 2669; ABI: exactly one arm64-v8a APK'
             echo "- Commit: ${GITHUB_SHA}"
             echo '- Distribution: workflow artifact only; no tag or public GitHub Release created'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload verified formal APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-26.11.24.1-arm64-v8a
+          name: MyBox-26.11.24.2-arm64-v8a
           path: |
-            ${{ env.APK_DIR }}/MyBox-26.11.24.1-arm64-v8a.apk
+            ${{ env.APK_DIR }}/MyBox-26.11.24.2-arm64-v8a.apk
             ${{ env.APK_DIR }}/sha256sums.txt
           if-no-files-found: error
           retention-days: 7
