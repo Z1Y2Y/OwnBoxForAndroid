@@ -1480,7 +1480,6 @@ fun buildConfig(
                     "cloudflare-dns.com",
                     "one.one.one.one",
                     "dns.quad9.net",
-                    "dns.adguard-dns.com",
                     "dns.opendns.com"
                 )
             )
@@ -1489,7 +1488,6 @@ fun buildConfig(
                     "8.8.8.8", "8.8.4.4",
                     "1.1.1.1", "1.0.0.1",
                     "9.9.9.9", "149.112.112.112",
-                    "94.140.14.14", "94.140.15.15",
                     "208.67.222.222", "208.67.220.220",
                     "2001:4860:4860::8888", "2001:4860:4860::8844",
                     "2606:4700:4700::1111", "2606:4700:4700::1001",
@@ -1935,7 +1933,6 @@ fun buildConfig(
             }
         }
 
-        val earlyRejectUserRules = mutableListOf<SingBoxOptions.Rule>()
         val invalidRuleNames = linkedSetOf<String>()
         val userRulesStartIndex = route.rules.size
 
@@ -1961,14 +1958,6 @@ fun buildConfig(
                     PackageCache.awaitLoadSync()
                 }
                 val effectivePackages = rule.packages.toMutableSet()
-                val officialTelegramPackages = setOf(
-                    "org.telegram.messenger",
-                    "org.telegram.messenger.web",
-                    "org.telegram.messenger.beta"
-                )
-                if (effectivePackages.any { it in officialTelegramPackages }) {
-                    effectivePackages.addAll(officialTelegramPackages)
-                }
                 if (!isVPN && effectivePackages.isNotEmpty() && shouldWarnPackageRuleNeedsVpn(rule)) {
                     runOnMainDispatcher {
                         Toast.makeText(
@@ -2235,14 +2224,9 @@ fun buildConfig(
                     if (!fallbackRule.checkEmpty()) generatedSubRules.add(fallbackRule)
                 }
 
-                val targetRuleBucket: MutableList<SingBoxOptions.Rule> = if (!isSmartRouting && routingAction == "reject") {
-                    earlyRejectUserRules
-                } else {
-                    route.rules
-                }
                 val invertedGroup = RouteRuleEditor.invertedGroup(generatedSubRules)
                 if (invertedGroup != null) {
-                    targetRuleBucket.add(invertedGroup)
+                    route.rules.add(invertedGroup)
                     route.rule_set.addAll(ruleSets)
                     continue
                 }
@@ -2250,7 +2234,7 @@ fun buildConfig(
                     if (subRule.action !in setOf("reject", "sniff", "resolve", "hijack-dns", "route-options") && subRule.outbound.isNullOrBlank()) {
                         invalidRuleNames += rule.displayName()
                     } else {
-                        targetRuleBucket.add(subRule)
+                        route.rules.add(subRule)
                         route.rule_set.addAll(ruleSets)
                         Logs.d("[ConfigBuilder] Route rule '${rule.displayName()}' condition added -> ${subRule.outbound ?: subRule.action}")
                     }
@@ -2456,19 +2440,13 @@ fun buildConfig(
         } else {
             // Google Play 商店与核心海外服务防误杀 DNS 专线规则：
             // 使用后缀匹配（覆盖 services.googleapis.cn / dl.google.com 等下载域名），
-            // 并插入在首条 dns-direct 用户规则之前，防止被 geosite:cn 提前劫持至国内 DNS
+            // 追加在用户 DNS 规则之后作为兜底：用户规则优先命中，专线规则只补用户未覆盖的 Play 域名，
+            // 避免专线规则抢在用户规则之前改写解析目标。
             val googlePlayDnsRule = DNSRule_DefaultOptions().apply {
                 domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES
                 server = "dns-remote"
             }
-            val firstDirectDnsIdx = dns.rules.indexOfFirst {
-                it is DNSRule_DefaultOptions && it.server == "dns-direct"
-            }
-            if (firstDirectDnsIdx >= 0) {
-                dns.rules.add(firstDirectDnsIdx, googlePlayDnsRule)
-            } else {
-                dns.rules.add(googlePlayDnsRule)
-            }
+            dns.rules.add(googlePlayDnsRule)
 
             // 未开 DNS 路由时，用户直连规则的 AAAA 拒绝也需补上（MyBox 语义；两条分支都 addAll，
             // 相对 Google Play 规则的位置与 MyBox 一致：拒绝规则在 Play 专线规则之后）。
@@ -2503,18 +2481,6 @@ fun buildConfig(
                 protocol = listOf("dns")
                 action = "hijack-dns"
             })
-
-            // 顶层秒级硬拦截 QUIC (UDP 443)：在网络层 0ms 瞬间拒绝 UDP 443 握手包（返回 ICMP 端口不可达），
-            // 无需等待 100ms 嗅探超时，迫使 TikTok / YouTube / Instagram 等海外客户端无缝秒级回退至
-            // 高速稳定、无丢包的 TCP TLS HTTP/2 链路。
-            // 用户可在 核心设置 -> 拦截 QUIC (UDP 443) 自由开关（默认开启）。
-            if (DataStore.blockQuic) {
-                topRouteRules.add(Rule_DefaultOptions().apply {
-                    network = listOf("udp")
-                    port = listOf(443)
-                    action = "reject"
-                })
-            }
 
             // Telegram 官方数据中心（DC 1~5）及核心媒体 CDN 纯 IP 段
             val telegramDcIps = listOf(
@@ -2590,10 +2556,15 @@ fun buildConfig(
                 })
             }
 
-            // 7. 用户自定义屏蔽 (reject) 规则优先于保底规则
-            if (earlyRejectUserRules.isNotEmpty()) {
-                topRouteRules.addAll(earlyRejectUserRules)
-            }
+            // 7. 未拦截远程 DNS 兜底保护（port 53 / protocol dns 流量强制走代理）
+            topRouteRules.add(Rule_DefaultOptions().apply {
+                port = listOf(53)
+                outbound = mainProxyTag
+            })
+            topRouteRules.add(Rule_DefaultOptions().apply {
+                protocol = listOf("dns")
+                outbound = mainProxyTag
+            })
 
             // 9. 智能分流模式下本国主流服务静态直连兜底规则（置于所有用户/智能分流规则之后）
             if (isSmartRouting) {

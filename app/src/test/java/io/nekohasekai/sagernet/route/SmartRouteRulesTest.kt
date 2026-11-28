@@ -101,17 +101,20 @@ class SmartRouteRulesTest {
     }
 
     @Test
-    fun classifyAppsExcludesSystemDownloadAndNetworkPackages() {
+    fun classifyAppsExcludesCoreSystemPackages() {
+        // .85 parity: only the core system packages are excluded from classification
+        // (SmartRouteRules.SYSTEM_EXCLUDED_PACKAGES); downloads / media / networkstack
+        // etc. are NOT excluded in .85 and can be classified normally.
         val systemPkgs = setOf(
-            "com.android.providers.downloads",
-            "com.android.providers.downloads.ui",
-            "com.android.providers.media",
-            "com.android.providers.media.module",
-            "com.android.captiveportallogin",
-            "com.android.networkstack",
-            "com.google.android.networkstack",
-            "com.android.externalstorage",
-            "com.android.shell",
+            "android",
+            "com.android.systemui",
+            "com.android.settings",
+            "com.android.providers.telephony",
+            "com.android.phone",
+            "com.android.nfc",
+            "com.android.bluetooth",
+            "com.google.android.inputmethod.latin",
+            "com.google.android.inputmethod.pinyin",
         )
         val (domestic, foreign) = SmartRouteRules.classifyApps(
             country = "cn",

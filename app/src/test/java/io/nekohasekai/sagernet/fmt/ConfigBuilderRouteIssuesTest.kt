@@ -21,7 +21,7 @@ class ConfigBuilderRouteIssuesTest {
     }
 
     @Test
-    fun multicastRejectRuleOmitsSourceIpCidrAndDeadDnsProxyRulesAreRemoved() {
+    fun multicastRejectRuleOmitsSourceIpCidrAndDnsFallbackRulesRouteToMainProxy() {
         val text = resolveSourceFile("src/main/java/io/nekohasekai/sagernet/fmt/ConfigBuilder.kt").readText()
 
         val mcastIndex = text.indexOf("listOf(\"224.0.0.0/3\", \"ff00::/8\")")
@@ -29,12 +29,15 @@ class ConfigBuilderRouteIssuesTest {
         val mcastWindow = text.substring(maxOf(0, mcastIndex - 200), minOf(text.length, mcastIndex + 200))
         assertFalse("Multicast reject rule must not include source_ip_cidr", mcastWindow.contains("source_ip_cidr"))
 
-        // Hijack-DNS handles port 53 / dns protocol; dead mainProxyTag port-53 route rules should be gone
-        assertFalse(
-            "Dead DNS port 53 -> mainProxyTag rule should be removed",
-            text.contains("port = listOf(53)\n                outbound = mainProxyTag") ||
-                text.contains("protocol = listOf(\"dns\")\n                outbound = mainProxyTag"),
-        )
+        // .85 behaviour: un-intercepted remote DNS traffic falls back to the main proxy
+        // (port 53 / dns protocol -> mainProxyTag), placed right after the remote-DNS
+        // hard-isolation rules; hijack-dns still handles inbound port 53 / dns first.
+        val remoteIsolationIdx = text.indexOf("// 6. 远程 DNS 硬隔离规则")
+        val port53Idx = text.indexOf("port = listOf(53)\n                outbound = mainProxyTag")
+        val dnsProtoIdx = text.indexOf("protocol = listOf(\"dns\")\n                outbound = mainProxyTag")
+        assertTrue("Expected remote-DNS hard-isolation block", remoteIsolationIdx >= 0)
+        assertTrue("Expected port 53 -> mainProxyTag DNS fallback rule (.85 rule 7)", port53Idx > remoteIsolationIdx)
+        assertTrue("Expected protocol dns -> mainProxyTag DNS fallback rule (.85 rule 7)", dnsProtoIdx > port53Idx)
     }
 
     @Test
@@ -43,15 +46,16 @@ class ConfigBuilderRouteIssuesTest {
         val topRouteStart = text.indexOf("val topRouteRules =")
         assertTrue("Expected topRouteRules builder block", topRouteStart >= 0)
 
-        val blockQuicIf = text.indexOf("if (DataStore.blockQuic)", topRouteStart)
         val sniffIf = text.indexOf("if (needSniff)", topRouteStart)
-        val rejectBucketAdd = text.indexOf("topRouteRules.addAll(earlyRejectUserRules)", topRouteStart)
         val smartDomesticGuard = text.indexOf("if (isSmartRouting)", topRouteStart)
         val domesticAdd = text.indexOf("domain_suffix = domesticCoreDomainSuffixes", smartDomesticGuard)
 
-        assertTrue("Expected DataStore.blockQuic toggle guard", blockQuicIf >= 0)
+        // .85 behaviour: no blockQuic toggle, no early-reject bucket — user reject rules
+        // stay in route.rules in their original order.
+        assertFalse("DataStore.blockQuic must be gone (.85 has no blockQuic)", text.contains("DataStore.blockQuic"))
+        assertFalse("earlyRejectUserRules bucket must be gone (.85 has none)", text.contains("earlyRejectUserRules"))
+        assertFalse("targetRuleBucket must be gone (.85 has none)", text.contains("targetRuleBucket"))
         assertTrue("Expected needSniff guard in topRouteRules", sniffIf >= 0)
-        assertTrue("Expected earlyRejectUserRules injection in topRouteRules", rejectBucketAdd >= 0)
         assertTrue("Expected domesticCoreDomainSuffixes scoped to isSmartRouting", smartDomesticGuard >= 0 && domesticAdd > smartDomesticGuard)
 
         // .85 behaviour: no built-in Google Play route rule may intercept user rules.
@@ -70,9 +74,9 @@ class ConfigBuilderRouteIssuesTest {
             text.indexOf("domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES") < topRouteStart &&
                 text.indexOf("domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES", topRouteStart) < 0,
         )
-        assertTrue(
-            "Smart routing must keep its own ordering without routing reject rules into earlyRejectUserRules",
-            text.contains("if (!isSmartRouting && routingAction == \"reject\")"),
+        assertFalse(
+            "User reject rules must stay in route.rules in order (.85 has no early-reject bucket)",
+            text.contains("earlyRejectUserRules") || text.contains("targetRuleBucket"),
         )
         assertTrue(
             "ConfigBuilder must sync rule_set download_detour tags against built outbounds",
@@ -89,7 +93,7 @@ class ConfigBuilderRouteIssuesTest {
     }
 
     @Test
-    fun downloadManagerNotInjectedIntoRoutingRulesWhilePreservedInTunWhitelist() {
+    fun downloadManagerNotInjectedIntoRoutingRulesAndNotAutoIncludedInTunWhitelist() {
         val configBuilder = resolveSourceFile("src/main/java/io/nekohasekai/sagernet/fmt/ConfigBuilder.kt").readText()
         val profileManager = resolveSourceFile("src/main/java/io/nekohasekai/sagernet/database/ProfileManager.kt").readText()
         val vpnService = resolveSourceFile("src/main/java/io/nekohasekai/sagernet/bg/VpnService.kt").readText()
@@ -104,8 +108,10 @@ class ConfigBuilderRouteIssuesTest {
             "ProfileManager must not mention com.android.providers.downloads at all (no injection, no strip)",
             profileManager.contains("com.android.providers.downloads"),
         )
-        assertTrue(
-            "VpnService TUN whitelist must keep DownloadManager allowed so Play Store downloads keep working",
+        // .85 behaviour: VpnService does NOT auto-include DownloadManager when Play Store
+        // is whitelisted — users select DownloadManager / GMS / GSF themselves.
+        assertFalse(
+            "VpnService must not auto-include com.android.providers.downloads (.85 has no such append)",
             vpnService.contains("com.android.providers.downloads"),
         )
     }

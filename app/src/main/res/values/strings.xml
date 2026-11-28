@@ -1465,8 +1465,6 @@
     <string name="rule_set_add_url_batch_hint">Supports single or multiple URLs (one per line or comma separated). Compatible with .srs and .json formats.</string>
     <string name="rule_set_added_count">Successfully added %d rule-set(s)</string>
     <string name="app_proxy_updated_restart">Per-app proxy updated, restarting connection…</string>
-    <string name="block_quic">Block QUIC (UDP 443)</string>
-    <string name="block_quic_summary">Reject QUIC UDP/443 at route entry for instant TCP HTTP/2 fallback; disable to allow native HTTP/3</string>
     <string name="bypass_lan_in_core_summary">Bypass private/LAN destination IPs in core routing (applied after custom routing rules)</string>
     <string name="route_outbound_missing">Profile missing (invalid)</string>
     <string name="route_invalid_outbound_toast">Rule \"%s\" references a missing node and was handled safely</string>

@@ -243,7 +243,6 @@ object Key {
     const val SMART_MODE = "smartMode"
     const val SMART_ROUTE_COUNTRY = "smartRouteCountry"
     const val SMART_APP_POLICIES = "smartAppPolicies"
-    const val BLOCK_QUIC = "blockQuic"
     const val SMART_AUTO_STOP = "smartAutoStop"
     const val SMART_AUTO_STOP_NETWORKS = "smartAutoStopNetworks"
 }

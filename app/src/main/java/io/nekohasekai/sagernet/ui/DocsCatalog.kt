@@ -57,13 +57,13 @@ object DocsCatalog {
             id = "vpn_perapp",
             chipLabel = "VPN 与分应用",
             headerTitle = "5. VPN 与分应用代理",
-            headerDesc = "虚拟网卡路由、Sing-Tun 协议栈、局域网共享与 Google Play 下载联动",
+            headerDesc = "虚拟网卡路由、Sing-Tun 协议栈、局域网共享与 Google Play 下载",
         ),
         DocCategory(
             id = "core_routing",
             chipLabel = "核心与路由",
             headerTitle = "6. 核心与路由分流",
-            headerDesc = "智能分流区域、阻断 QUIC、IPv6 策略、规则匹配原则与 RE2 正则校验",
+            headerDesc = "智能分流区域、IPv6 策略、规则匹配原则与 RE2 正则校验",
         ),
         DocCategory(
             id = "dns_speedtest",
@@ -432,13 +432,13 @@ object DocsCatalog {
             categoryId = "vpn_perapp",
             title = "为什么只选 Google Play 仍卡 0% 及智能联动方案",
             badge = "必读痛点解析",
-            summary = "Play 商店实际委托系统下载管理器拉取安装包；OwnBox 勾选 Play 商店时自动联动下载服务解决下载卡死。",
+            summary = "Play 商店实际委托系统下载管理器拉取安装包；白名单中只勾 Play 商店时下载会卡住，需同时勾选下载管理器与 Google 服务框架。",
             desc = "很多用户在开启分应用代理白名单时，只勾选了「Google Play 商店 (com.android.vending)」，结果能正常搜索、看评论，但一点「安装/更新」就永远卡在 0% 或等待下载。\n" +
                 "【真实原因】：Google Play 商店本体只负责 UI 展示与鉴权，真正建立大文件 HTTP 下载连接的是 Android 系统组件「下载管理器 (com.android.providers.downloads)」和 Google 框架服务（com.google.android.gms / com.google.android.gsf）。白名单只勾商店本体时，下载管理器发起的真实下载会被系统强制拦在 VPN 外面直连国内而失败。\n" +
-                "【OwnBox 智能解决】：当白名单中包含 Google Play 商店时，OwnBox 底层会自动联动把系统下载管理器（含小米系统下载组件）和 GMS/GSF 纳入 VPN 通道，再通过内置的 Google Play 专线域名规则将商店 API 与安装包 CDN 精准导往代理节点，同时不影响下载管理器帮国内软件走直连。",
+                "【解决办法】：在分应用白名单中除 Google Play 商店外，还需手动勾选系统下载管理器（含小米系统下载组件）与 Google 服务框架（GMS/GSF），下载流量才会进入 VPN 通道；同时内置的 Google Play 专线 DNS 规则会把商店 API 与安装包 CDN 域名导往远程 DNS 解析。",
             notes = "若你自己手动修改了路由规则删除或覆盖了内置 Google 规则，请留意不要误把 gvt1.com 或 googleapis.cn 等域名放进直连规则。",
-            recommendation = "在分应用白名单中勾选 Google Play 时，保持默认智能路由规则即可实现“Play 秒下、国内不耗代理流量”。",
-            keywords = "google play 商店 0% 下载 卡住 下载管理器 gms gsf vending gvt1 分应用 联动",
+            recommendation = "在分应用白名单中勾选 Google Play 时，同时勾选下载管理器与 GMS/GSF，即可实现“Play 秒下、国内不耗代理流量”。",
+            keywords = "google play 商店 0% 下载 卡住 下载管理器 gms gsf vending gvt1 分应用",
         ),
 
         // 6. 核心与路由
@@ -458,15 +458,13 @@ object DocsCatalog {
         DocEntry(
             id = "core_quic_and_resolve",
             categoryId = "core_routing",
-            title = "阻断 QUIC 与解析目标地址",
-            badge = "推荐: 开阻断 QUIC / 关解析目标地址",
-            summary = "阻断 QUIC 强制网页视频走高稳定 TCP 避免 UDP 限速；解析目标地址与默认开启的 FakeDNS 冲突，日常建议关闭。",
-            desc = "两项关键的协议与解析协同设置：\n" +
-                "1. 阻断 QUIC（默认开启）：对 UDP 443 端口的 QUIC 流量执行快速拦截拒绝，促使 Chrome、YouTube、Instagram 等客户端自动平滑降级使用稳定的 TLS/HTTP2 TCP 协议传输。由于部分物理宽带和机场中转对大流量 UDP QOS 限速极严，阻断 QUIC 后视频加载和网页开屏往往明显更稳。\n" +
-                "2. 解析目标地址（默认关闭）：开启后会要求内核在路由判断前先把域名在本机解析成真实 IP 再转发。这与默认开启的 FakeDNS（让远端节点就近解析域名以实现 0ms 首包并拿最优 CDN）正好相反且会相互冲突。",
-            notes = "只有当你明确在「DNS 设置」里关闭了 FakeDNS，且依赖纯 GeoIP / IP 段规则分流，或者想在本地提前按 IPv6 策略固定解析结果时，才需要开启「解析目标地址」；少数强依赖 HTTP/3 QUIC 的冷门场景可临时关闭「阻断 QUIC」排查。",
-            recommendation = "日常强烈建议保持「阻断 QUIC」开启，并配合默认开启的 FakeDNS 保持「解析目标地址」关闭。",
-            keywords = "阻断 QUIC UDP 443 降级 TCP 解析目标地址 FakeDNS 冲突 GeoIP blockQuic resolveDestination",
+            title = "解析目标地址",
+            badge = "推荐: 关解析目标地址",
+            summary = "解析目标地址与默认开启的 FakeDNS 冲突，日常建议关闭。",
+            desc = "解析目标地址（默认关闭）：开启后会要求内核在路由判断前先把域名在本机解析成真实 IP 再转发。这与默认开启的 FakeDNS（让远端节点就近解析域名以实现 0ms 首包并拿最优 CDN）正好相反且会相互冲突。",
+            notes = "只有当你明确在「DNS 设置」里关闭了 FakeDNS，且依赖纯 GeoIP / IP 段规则分流，或者想在本地提前按 IPv6 策略固定解析结果时，才需要开启「解析目标地址」。",
+            recommendation = "日常建议配合默认开启的 FakeDNS 保持「解析目标地址」关闭。",
+            keywords = "解析目标地址 FakeDNS 冲突 GeoIP resolveDestination",
         ),
         DocEntry(
             id = "core_ipv6_mode",

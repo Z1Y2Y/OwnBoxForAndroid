@@ -115,7 +115,6 @@ object BackupCodec {
         Key.SMART_MODE to DataStore.smartMode,
         Key.GLOBAL_MODE to DataStore.globalMode,
         Key.SMART_ROUTE_COUNTRY to DataStore.smartRouteCountry,
-        Key.BLOCK_QUIC to DataStore.blockQuic,
         Key.TRAFFIC_SNIFFING to DataStore.trafficSniffing.toString(),
         Key.RESOLVE_DESTINATION to DataStore.resolveDestination,
         Key.BYPASS_LAN to DataStore.bypassLan,

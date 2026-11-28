@@ -1385,8 +1385,6 @@
     <string name="rule_set_add_url_batch_hint">支持单条或多条链接（每行一条或逗号分隔），全面兼容 .srs 与 .json 格式。</string>
     <string name="rule_set_added_count">已成功添加 %d 条规则集</string>
     <string name="app_proxy_updated_restart">分应用代理已更新并重启连接…</string>
-    <string name="block_quic">拦截 QUIC (UDP 443)</string>
-    <string name="block_quic_summary">在路由入口拦截 UDP 443 以无缝回退 TCP/HTTP2（改善 TikTok/YouTube 稳定性）；如需使用 HTTP/3 请关闭</string>
     <string name="bypass_lan_in_core_summary">在核心路由中直连私有/局域网目标 IP（位于自定义路由规则之后生效）</string>
     <string name="route_outbound_missing">节点不存在（已失效）</string>
     <string name="route_invalid_outbound_toast">规则“%s”指向的节点已失效或被删除，已安全处理</string>

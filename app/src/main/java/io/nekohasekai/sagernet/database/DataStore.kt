@@ -145,7 +145,6 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }
 
     var trafficSniffing by configurationStore.stringToInt(Key.TRAFFIC_SNIFFING) { 1 }
-    var blockQuic by configurationStore.boolean(Key.BLOCK_QUIC) { true }
     var resolveDestination by configurationStore.boolean(Key.RESOLVE_DESTINATION)
 
     var mtu by configurationStore.stringToInt(Key.MTU) { 1360 }

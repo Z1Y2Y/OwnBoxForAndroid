@@ -92,11 +92,9 @@ class BackupCompatibilityTest {
     @Test
     fun exportSettingsWithDefaultsMaterializesMissingCoreKeysWithoutOverwritingStoredValues() {
         val explicitPairs = listOf(
-            KeyValuePair(Key.BLOCK_QUIC).apply { put(false) },
             KeyValuePair(Key.MTU).apply { put("1400") },
         )
         val defaults = linkedMapOf<String, Any>(
-            Key.BLOCK_QUIC to true,
             Key.MTU to "9000",
             Key.BYPASS_LAN to true,
             Key.TRAFFIC_SNIFFING to "1",
@@ -106,9 +104,8 @@ class BackupCompatibilityTest {
         val exported = BackupCodec.exportSettingsWithDefaults(explicitPairs, defaults)
         val byKey = exported.associateBy { it.key }
 
-        assertEquals(5, byKey.size)
+        assertEquals(4, byKey.size)
         // Stored explicit values must remain untouched
-        assertEquals(false, byKey.getValue(Key.BLOCK_QUIC).boolean)
         assertEquals("1400", byKey.getValue(Key.MTU).string)
         // Missing defaults must be materialized with exact Preference storage types
         assertEquals(true, byKey.getValue(Key.BYPASS_LAN).boolean)

@@ -51,11 +51,12 @@ class GoogleRouteRuleTest {
     }
 
     @Test
-    fun testVpnServiceWhitelistIncludesDownloadManager() {
+    fun testVpnServiceWhitelistDoesNotAutoIncludeDownloadManager() {
         val vpnServiceSource = sourceFile("src/main/java/io/nekohasekai/sagernet/bg/VpnService.kt").readText()
 
-        // Verify VpnService auto-includes DownloadManager when Google Play Store is whitelisted
-        assertTrue(vpnServiceSource.contains("if (proxyApps && !bypass && individual.contains(\"com.android.vending\"))"))
-        assertTrue(vpnServiceSource.contains("individual.add(\"com.android.providers.downloads\")"))
+        // .85 behaviour: VpnService does NOT auto-include DownloadManager when Google Play
+        // Store is whitelisted — users select DownloadManager / GMS / GSF themselves.
+        assertFalse(vpnServiceSource.contains("if (proxyApps && !bypass && individual.contains(\"com.android.vending\"))"))
+        assertFalse(vpnServiceSource.contains("individual.add(\"com.android.providers.downloads\")"))
     }
 }
