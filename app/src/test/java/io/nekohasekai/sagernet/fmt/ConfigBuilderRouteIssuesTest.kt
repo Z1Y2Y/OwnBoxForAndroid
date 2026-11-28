@@ -38,7 +38,7 @@ class ConfigBuilderRouteIssuesTest {
     }
 
     @Test
-    fun topRouteRulesAndPlayAndDomesticPriorityPreserveCustomRules() {
+    fun topRouteRulesWithoutPlayInterceptionAndDomesticPriorityPreserveCustomRules() {
         val text = resolveSourceFile("src/main/java/io/nekohasekai/sagernet/fmt/ConfigBuilder.kt").readText()
         val topRouteStart = text.indexOf("val topRouteRules =")
         assertTrue("Expected topRouteRules builder block", topRouteStart >= 0)
@@ -46,20 +46,30 @@ class ConfigBuilderRouteIssuesTest {
         val blockQuicIf = text.indexOf("if (DataStore.blockQuic)", topRouteStart)
         val sniffIf = text.indexOf("if (needSniff)", topRouteStart)
         val rejectBucketAdd = text.indexOf("topRouteRules.addAll(earlyRejectUserRules)", topRouteStart)
-        val playSuffixAdd = text.indexOf("domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES", topRouteStart)
-        val firstUserDirectLookup = text.indexOf("val firstUserDirectIdx =", topRouteStart)
         val smartDomesticGuard = text.indexOf("if (isSmartRouting)", topRouteStart)
         val domesticAdd = text.indexOf("domain_suffix = domesticCoreDomainSuffixes", smartDomesticGuard)
 
         assertTrue("Expected DataStore.blockQuic toggle guard", blockQuicIf >= 0)
         assertTrue("Expected needSniff guard in topRouteRules", sniffIf >= 0)
         assertTrue("Expected earlyRejectUserRules injection in topRouteRules", rejectBucketAdd >= 0)
-        assertTrue("Expected suffix-based Google Play protection rule", playSuffixAdd >= 0)
-        assertTrue("Expected firstUserDirectIdx lookup so user proxy rules precede Play fallback", firstUserDirectLookup >= 0)
         assertTrue("Expected domesticCoreDomainSuffixes scoped to isSmartRouting", smartDomesticGuard >= 0 && domesticAdd > smartDomesticGuard)
 
-        assertTrue("needSniff must precede Google Play rules", sniffIf < playSuffixAdd)
-        assertTrue("Google Play protection must precede smart domestic fallback", playSuffixAdd < domesticAdd)
+        // .85 behaviour: no built-in Google Play route rule may intercept user rules.
+        // GOOGLE_PLAY_DOMAIN_SUFFIXES is only used by the DNS rule (dns-remote), which
+        // lives before the route-rules section; nothing after topRouteRules may reference it.
+        assertFalse(
+            "Built-in Google Play route rule must be gone (no firstUserDirectIdx lookup)",
+            text.contains("val firstUserDirectIdx ="),
+        )
+        assertTrue(
+            "Google Play DNS rule (dns-remote) must still exist",
+            text.contains("domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES"),
+        )
+        assertTrue(
+            "Google Play suffix list must only be used by the DNS rule, before the route-rules section",
+            text.indexOf("domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES") < topRouteStart &&
+                text.indexOf("domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES", topRouteStart) < 0,
+        )
         assertTrue(
             "Smart routing must keep its own ordering without routing reject rules into earlyRejectUserRules",
             text.contains("if (!isSmartRouting && routingAction == \"reject\")"),
@@ -79,7 +89,7 @@ class ConfigBuilderRouteIssuesTest {
     }
 
     @Test
-    fun downloadManagerRemovedFromRoutingRulesWhilePreservedInTunWhitelist() {
+    fun downloadManagerNotInjectedIntoRoutingRulesWhilePreservedInTunWhitelist() {
         val configBuilder = resolveSourceFile("src/main/java/io/nekohasekai/sagernet/fmt/ConfigBuilder.kt").readText()
         val profileManager = resolveSourceFile("src/main/java/io/nekohasekai/sagernet/database/ProfileManager.kt").readText()
         val vpnService = resolveSourceFile("src/main/java/io/nekohasekai/sagernet/bg/VpnService.kt").readText()
@@ -88,15 +98,11 @@ class ConfigBuilderRouteIssuesTest {
             "ConfigBuilder must not force com.android.providers.downloads into user rule packages",
             configBuilder.contains("com.android.providers.downloads"),
         )
-        val beforeStripSection = profileManager.substringBefore("Strip legacy injected system download manager packages")
+        // .85 behaviour: getRules() is a plain allRules() passthrough — nothing injects
+        // DownloadManager into rule packages, so there is nothing to strip either.
         assertFalse(
-            "ProfileManager default rule definitions/upgrades must not inject com.android.providers.downloads",
-            beforeStripSection.contains("com.android.providers.downloads"),
-        )
-        assertTrue(
-            "ProfileManager must actively strip legacy com.android.providers.downloads from existing Play Store rules",
-            profileManager.contains("rule.packages = rule.packages - setOf(") &&
-                profileManager.contains("\"com.android.providers.downloads\""),
+            "ProfileManager must not mention com.android.providers.downloads at all (no injection, no strip)",
+            profileManager.contains("com.android.providers.downloads"),
         )
         assertTrue(
             "VpnService TUN whitelist must keep DownloadManager allowed so Play Store downloads keep working",

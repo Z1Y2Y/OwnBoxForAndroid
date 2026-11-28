@@ -148,7 +148,6 @@
             <group android:id="@+id/group_actions_ops">
                 <item
                     android:id="@+id/action_batch_multiselect"
-                    android:icon="@drawable/solar_checklist_minimalistic_linear"
                     android:title="@string/action_batch_multiselect" />
                 <item
                     android:id="@+id/action_export"

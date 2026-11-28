@@ -2595,31 +2595,6 @@ fun buildConfig(
                 topRouteRules.addAll(earlyRejectUserRules)
             }
 
-            // 8. Google Play 防误杀专线保护：置于用户第一条直连/绕过规则之前（避免覆盖用户自定义节点分流，同时防止被 geosite:cn 截断）
-            if (!DataStore.globalMode) {
-                val googlePlayRouteRules = buildList {
-                    add(Rule_DefaultOptions().apply {
-                        domain_suffix = GOOGLE_PLAY_DOMAIN_SUFFIXES
-                        outbound = mainProxyTag
-                    })
-                    if (isVPN) {
-                        add(Rule_DefaultOptions().apply {
-                            package_name = listOf(
-                                "com.android.vending",
-                                "com.google.android.gms",
-                                "com.google.android.gsf",
-                            )
-                            outbound = mainProxyTag
-                        })
-                    }
-                }
-                val firstUserDirectIdx = (userRulesStartIndex until route.rules.size).firstOrNull { idx ->
-                    val r = route.rules[idx] as? Rule_DefaultOptions
-                    r != null && (r.outbound == TAG_BYPASS || r.outbound == TAG_DIRECT)
-                } ?: route.rules.size
-                route.rules.addAll(firstUserDirectIdx, googlePlayRouteRules)
-            }
-
             // 9. 智能分流模式下本国主流服务静态直连兜底规则（置于所有用户/智能分流规则之后）
             if (isSmartRouting) {
                 route.rules.add(Rule_DefaultOptions().apply {
